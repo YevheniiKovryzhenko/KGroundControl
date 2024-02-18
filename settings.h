@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QSerialPort>
+#include <QSerialPortInfo>
+#include <QUdpSocket>
 
 enum connection_type
 {
@@ -10,7 +12,15 @@ enum connection_type
     UDP
 };
 
-class serial_settings
+class generic_port_settings
+{
+public:
+    connection_type type;
+    unsigned int read_hz = 100;
+    unsigned int write_hz = 10;
+};
+
+class serial_settings : public generic_port_settings
 {
 
 public:
@@ -20,14 +30,19 @@ public:
     QSerialPort::Parity Parity = QSerialPort::NoParity;
     QSerialPort::StopBits StopBits = QSerialPort::OneStop;
     QSerialPort::FlowControl FlowControl = QSerialPort::NoFlowControl;
+
+    void printf(void);
 };
 
-// class udp_settings
-// {
-//     Q_GADGET
-// public:
-//     explicit udp_settings(QObject *parent = nullptr);
+class udp_settings : public generic_port_settings
+{
 
-// };
+public:
+
+    QHostAddress host_address = QHostAddress::LocalHost;
+    uint16_t port = 14551;
+
+    void printf(void);
+};
 
 #endif // SETTINGS_H

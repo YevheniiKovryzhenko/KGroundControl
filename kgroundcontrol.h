@@ -21,6 +21,18 @@ private slots:
 
     void on_btn_connect2target_clicked();
 
+    void on_btn_c2t_go_back_clicked();
+
+    void on_btn_c2t_confirm_clicked();
+
+    void on_btn_c2t_serial_toggled(bool checked);
+
+    void on_btn_c2t_udp_toggled(bool checked);
+
+    void on_btn_uart_update_clicked();
+
+    void on_btn_ip_update_clicked();
+
 private:
     Ui::KGroundControl *ui;
 };
