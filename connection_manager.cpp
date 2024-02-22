@@ -62,9 +62,7 @@ void connection_manager::remove(QListWidget* widget_)
 
                     QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
                 }
-                //delete PortThreads[i];
                 Ports[i]->stop();
-                // delete Ports[i];
 
                 port_names.remove(i);
                 Ports.remove(i);

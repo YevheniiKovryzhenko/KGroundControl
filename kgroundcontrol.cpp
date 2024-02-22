@@ -15,7 +15,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->setupUi(this);
     ui->stackedWidget_main->setCurrentIndex(0);
 
-    mavlink_manager_ = new mavlink_manager();
+    mavlink_manager_ = new mavlink_manager(this);
 
     // Start of Commns Pannel configuration:
 
@@ -306,9 +306,9 @@ void KGroundControl::on_btn_remove_comm_clicked()
 
 void KGroundControl::on_btn_mavlink_inspector_clicked()
 {
-    // generic_thread_settings thread_settings_;
-    // thread_settings_.priority = QThread::Priority::LowPriority;
-    // thread_settings_.update_rate_hz = 30;
-    // mavlink_inspector_thread* mavlink_inspector_thread_ = new mavlink_inspector_thread(this, thread_settings_, mavlink_manager_);
+    generic_thread_settings thread_settings_;
+    thread_settings_.priority = QThread::Priority::LowPriority;
+    thread_settings_.update_rate_hz = 30;
+    mavlink_inspector_thread* mavlink_inspector_thread_ = new mavlink_inspector_thread(this, thread_settings_, mavlink_manager_);
 }
 

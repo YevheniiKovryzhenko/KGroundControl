@@ -85,22 +85,29 @@ public:
     MAVHEADER_DEF_MACRO(debug)
     MAVHEADER_DEF_MACRO(distance_sensor)
 
-    bool decode_msg(mavlink_message_t* new_msg);    
+    bool decode_msg(mavlink_message_t* new_msg, QString& msg_name_out);
 };
 
 
-class mavlink_manager
+class mavlink_manager : public QObject
 {
-    // Q_OBJECT
+    Q_OBJECT
 public:
-    mavlink_manager();
+    mavlink_manager(QObject* parent);
     ~mavlink_manager();
     void parse(mavlink_message_t* new_msg);
 
 
     unsigned int get_n(void);
 
-    void process_update_request(mavlink_inspector* mav_inspector);
+    void process_update_request(MavlinkInspector* mav_inspector);
+
+public slots:
+    void clear(void);
+
+signals:
+
+    void updated(uint8_t sys_id_, uint8_t autopilot_id_, QString msg_name);
 
 private:
     bool is_new(mavlink_message_t* new_msg);
@@ -118,6 +125,7 @@ private:
 
 class port_read_thread : public QThread
 {
+    Q_OBJECT
 public:
     explicit port_read_thread(generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr);
     // ~port_read_thread();
@@ -135,6 +143,7 @@ private:
 
 class mavlink_inspector_thread  : public QThread
 {
+    Q_OBJECT
 public:
     explicit mavlink_inspector_thread(QWidget *parent, generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr);
     ~mavlink_inspector_thread();
@@ -143,7 +152,8 @@ public:
     generic_thread_settings settings;
 
 private:
-    mavlink_inspector* mav_inspector;
+    MavlinkInspector* mav_inspector;
+    mavlink_manager* mavlink_manager_;
 };
 
 
