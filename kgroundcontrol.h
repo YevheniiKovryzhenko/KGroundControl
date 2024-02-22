@@ -3,6 +3,9 @@
 
 #include <QMainWindow>
 
+#include "connection_manager.h"
+#include "mavlink_manager.h"
+
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class KGroundControl;
@@ -15,11 +18,11 @@ class KGroundControl : public QMainWindow
 
 public:
     KGroundControl(QWidget *parent = nullptr);
-    ~KGroundControl();
+    ~KGroundControl();    
 
 private slots:
 
-    void on_btn_connect2target_clicked();
+    void on_btn_goto_comms_clicked();
 
     void on_btn_c2t_go_back_clicked();
 
@@ -33,7 +36,18 @@ private slots:
 
     void on_btn_ip_update_clicked();
 
+    void on_btn_c2t_go_back_comms_clicked();
+
+    void on_btn_add_comm_clicked();
+
+    void on_btn_remove_comm_clicked();
+
+    void on_btn_mavlink_inspector_clicked();
+
 private:
     Ui::KGroundControl *ui;
+
+    connection_manager connection_manager_;
+    mavlink_manager* mavlink_manager_;
 };
 #endif // KGROUNDCONTROL_H

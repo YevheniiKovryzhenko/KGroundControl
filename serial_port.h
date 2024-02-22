@@ -1,9 +1,11 @@
 #ifndef SERIAL_PORT_H
 #define SERIAL_PORT_H
 
-#include "libs/Mavlink/mavlink2/common/mavlink.h"
+#include <QMutex>
+
 #include "generic_port.h"
 #include "settings.h"
+#include "libs/Mavlink/mavlink2/common/mavlink.h"
 
 // ----------------------------------------------------------------------------------
 //   Serial Port Manager Class
@@ -23,25 +25,23 @@ class Serial_Port: public Generic_Port
 public:
 
     Serial_Port();
-    Serial_Port(serial_settings& settings);
     virtual ~Serial_Port();
 
     char read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_);
     int write_message(const mavlink_message_t &message);
 
     char start(QObject *parent, void* new_settings);
-    void run();
     void stop();
 
-    QSerialPort* Port;
-    QThread* thread;
+    QSerialPort* Port = NULL;
+    QMutex mutex;
 
     serial_settings settings;
 private:
 
     mavlink_status_t lastStatus;
 
-    int _read_port(uint8_t &cp);
+    int _read_port(char* cp);
     int _write_port(char *buf, unsigned len);
 
 };

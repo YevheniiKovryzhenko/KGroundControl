@@ -22,7 +22,7 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Last Edit:  06/03/2022 (MM/DD/YYYY)
+ * Last Edit:  02/19/2024 (MM/DD/YYYY)
  *
  * Functions for opening, closing, reading and writing via serial ports.
  */
@@ -32,7 +32,6 @@
 //   Includes
 // ------------------------------------------------------------------------------
 #include <QErrorMessage>
-#include <QMessageBox>
 #include "serial_port.h"
 
 
@@ -52,7 +51,8 @@ Serial_Port::Serial_Port()
 
 Serial_Port::~Serial_Port()
 {
-
+    stop();
+    delete Port;
 }
 
 
@@ -68,11 +68,11 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
     // --------------------------------------------------------------------------
 
     // this function locks the port during read
-    while (!msgReceived && serial.available() > 0)
+    while (!msgReceived && Port->bytesAvailable() > 0)
     {
         uint8_t          cp;
         mavlink_status_t status;
-        int result = _read_port(cp);
+        int result = _read_port((char*)&cp);
 
 
         // --------------------------------------------------------------------------
@@ -84,11 +84,9 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
             msgReceived = mavlink_parse_char(mavlink_channel_, cp, &message, &status);
 
             // check for dropped packets
-            if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count) && debug)
+            if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
             {
-                printf("ERROR: DROPPED %d PACKETS\n", status.packet_rx_drop_count);
-                unsigned char v = cp;
-                fprintf(stderr, "%02x ", v);
+                (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
             }
             lastStatus = status;
         }
@@ -96,42 +94,8 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
         // Couldn't read from port
         else
         {
-            fprintf(stderr, "ERROR: Could not read from %s\n", uart_name);
+            (new QErrorMessage)->showMessage(Port->errorString());
         }
-#ifdef DEBUG
-        // --------------------------------------------------------------------------
-        //   DEBUGGING REPORTS
-        // --------------------------------------------------------------------------
-        if (msgReceived)
-        {
-            // Report info
-            printf("Received message from serial with ID #%d (sys:%d|comp:%d):\n", message.msgid, message.sysid, message.compid);
-
-            fprintf(stderr, "Received serial data: ");
-            unsigned int i;
-            uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
-
-            // check message is write length
-            unsigned int messageLength = mavlink_msg_to_send_buffer(buffer, &message);
-
-            // message length error
-            if (messageLength > MAVLINK_MAX_PACKET_LEN)
-            {
-                fprintf(stderr, "\nFATAL ERROR: MESSAGE LENGTH IS LARGER THAN BUFFER SIZE\n");
-            }
-
-            // print out the buffer
-            else
-            {
-                for (i = 0; i < messageLength; i++)
-                {
-                    unsigned char v = buffer[i];
-                    fprintf(stderr, "%02x ", v);
-                }
-                fprintf(stderr, "\n");
-            }
-        }
-#endif // DEBUG
     }
     // Done!
     return msgReceived;
@@ -173,7 +137,6 @@ char Serial_Port::start(QObject *parent, void* new_settings)
     Port->setDataBits(settings.DataBits);
     Port->setParity(settings.Parity);
     Port->setStopBits(settings.StopBits);
-    Port->setPortName(settings.uart_name);
     Port->setFlowControl(settings.FlowControl);
     if (!Port->open(QIODevice::ReadWrite))
     {
@@ -183,10 +146,7 @@ char Serial_Port::start(QObject *parent, void* new_settings)
     Port->flush();
     // --------------------------------------------------------------------------
     //   CONNECTED!
-    // --------------------------------------------------------------------------
-    QMessageBox msgBox;
-    msgBox.setText("Successfully Opened Serial Port!");
-    msgBox.exec();
+    // --------------------------------------------------------------------------    
     lastStatus.packet_rx_drop_count = 0;
 
     return 0;
@@ -206,16 +166,15 @@ void Serial_Port::stop()
 // ------------------------------------------------------------------------------
 //   Read Port with Lock
 // ------------------------------------------------------------------------------
-int Serial_Port::_read_port(uint8_t &cp)
+int Serial_Port::_read_port(char* cp)
 {
     // Lock
-    pthread_mutex_lock(&lock);
+    mutex.lock();
 
-    //int result = read(fd, &cp, 1);
+    int result = Port->read(cp,1);
 
-    int result = serial.readBytes(&cp, 1);
     // Unlock
-    pthread_mutex_unlock(&lock);
+    mutex.unlock();
 
     return result;
 }
@@ -228,14 +187,13 @@ int Serial_Port::_write_port(char *buf, unsigned len)
 {
 
     // Lock
-    pthread_mutex_lock(&lock);
+    mutex.lock();
 
     // Write packet via serial link
-    serial.writeBytes(buf, len);
-    serial.sync();
+    Port->write(buf, len);
 
     // Unlock
-    pthread_mutex_unlock(&lock);
+    mutex.unlock();
 
 
     return len;
