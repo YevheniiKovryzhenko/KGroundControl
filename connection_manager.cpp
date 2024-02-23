@@ -3,6 +3,17 @@
 #include <QDateTime>
 #include <QErrorMessage>
 
+connection_manager::connection_manager(QObject* parent)
+    : QObject(parent)
+{
+
+}
+
+connection_manager::~connection_manager()
+{
+
+}
+
 unsigned int connection_manager::get_n()
 {
     return n_connections;
@@ -75,16 +86,29 @@ void connection_manager::remove(QListWidget* widget_)
     }
 }
 
-void connection_manager::remove_all(QListWidget* widget_)
+void connection_manager::remove_all(void)
 {
     for(unsigned int i = 0; i < n_connections; i++)
     {
-        Ports[i]->stop();
-        delete &Ports[i];
-    }
+        PortThreads[i]->requestInterruption();
+        for (int ii = 0; ii < 300; ii++)
+        {
+            if (!PortThreads[i]->isRunning())
+            {
+                break;
+            }
+            else if (ii == 99)
+            {
+                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
+                PortThreads[i]->terminate();
+            }
 
-    port_names.clear();
-    Ports.clear();
-    widget_->clear();
+            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+        }
+        Ports[i]->stop();
+
+        port_names.remove(i);
+        Ports.remove(i);
+    }
     n_connections = 0;
 }

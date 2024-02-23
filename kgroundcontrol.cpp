@@ -7,6 +7,7 @@
 #include <QStringListModel>
 #include <QErrorMessage>
 #include <QMessageBox>
+#include <QCloseEvent>
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -16,6 +17,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->stackedWidget_main->setCurrentIndex(0);
 
     mavlink_manager_ = new mavlink_manager(this);
+    connection_manager_ = new connection_manager(this);    
 
     // Start of Commns Pannel configuration:
 
@@ -105,13 +107,22 @@ KGroundControl::~KGroundControl()
     delete ui;
 }
 
+void KGroundControl::closeEvent(QCloseEvent *event)
+{
+    // if (maybeSave()) {
+    //     writeSettings();
+    //     event->accept();
+    // } else {
+    //     event->ignore();
+    // }
+    connection_manager_->remove_all();
+    // QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*static_cast<double>(0.1))});
+    event->accept();
+}
+
 
 void KGroundControl::on_btn_goto_comms_clicked()
 {
-    // AddTargetDialog* addtargetdialog_ = new AddTargetDialog(this);
-    // addtargetdialog_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true);
-    // addtargetdialog_->setWindowIconText("Select Connection Type");
-    // addtargetdialog_->show();
     ui->stackedWidget_main->setCurrentIndex(1);
 }
 
@@ -176,7 +187,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
 
 
-        Generic_Port* port_ = new Serial_Port;
+        Generic_Port* port_ = new Serial_Port();
         QString new_port_name = ui->txt_port_name->text();
         if (port_->start(this, &serial_settings_) == 0)
         {
@@ -184,7 +195,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
             port_read_thread* new_port_thread = new port_read_thread(thread_settings_, mavlink_manager_, port_);
             QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
             // connection_manager_.add(ui->list_connections, new_port_name, port_);
-            if (new_port_thread->isRunning()) connection_manager_.add(ui->list_connections, new_port_name, port_, new_port_thread);
+            if (new_port_thread->isRunning()) connection_manager_->add(ui->list_connections, new_port_name, port_, new_port_thread);
             else
             {
                 (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
@@ -293,13 +304,13 @@ void KGroundControl::on_btn_add_comm_clicked()
     on_btn_uart_update_clicked();
     ui->stackedWidget_main->setCurrentIndex(2);
     ui->txt_port_name->clear();
-    ui->txt_port_name->setText("Port_" + QString::number(connection_manager_.get_n()));
+    ui->txt_port_name->setText("Port_" + QString::number(connection_manager_->get_n()));
 }
 
 
 void KGroundControl::on_btn_remove_comm_clicked()
 {
-    connection_manager_.remove(ui->list_connections);
+    connection_manager_->remove(ui->list_connections);
     on_btn_uart_update_clicked();
 }
 
@@ -309,6 +320,6 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     generic_thread_settings thread_settings_;
     thread_settings_.priority = QThread::Priority::LowPriority;
     thread_settings_.update_rate_hz = 30;
-    mavlink_inspector_thread* mavlink_inspector_thread_ = new mavlink_inspector_thread(this, thread_settings_, mavlink_manager_);
+    new mavlink_inspector_thread(this, thread_settings_, mavlink_manager_);
 }
 

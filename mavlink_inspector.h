@@ -34,6 +34,8 @@ private:
     QWidget* main_container = nullptr;
     QVBoxLayout* main_layout = nullptr;
 
+    QVector<QString> names;
+
     QMutex* mutex = nullptr;
 };
 

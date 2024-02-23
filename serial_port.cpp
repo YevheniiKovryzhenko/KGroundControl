@@ -50,11 +50,15 @@ Serial_Port::Serial_Port()
 }
 
 Serial_Port::~Serial_Port()
-{
+{    
     stop();
     delete Port;
 }
 
+// void Serial_Port::cleanup(void)
+// {
+//     exiting = true;
+// }
 
 // ------------------------------------------------------------------------------
 //   Read from Serial
@@ -68,7 +72,7 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
     // --------------------------------------------------------------------------
 
     // this function locks the port during read
-    while (!msgReceived && Port->bytesAvailable() > 0)
+    while (!exiting && !msgReceived && Port->bytesAvailable() > 0)
     {
         uint8_t          cp;
         mavlink_status_t status;
@@ -159,6 +163,7 @@ char Serial_Port::start(QObject *parent, void* new_settings)
 // ------------------------------------------------------------------------------
 void Serial_Port::stop()
 {
+    exiting = true;
     if (Port->isOpen()) Port->close();
     else return;
 }

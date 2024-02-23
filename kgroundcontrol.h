@@ -44,10 +44,12 @@ private slots:
 
     void on_btn_mavlink_inspector_clicked();
 
+    void closeEvent(QCloseEvent *event);
+
 private:
     Ui::KGroundControl *ui;
 
-    connection_manager connection_manager_;
+    connection_manager* connection_manager_;
     mavlink_manager* mavlink_manager_;
 };
 #endif // KGROUNDCONTROL_H

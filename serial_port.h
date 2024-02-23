@@ -25,7 +25,7 @@ class Serial_Port: public Generic_Port
 public:
 
     Serial_Port();
-    virtual ~Serial_Port();
+    ~Serial_Port();
 
     char read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_);
     int write_message(const mavlink_message_t &message);
@@ -36,6 +36,8 @@ public:
     QSerialPort* Port = NULL;
     QMutex mutex;
 
+    // void cleanup(void);
+
     serial_settings settings;
 private:
 
@@ -43,6 +45,8 @@ private:
 
     int _read_port(char* cp);
     int _write_port(char *buf, unsigned len);
+
+    bool exiting = false;
 
 };
 

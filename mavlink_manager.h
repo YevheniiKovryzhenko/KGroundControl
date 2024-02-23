@@ -37,6 +37,7 @@
 template <typename mav_type_in>
 class mavlink_processor
 {
+
 public:
     mavlink_processor();
     ~mavlink_processor();
@@ -55,11 +56,17 @@ private:
 mavlink_processor<mavlink_##name##_t> name;
 #endif
 
-class mavlink_data_aggregator
+#ifndef MAVHEADER_SIGDEF_MACRO
+#define MAVHEADER_SIGDEF_MACRO(name)\
+void updated_##name##_msg(mavlink_##name##_t);
+#endif
+
+class mavlink_data_aggregator : public QObject
 {
+    Q_OBJECT
 
 public:
-    mavlink_data_aggregator();
+    mavlink_data_aggregator(QObject* parent);
     ~mavlink_data_aggregator();
 
     MAVHEADER_DEF_MACRO(heartbeat)
@@ -86,12 +93,37 @@ public:
     MAVHEADER_DEF_MACRO(distance_sensor)
 
     bool decode_msg(mavlink_message_t* new_msg, QString& msg_name_out);
+
+signals:
+    MAVHEADER_SIGDEF_MACRO(heartbeat)
+    MAVHEADER_SIGDEF_MACRO(sys_status)
+    MAVHEADER_SIGDEF_MACRO(system_time)
+    MAVHEADER_SIGDEF_MACRO(battery_status)
+    MAVHEADER_SIGDEF_MACRO(radio_status)
+    MAVHEADER_SIGDEF_MACRO(local_position_ned)
+    MAVHEADER_SIGDEF_MACRO(global_position_int)
+    MAVHEADER_SIGDEF_MACRO(position_target_local_ned)
+    MAVHEADER_SIGDEF_MACRO(position_target_global_int)
+    MAVHEADER_SIGDEF_MACRO(highres_imu)
+    MAVHEADER_SIGDEF_MACRO(attitude)
+    MAVHEADER_SIGDEF_MACRO(vision_position_estimate)
+    MAVHEADER_SIGDEF_MACRO(odometry)
+    MAVHEADER_SIGDEF_MACRO(altitude)
+    MAVHEADER_SIGDEF_MACRO(estimator_status)
+    MAVHEADER_SIGDEF_MACRO(command_int)
+    MAVHEADER_SIGDEF_MACRO(command_long)
+    MAVHEADER_SIGDEF_MACRO(command_ack)
+    MAVHEADER_SIGDEF_MACRO(debug_float_array)
+    MAVHEADER_SIGDEF_MACRO(debug_vect)
+    MAVHEADER_SIGDEF_MACRO(debug)
+    MAVHEADER_SIGDEF_MACRO(distance_sensor)
 };
 
 
 class mavlink_manager : public QObject
 {
     Q_OBJECT
+
 public:
     mavlink_manager(QObject* parent);
     ~mavlink_manager();
@@ -118,7 +150,7 @@ private:
     QMutex* mutex = nullptr;
     QVector<int> system_ids;
     QVector<int> autopilot_ids;
-    QVector<mavlink_data_aggregator> msgs;
+    QVector<mavlink_data_aggregator*> msgs;
 };
 
 

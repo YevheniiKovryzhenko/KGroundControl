@@ -108,6 +108,7 @@
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()
 {
+
 }
 
 template <typename mav_type_in>
@@ -154,11 +155,13 @@ case MAVLINK_MSG_ID_##NAME:\
         mavlink_msg_##name##_decode(new_msg, &msg_data);\
         name.update_msg(msg_data);\
         msg_name_out = QString(#name);\
+        emit updated_##name##_msg(msg_data);\
         qDebug() << "Decoded " << msg_name_out << "mavlink message!\n";\
         return true;\
 }
 
-mavlink_data_aggregator::mavlink_data_aggregator()
+mavlink_data_aggregator::mavlink_data_aggregator(QObject* parent)
+    : QObject(parent)
 {
 
 }
@@ -258,14 +261,14 @@ void mavlink_manager::parse(mavlink_message_t* new_msg)
     QString name;
     if (is_new(new_msg, matching_entry))
     {
-        mavlink_data_aggregator* new_parsed_msg = new mavlink_data_aggregator();
+        mavlink_data_aggregator* new_parsed_msg = new mavlink_data_aggregator(this);
         has_been_stored_internally = new_parsed_msg->decode_msg(new_msg, name);
         if (has_been_stored_internally)
         {
             mutex->lock();
             system_ids.push_back(new_msg->sysid);
             autopilot_ids.push_back(new_msg->compid);
-            msgs.push_back(*new_parsed_msg);
+            msgs.push_back(new_parsed_msg);
             n_systems++;
             emit updated(new_msg->sysid, new_msg->compid, name);
             mutex->unlock();
@@ -274,7 +277,7 @@ void mavlink_manager::parse(mavlink_message_t* new_msg)
     }
     else
     {
-        has_been_stored_internally = msgs[matching_entry].decode_msg(new_msg, name);
+        has_been_stored_internally = msgs[matching_entry]->decode_msg(new_msg, name);
         emit updated(new_msg->sysid, new_msg->compid, name);
     }
 
