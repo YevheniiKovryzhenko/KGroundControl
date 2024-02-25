@@ -28,18 +28,25 @@ public:
     ~Serial_Port();
 
     char read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_);
-    int write_message(const mavlink_message_t &message);
 
-    char start(QObject *parent, void* new_settings);
+
+    char start(void* new_settings);
     void stop();
 
-    QSerialPort* Port = NULL;
-    QMutex mutex;
+    QSerialPort* Port = nullptr;
+
+    bool is_heartbeat_emited(void);
+    bool toggle_heartbeat_emited(bool val);
+
+
 
     // void cleanup(void);
+public slots:
+    int write_message(const mavlink_message_t &message);
 
-    serial_settings settings;
 private:
+
+    QMutex* mutex = nullptr;
 
     mavlink_status_t lastStatus;
 
@@ -47,6 +54,8 @@ private:
     int _write_port(char *buf, unsigned len);
 
     bool exiting = false;
+
+    serial_settings settings;
 
 };
 

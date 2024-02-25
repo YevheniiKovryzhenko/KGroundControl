@@ -1,12 +1,18 @@
 #include "settings.h"
-#include <qdebug.h>
-// settings::settings(QObject *parent)
-//     : QObject{parent}
-// {}
+#include <QDebug>
 
-QString serial_settings::get_Qstring(void)
+
+QString serial_settings::get_QString(void)
 {
-    QString detailed_text_ = "UART Port: " + uart_name + "\n";
+    QString detailed_text_ = "Connection Type: ";
+    switch (type) {
+    case UDP:
+        detailed_text_ += "UDP\n";
+        break;
+    case Serial:
+        detailed_text_ += "Serial\n";
+    }
+    detailed_text_ += "UART Port: " + uart_name + "\n";
     detailed_text_ += "Baudrate: " + QString::number(baudrate) + "\n";
     detailed_text_ += "Data Bits: " + QString::number(DataBits) + "\n";
     switch (Parity) {
@@ -55,30 +61,46 @@ QString serial_settings::get_Qstring(void)
         break;
     }
     }
+
+    if (emit_heartbeat) detailed_text_+= "Emit system heartbeat: YES\n";
+    else detailed_text_+= "Emit system heartbeat: NO\n";
+
     return detailed_text_;
 }
 
 void serial_settings::printf(void)
 {
-    qDebug() << get_Qstring();
+    qDebug() << get_QString();
 }
 
-QString udp_settings::get_Qstring(void)
+QString udp_settings::get_QString(void)
 {
-    QString detailed_text_ = "Address: " + host_address.toString() + "\n";
+    QString detailed_text_ = "Connection Type: ";
+    switch (type) {
+    case UDP:
+        detailed_text_ += "UDP\n";
+        break;
+    case Serial:
+        detailed_text_ += "Serial\n";
+    }
+    detailed_text_ += "Address: " + host_address.toString() + "\n";
     detailed_text_ += "Port: " + QString::number(port) + "\n";
+
+    if (emit_heartbeat) detailed_text_+= "Emit system heartbeat: YES\n";
+    else detailed_text_+= "Emit system heartbeat: NO\n";
+
     return detailed_text_;
 }
 
 
 void udp_settings::printf(void)
 {
-    qDebug() << get_Qstring();
+    qDebug() << get_QString();
 }
 
 
 
-QString generic_thread_settings::get_Qstring(void)
+QString generic_thread_settings::get_QString(void)
 {
     QString detailed_text_ = "Update Rate: " + QString::number(update_rate_hz) + " (Hz)\n";
     switch (priority) {
@@ -111,7 +133,18 @@ QString generic_thread_settings::get_Qstring(void)
     return detailed_text_;
 }
 
-void generic_thread_settings::printf(void)
+void kgroundcontrol_settings::printf(void)
 {
-    qDebug() << get_Qstring();
+    qDebug() << get_QString();
+}
+
+
+QString kgroundcontrol_settings::get_QString(void)
+{
+    QString text_out = "Mavlink Settings:\n";
+    text_out += "System ID: " + QString::number(sysid);
+    // text_out += "Component ID: " + mav_component_id_get_QString(compid);
+    text_out += "Component ID: " + mavlink_enums::get_QString(compid);
+
+    return text_out;
 }

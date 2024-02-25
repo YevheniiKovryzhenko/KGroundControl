@@ -7,18 +7,21 @@
 #include <QUdpSocket>
 #include <QThread>
 
+#include "mavlink_enum_types.h"
 enum connection_type
 {
     Serial,
     UDP
 };
 
+
+
+
 class generic_port_settings
 {
 public:
     connection_type type;
-    // unsigned int read_hz = 100;
-    // unsigned int write_hz = 10;
+    bool emit_heartbeat = false;
 };
 
 class serial_settings : public generic_port_settings
@@ -32,7 +35,7 @@ public:
     QSerialPort::StopBits StopBits = QSerialPort::StopBits::OneStop;
     QSerialPort::FlowControl FlowControl = QSerialPort::FlowControl::NoFlowControl;
 
-    QString get_Qstring(void);
+    QString get_QString(void);
     void printf(void);
 };
 
@@ -44,7 +47,7 @@ public:
     QHostAddress host_address = QHostAddress::LocalHost;
     uint16_t port = 14551;
 
-    QString get_Qstring(void);
+    QString get_QString(void);
     void printf(void);
 };
 
@@ -54,7 +57,19 @@ public:
     unsigned int update_rate_hz = 10;
     QThread::Priority priority = QThread::Priority::NormalPriority;
 
-    QString get_Qstring(void);
+    QString get_QString(void);
+    void printf(void);
+};
+
+class kgroundcontrol_settings
+{
+public:
+    //mavlink stuff:
+    uint8_t sysid = 254;
+    mavlink_enums::mavlink_component_id compid = mavlink_enums::mavlink_component_id::MISSIONPLANNER;
+
+
+    QString get_QString(void);
     void printf(void);
 };
 

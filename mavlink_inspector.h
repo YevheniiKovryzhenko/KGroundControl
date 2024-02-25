@@ -5,6 +5,8 @@
 #include <QVBoxLayout>
 #include <QMutex>
 
+#include "settings.h"
+
 namespace Ui {
 class MavlinkInspector;
 }
@@ -18,7 +20,7 @@ public:
     ~MavlinkInspector();
 
 public slots:
-    void create_new_slot_btn_display(uint8_t sys_id_, uint8_t autopilot_id_, QString msg_name);
+    void create_new_slot_btn_display(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name);
 
 
 private slots:

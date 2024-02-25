@@ -3,6 +3,7 @@
 
 #include "mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
+#include "settings.h"
 
 MavlinkInspector::MavlinkInspector(QWidget *parent)
     : QWidget(parent)
@@ -23,14 +24,15 @@ MavlinkInspector::~MavlinkInspector()
 }
 
 
-void MavlinkInspector::create_new_slot_btn_display(uint8_t sys_id_, uint8_t autopilot_id_, QString msg_name)
+void MavlinkInspector::create_new_slot_btn_display(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name)
 {
     if (!msg_name.isEmpty())
     {
+        QString mav_compoennt_qstr_ = mavlink_enums::get_QString(mav_component_);
         mutex->lock();
         if (ui->cmbx_sysid->findText(QString::number(sys_id_), Qt::MatchExactly) == -1) ui->cmbx_sysid->addItem(QString::number(sys_id_));
-        if (ui->cmbx_compid->findText(QString::number(autopilot_id_),Qt::MatchExactly) == -1) ui->cmbx_compid->addItem(QString::number(autopilot_id_));
-        if (ui->cmbx_sysid->currentText().toUInt() == sys_id_ && ui->cmbx_compid->currentText().toUInt() == autopilot_id_)
+        if (ui->cmbx_compid->findText(mav_compoennt_qstr_,Qt::MatchExactly) == -1) ui->cmbx_compid->addItem(mav_compoennt_qstr_);
+        if (ui->cmbx_sysid->currentText().toUInt() == sys_id_ && ui->cmbx_compid->currentText() == mav_compoennt_qstr_)
         {
             bool btn_was_already_created = false;
             foreach (QString name_, names)

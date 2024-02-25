@@ -46,13 +46,31 @@
 
 Serial_Port::Serial_Port()
 {
-
+    mutex = new QMutex();
 }
 
 Serial_Port::~Serial_Port()
 {    
     stop();
+    delete mutex;
     delete Port;
+}
+
+bool Serial_Port::is_heartbeat_emited(void)
+{
+    mutex->lock();
+    bool out = settings.emit_heartbeat;
+    mutex->unlock();
+    return out;
+}
+
+bool Serial_Port::toggle_heartbeat_emited(bool val)
+{
+    mutex->lock();
+    bool res = val != settings.emit_heartbeat;
+    if (res) settings.emit_heartbeat = val;
+    mutex->unlock();
+    return res;
 }
 
 // void Serial_Port::cleanup(void)
@@ -128,14 +146,14 @@ int Serial_Port::write_message(const mavlink_message_t &message)
 /**
  * throws EXIT_FAILURE if could not open the port
  */
-char Serial_Port::start(QObject *parent, void* new_settings)
+char Serial_Port::start(void* new_settings)
 {
 
     // --------------------------------------------------------------------------
     //   SETUP PORT AND OPEN PORT
     // --------------------------------------------------------------------------
     memcpy(&settings, new_settings, sizeof(serial_settings));
-    Port = new QSerialPort(parent);
+    Port = new QSerialPort();
     Port->setPortName(settings.uart_name);
     Port->setBaudRate(settings.baudrate);
     Port->setDataBits(settings.DataBits);
@@ -174,12 +192,12 @@ void Serial_Port::stop()
 int Serial_Port::_read_port(char* cp)
 {
     // Lock
-    mutex.lock();
+    mutex->lock();
 
     int result = Port->read(cp,1);
 
     // Unlock
-    mutex.unlock();
+    mutex->unlock();
 
     return result;
 }
@@ -192,13 +210,13 @@ int Serial_Port::_write_port(char *buf, unsigned len)
 {
 
     // Lock
-    mutex.lock();
+    mutex->lock();
 
     // Write packet via serial link
     Port->write(buf, len);
 
     // Unlock
-    mutex.unlock();
+    mutex->unlock();
 
 
     return len;

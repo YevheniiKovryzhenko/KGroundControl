@@ -18,7 +18,12 @@ class KGroundControl : public QMainWindow
 
 public:
     KGroundControl(QWidget *parent = nullptr);
-    ~KGroundControl();    
+    ~KGroundControl();
+
+    kgroundcontrol_settings settings;
+
+signals:
+    void settings_updated(kgroundcontrol_settings* new_settings);
 
 private slots:
 
@@ -46,10 +51,21 @@ private slots:
 
     void closeEvent(QCloseEvent *event);
 
+    void on_btn_settings_confirm_clicked();
+
+    void on_btn_settings_go_back_clicked();
+
+    void on_btn_settings_clicked();
+
+    void on_checkBox_emit_system_heartbeat_toggled(bool checked);
+
+    void on_list_connections_itemSelectionChanged();
+
 private:
     Ui::KGroundControl *ui;
 
     connection_manager* connection_manager_;
     mavlink_manager* mavlink_manager_;
+    system_status_thread* systhread_;
 };
 #endif // KGROUNDCONTROL_H

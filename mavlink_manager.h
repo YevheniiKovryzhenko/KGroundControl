@@ -3,13 +3,11 @@
 
 
 #include <QListWidget>
-#include <QMutex>
-#include <QThread>
 
-#include "settings.h"
-#include "generic_port.h"
 #include "common/mavlink.h"
 #include "mavlink_inspector.h"
+
+
 
 // template <typename T>
 // class ring_buffer
@@ -119,6 +117,15 @@ signals:
     MAVHEADER_SIGDEF_MACRO(distance_sensor)
 };
 
+// class mavlink_relay : public QObject
+// {
+//     Q_OBJECT
+// public:
+//     mavlink_relay(QObject* parent);
+//     ~mavlink_relay();
+
+// };
+
 
 class mavlink_manager : public QObject
 {
@@ -139,7 +146,7 @@ public slots:
 
 signals:
 
-    void updated(uint8_t sys_id_, uint8_t autopilot_id_, QString msg_name);
+    void updated(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name);
 
 private:
     bool is_new(mavlink_message_t* new_msg);
@@ -148,44 +155,9 @@ private:
     unsigned int n_systems = 0;
 
     QMutex* mutex = nullptr;
-    QVector<int> system_ids;
-    QVector<int> autopilot_ids;
+    QVector<uint8_t> system_ids;
+    QVector<mavlink_enums::mavlink_component_id> mav_components;
     QVector<mavlink_data_aggregator*> msgs;
-};
-
-
-
-class port_read_thread : public QThread
-{
-    Q_OBJECT
-public:
-    explicit port_read_thread(generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr);
-    // ~port_read_thread();
-
-    void run();
-
-    generic_thread_settings settings;
-
-private:
-    mavlink_manager* mavlink_manager_;
-    Generic_Port* port_;
-
-};
-
-
-class mavlink_inspector_thread  : public QThread
-{
-    Q_OBJECT
-public:
-    explicit mavlink_inspector_thread(QWidget *parent, generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr);
-    ~mavlink_inspector_thread();
-    void run();
-
-    generic_thread_settings settings;
-
-private:
-    MavlinkInspector* mav_inspector;
-    mavlink_manager* mavlink_manager_;
 };
 
 

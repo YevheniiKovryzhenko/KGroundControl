@@ -1,9 +1,8 @@
 #include <QDateTime>
 #include <QDebug>
-#include <QMetaMethod>
+// #include <QMetaMethod>
 
 #include "mavlink_manager.h"
-#include "libs/Mavlink/mavlink2/common/mavlink.h"
 
 // template <typename T>
 // ring_buffer<T>::ring_buffer(size_t n)
@@ -156,7 +155,6 @@ case MAVLINK_MSG_ID_##NAME:\
         name.update_msg(msg_data);\
         msg_name_out = QString(#name);\
         emit updated_##name##_msg(msg_data);\
-        qDebug() << "Decoded " << msg_name_out << "mavlink message!\n";\
         return true;\
 }
 
@@ -219,7 +217,7 @@ void mavlink_manager::clear(void)
 {
     mutex->lock();
     system_ids.clear();
-    autopilot_ids.clear();
+    mav_components.clear();
     msgs.clear();
     n_systems = 0;
     mutex->unlock();
@@ -244,7 +242,7 @@ bool mavlink_manager::is_new(mavlink_message_t* new_msg, unsigned int& i)
     mutex->lock();
     for(i = 0; i < n_systems; i++)
     {
-        if (new_msg->sysid == system_ids[i] && new_msg->compid == autopilot_ids[i])
+        if (new_msg->sysid == system_ids[i] && new_msg->compid == mav_components[i])
         {
             mutex->unlock();
             return false;
@@ -267,10 +265,9 @@ void mavlink_manager::parse(mavlink_message_t* new_msg)
         {
             mutex->lock();
             system_ids.push_back(new_msg->sysid);
-            autopilot_ids.push_back(new_msg->compid);
+            mav_components.push_back(mavlink_enums::mavlink_component_id(new_msg->compid));
             msgs.push_back(new_parsed_msg);
-            n_systems++;
-            emit updated(new_msg->sysid, new_msg->compid, name);
+            n_systems++;            
             mutex->unlock();
         }
         else delete new_parsed_msg;
@@ -278,72 +275,12 @@ void mavlink_manager::parse(mavlink_message_t* new_msg)
     else
     {
         has_been_stored_internally = msgs[matching_entry]->decode_msg(new_msg, name);
-        emit updated(new_msg->sysid, new_msg->compid, name);
     }
 
     if (has_been_stored_internally)
     {
-
+        emit updated(new_msg->sysid, mavlink_enums::mavlink_component_id(new_msg->compid), name);
     }
+    else emit updated(new_msg->sysid, mavlink_enums::mavlink_component_id(new_msg->compid), "msg_id_" + QString::number(new_msg->msgid));
 }
 
-
-
-
-
-port_read_thread::port_read_thread(generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr)
-{
-    settings = new_settings;
-    mavlink_manager_ = mavlink_manager_ptr;
-    port_ = port_ptr;
-
-    start(settings.priority);
-}
-
-void port_read_thread::run()
-{
-
-    while (!(QThread::currentThread()->isInterruptionRequested()))
-    {
-        mavlink_message_t message;
-        if (static_cast<bool>(port_->read_message(message, MAVLINK_COMM_0))) mavlink_manager_->parse(&message);
-        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(settings.update_rate_hz))});
-    }
-}
-
-
-
-mavlink_inspector_thread::mavlink_inspector_thread(QWidget *parent, generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr)
-{
-    settings = new_settings;
-    mavlink_manager_ = mavlink_manager_ptr;
-    mav_inspector = new MavlinkInspector(parent);
-    // mav_inspector->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true);
-    mav_inspector->setWindowIconText("Mavlink Inspector");
-    mav_inspector->show();
-    setParent(mav_inspector);
-
-    QObject::connect(mavlink_manager_, &mavlink_manager::updated, mav_inspector, &MavlinkInspector::create_new_slot_btn_display);
-    QObject::connect(mav_inspector, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
-
-    start(settings.priority);
-}
-
-mavlink_inspector_thread::~mavlink_inspector_thread()
-{
-}
-
-void mavlink_inspector_thread::run()
-{
-    int methodIndex = mav_inspector->metaObject()->indexOfMethod("addbutton(QString)");
-    QMetaMethod method = mav_inspector->metaObject()->method(methodIndex);
-    method.invoke(mav_inspector, Qt::QueuedConnection, Q_ARG(QString, "Hello"));
-
-    while (!(QThread::currentThread()->isInterruptionRequested()) && mav_inspector->isVisible())
-    {
-        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(settings.update_rate_hz))});
-    }
-
-    // qDebug() << "mavlink_inspector_thread exiting...";
-    deleteLater(); //calls destructor
-}

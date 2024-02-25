@@ -8,6 +8,7 @@
 #include <QErrorMessage>
 #include <QMessageBox>
 #include <QCloseEvent>
+#include <QStringList>
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -17,7 +18,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->stackedWidget_main->setCurrentIndex(0);
 
     mavlink_manager_ = new mavlink_manager(this);
-    connection_manager_ = new connection_manager(this);    
+    connection_manager_ = new connection_manager(this);
+
+
 
     // Start of Commns Pannel configuration:
 
@@ -98,6 +101,24 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->cmbx_priority->addItems(def_priority);
     ui->cmbx_priority->setCurrentIndex(7);
     // End of Add New Connection Pannel //
+
+    // Start of Settings Pannel //
+    ui->txt_sysid->setMaxLength(3);
+    ui->txt_sysid->setValidator(new QIntValidator(0, 255));
+    ui->txt_sysid->setText(QString::number(settings.sysid));
+
+    QVector<QString> tmp = mavlink_enums::get_QString_all_mavlink_component_id();
+    ui->cmbx_compid->addItems(tmp);
+    // End of Settings Pannel //
+
+
+    // Start of System Thread Configuration //
+    generic_thread_settings systhread_settings_;
+    systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
+    systhread_settings_.update_rate_hz = 1;
+    systhread_ = new system_status_thread(this, &systhread_settings_, &settings, connection_manager_);
+    QObject::connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings);
+    // END of System Thear Configuration //
 
     ui->stackedWidget_c2t->setCurrentIndex(0);
 }
@@ -189,10 +210,10 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
         Generic_Port* port_ = new Serial_Port();
         QString new_port_name = ui->txt_port_name->text();
-        if (port_->start(this, &serial_settings_) == 0)
+        if (port_->start(&serial_settings_) == 0)
         {
             // generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr
-            port_read_thread* new_port_thread = new port_read_thread(thread_settings_, mavlink_manager_, port_);
+            port_read_thread* new_port_thread = new port_read_thread(&thread_settings_, mavlink_manager_, port_);
             QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
             // connection_manager_.add(ui->list_connections, new_port_name, port_);
             if (new_port_thread->isRunning()) connection_manager_->add(ui->list_connections, new_port_name, port_, new_port_thread);
@@ -213,7 +234,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
         QMessageBox msgBox;
         msgBox.setText("Successfully Opened Serial Port!");
-        msgBox.setDetailedText(serial_settings_.get_Qstring() + thread_settings_.get_Qstring());
+        msgBox.setDetailedText(serial_settings_.get_QString() + thread_settings_.get_QString());
         msgBox.exec();
 
         // serial_settings_.printf(); //debug
@@ -233,7 +254,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
         QMessageBox msgBox;
         msgBox.setText("Successfully Started UDP Communication!");
-        msgBox.setDetailedText(udp_settings_.get_Qstring() + thread_settings_.get_Qstring());
+        msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
         msgBox.exec();
 
         // udp_settings_.printf(); //debug
@@ -320,6 +341,72 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     generic_thread_settings thread_settings_;
     thread_settings_.priority = QThread::Priority::LowPriority;
     thread_settings_.update_rate_hz = 30;
-    new mavlink_inspector_thread(this, thread_settings_, mavlink_manager_);
+    new mavlink_inspector_thread(this, &thread_settings_, mavlink_manager_);
+}
+
+
+void KGroundControl::on_btn_settings_confirm_clicked()
+{
+    settings.sysid = ui->txt_sysid->text().toUInt();
+    int index_ = ui->cmbx_compid->currentIndex();
+    QVector<mavlink_enums::mavlink_component_id> comp_id_list_ = mavlink_enums::get_keys_all_mavlink_component_id();
+    settings.compid = comp_id_list_[index_];
+    emit settings_updated(&settings);
+
+    on_btn_settings_go_back_clicked();
+}
+
+
+void KGroundControl::on_btn_settings_go_back_clicked()
+{
+    ui->stackedWidget_main->setCurrentIndex(0);
+}
+
+
+void KGroundControl::on_btn_settings_clicked()
+{
+    ui->stackedWidget_main->setCurrentIndex(3);
+    ui->txt_sysid->setText(QString::number(settings.sysid));
+    QString current_comp_id_ = mavlink_enums::get_QString(settings.compid);
+    QVector<QString> comp_id_list_ = mavlink_enums::get_QString_all_mavlink_component_id();
+    int i = 0;
+    for (int i = 0; i < comp_id_list_.size(); i++)
+    {
+        if (current_comp_id_ == comp_id_list_[i])
+        {
+            ui->cmbx_compid->setCurrentIndex(i);
+            break;
+        }
+        i++;
+    }
+
+}
+
+
+void KGroundControl::on_checkBox_emit_system_heartbeat_toggled(bool checked)
+{
+    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    foreach (QListWidgetItem* item, items)
+    {
+        connection_manager_->switch_emit_heartbeat(item->text(), checked);
+    }
+}
+
+
+void KGroundControl::on_list_connections_itemSelectionChanged()
+{
+    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    if (items.size() == 1)
+    {
+        ui->groupBox_connection_ctrl->setEnabled(true);
+
+        ui->checkBox_emit_system_heartbeat->setChecked(connection_manager_->is_heartbeat_emited(items[0]->text()));
+        ui->checkBox_emit_system_heartbeat->setCheckable(true);
+    }
+    else
+    {
+        ui->groupBox_connection_ctrl->setEnabled(false);
+        ui->checkBox_emit_system_heartbeat->setCheckable(false);
+    }
 }
 
