@@ -83,8 +83,10 @@ QString udp_settings::get_QString(void)
     case Serial:
         detailed_text_ += "Serial\n";
     }
-    detailed_text_ += "Address: " + host_address.toString() + "\n";
-    detailed_text_ += "Port: " + QString::number(port) + "\n";
+    detailed_text_ += "Host Address: " + host_address + "\n";
+    detailed_text_ += "Host Port: " + QString::number(host_port) + "\n";
+    detailed_text_ += "Local Address: " + local_address + "\n";
+    detailed_text_ += "Local Port: " + QString::number(local_port) + "\n";
 
     if (emit_heartbeat) detailed_text_+= "Emit system heartbeat: YES\n";
     else detailed_text_+= "Emit system heartbeat: NO\n";

@@ -27,6 +27,11 @@ public:
     bool switch_emit_heartbeat(QString port_name_, bool on_off_val);
     bool is_heartbeat_emited(QString port_name_);
 
+
+    QString get_port_settings_QString(QString port_name_);
+    bool get_port_settings(QString port_name_, void* settings_);
+    bool get_port_type(QString port_name_, connection_type &type);
+
 public slots:
     void remove_all(void);
 

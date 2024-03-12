@@ -187,9 +187,54 @@ void connection_manager::remove_all(void)
     mutex->unlock();
 }
 
+bool connection_manager::get_port_settings(QString port_name_, void* settings_)
+{
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == port_name_)
+        {
+            Ports[i]->get_settings(settings_);
+            mutex->unlock();
+            return true;
+        }
+    }
+    mutex->unlock();
+    return false;
+}
 
+bool connection_manager::get_port_type(QString port_name_, connection_type &type)
+{
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == port_name_)
+        {
+            type = Ports[i]->get_type();
+            mutex->unlock();
+            return true;
+        }
+    }
+    mutex->unlock();
+    return false;
+}
 
-
+QString connection_manager::get_port_settings_QString(QString port_name_)
+{
+    QString out = "N/A";
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == port_name_)
+        {
+            out = Ports[i]->get_settings_QString();
+            mutex->unlock();
+            return out;
+        }
+    }
+    mutex->unlock();
+    return out;
+}
 
 
 

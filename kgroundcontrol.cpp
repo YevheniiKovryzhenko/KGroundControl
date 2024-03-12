@@ -2,6 +2,7 @@
 #include "ui_kgroundcontrol.h"
 #include "settings.h"
 #include "serial_port.h"
+#include "udp_port.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -78,12 +79,18 @@ KGroundControl::KGroundControl(QWidget *parent)
     // End of Serial submenu configuration //
 
     // Start of UDP submenu configuration:
-    ui->cmbx_ip_address->setEditable(true);
+    ui->cmbx_host_address->setEditable(true);
+    ui->cmbx_local_address->setEditable(true);
 
     QRegularExpression regExp("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
-    ui->cmbx_ip_address->setValidator(new QRegularExpressionValidator(regExp,this));
-    ui->txt_ip_port->setValidator(new QIntValidator(1025, 65535));
-    ui->txt_ip_port->setText("14550");
+    ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regExp,this));
+    ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regExp,this));
+
+    ui->txt_host_port->setValidator(new QIntValidator(0, 65535));
+    ui->txt_host_port->setText(QString::number(14550));
+
+    ui->txt_local_port->setValidator(new QIntValidator(0, 65535));
+    ui->txt_local_port->setText(QString::number(14551));
     // End of UDP submenu configuration //
 
     ui->txt_read_rate->setValidator( new QIntValidator(1, 10000000, this) );
@@ -208,9 +215,9 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
 
 
-        Generic_Port* port_ = new Serial_Port();
+        Generic_Port* port_ = new Serial_Port(&serial_settings_, sizeof(serial_settings_));
         QString new_port_name = ui->txt_port_name->text();
-        if (port_->start(&serial_settings_) == 0)
+        if (port_->start() == 0)
         {
             // generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr
             port_read_thread* new_port_thread = new port_read_thread(&thread_settings_, mavlink_manager_, port_);
@@ -242,14 +249,40 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
         break;
     }
 
-    default:
+    case UDP:
     {
         udp_settings udp_settings_;
 
         udp_settings_.type = type_;
 
-        udp_settings_.host_address = QHostAddress(ui->cmbx_ip_address->currentText());
-        udp_settings_.port = ui->txt_ip_port->text().toUInt();
+        udp_settings_.host_address = (ui->cmbx_host_address->currentText());
+        udp_settings_.host_port = ui->txt_host_port->text().toUInt();
+        udp_settings_.local_address = (ui->cmbx_local_address->currentText());
+        udp_settings_.local_port = ui->txt_local_port->text().toUInt();
+
+        Generic_Port* port_ = new UDP_Port(&udp_settings_, sizeof(udp_settings_));
+        QString new_port_name = ui->txt_port_name->text();
+        if (port_->start() == 0)
+        {
+            // generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr
+            port_read_thread* new_port_thread = new port_read_thread(&thread_settings_, mavlink_manager_, port_);
+            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
+            // connection_manager_.add(ui->list_connections, new_port_name, port_);
+            if (new_port_thread->isRunning()) connection_manager_->add(ui->list_connections, new_port_name, port_, new_port_thread);
+            else
+            {
+                (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
+                new_port_thread->terminate();
+                delete new_port_thread;
+                port_->stop();
+                delete port_;
+            }
+        }
+        else
+        {
+            delete port_;
+            return;
+        }
 
 
         QMessageBox msgBox;
@@ -283,7 +316,10 @@ void KGroundControl::on_btn_c2t_udp_toggled(bool checked)
     if (checked)
     {
         ui->stackedWidget_c2t->setCurrentIndex(1);
-        on_btn_ip_update_clicked();
+        on_btn_host_update_clicked();
+        on_btn_local_update_clicked();
+        ui->txt_host_port->setText(QString::number(14550));
+        ui->txt_local_port->setText(QString::number(14551));
     }
 }
 
@@ -297,19 +333,34 @@ void KGroundControl::on_btn_uart_update_clicked()
     }
 }
 
-void KGroundControl::on_btn_ip_update_clicked()
+void KGroundControl::on_btn_host_update_clicked()
 {
-    ui->cmbx_ip_address->clear();
+    ui->cmbx_host_address->clear();
     const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHost);
-    ui->cmbx_ip_address->addItem(localhost.toString());
+    ui->cmbx_host_address->addItem(localhost.toString());
     for (const QHostAddress &address: QNetworkInterface::allAddresses())
     {
         if (address.protocol() == QAbstractSocket::IPv4Protocol && address != localhost)
         {
-            ui->cmbx_ip_address->addItem(address.toString());
+            ui->cmbx_host_address->addItem(address.toString());
         }
     }
-    ui->cmbx_ip_address->setCurrentIndex(0);
+    ui->cmbx_host_address->setCurrentIndex(0);
+}
+
+void KGroundControl::on_btn_local_update_clicked()
+{
+    ui->cmbx_local_address->clear();
+    const QHostAddress &localhost = QHostAddress(QHostAddress::Any);
+    ui->cmbx_local_address->addItem(localhost.toString());
+    for (const QHostAddress &address: QNetworkInterface::allAddresses())
+    {
+        if (address.protocol() == QAbstractSocket::IPv4Protocol && address != localhost)
+        {
+            ui->cmbx_local_address->addItem(address.toString());
+        }
+    }
+    ui->cmbx_local_address->setCurrentIndex(0);
 }
 
 
@@ -321,7 +372,8 @@ void KGroundControl::on_btn_c2t_go_back_comms_clicked()
 
 void KGroundControl::on_btn_add_comm_clicked()
 {
-    on_btn_ip_update_clicked();
+    on_btn_host_update_clicked();
+    on_btn_local_update_clicked();
     on_btn_uart_update_clicked();
     ui->stackedWidget_main->setCurrentIndex(2);
     ui->txt_port_name->clear();
@@ -333,6 +385,7 @@ void KGroundControl::on_btn_remove_comm_clicked()
 {
     connection_manager_->remove(ui->list_connections);
     on_btn_uart_update_clicked();
+    update_port_status_txt();
 }
 
 
@@ -354,6 +407,7 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     emit settings_updated(&settings);
 
     on_btn_settings_go_back_clicked();
+    update_port_status_txt();
 }
 
 
@@ -390,12 +444,15 @@ void KGroundControl::on_checkBox_emit_system_heartbeat_toggled(bool checked)
     {
         connection_manager_->switch_emit_heartbeat(item->text(), checked);
     }
+
+    update_port_status_txt();
 }
 
 
 void KGroundControl::on_list_connections_itemSelectionChanged()
 {
     QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    ui->txt_port_info->clear();
     if (items.size() == 1)
     {
         ui->groupBox_connection_ctrl->setEnabled(true);
@@ -407,6 +464,26 @@ void KGroundControl::on_list_connections_itemSelectionChanged()
     {
         ui->groupBox_connection_ctrl->setEnabled(false);
         ui->checkBox_emit_system_heartbeat->setCheckable(false);
+    }
+
+    update_port_status_txt();
+}
+
+void KGroundControl::update_port_status_txt(void)
+{
+    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    ui->txt_port_info->clear();
+    if (items.size() == 1)
+    {
+        ui->txt_port_info->setText(connection_manager_->get_port_settings_QString(items[0]->text()));
+    }
+    else if (items.size() > 1)
+    {
+
+        foreach (QListWidgetItem* item, items)
+        {
+            ui->txt_port_info->append(connection_manager_->get_port_settings_QString(item->text()));
+        }
     }
 }
 

@@ -39,7 +39,9 @@ private slots:
 
     void on_btn_uart_update_clicked();
 
-    void on_btn_ip_update_clicked();
+    void on_btn_host_update_clicked();
+
+    void on_btn_local_update_clicked();
 
     void on_btn_c2t_go_back_comms_clicked();
 
@@ -67,5 +69,7 @@ private:
     connection_manager* connection_manager_;
     mavlink_manager* mavlink_manager_;
     system_status_thread* systhread_;
+
+    void update_port_status_txt(void);
 };
 #endif // KGROUNDCONTROL_H

@@ -1,31 +1,33 @@
-#ifndef SERIAL_PORT_H
-#define SERIAL_PORT_H
+#ifndef UDP_PORT_H
+#define UDP_PORT_H
 
 #include <QMutex>
+#include <QUdpSocket>
+#include <QNetworkDatagram>
 
 #include "generic_port.h"
 #include "settings.h"
 #include "libs/Mavlink/mavlink2/common/mavlink.h"
 
 // ----------------------------------------------------------------------------------
-//   Serial Port Manager Class
+//   UDP Port Manager Class
 // ----------------------------------------------------------------------------------
 /*
- * Serial Port Class
+ * UDP Port Class
  *
  * This object handles the opening and closing of the offboard computer's
- * serial port over which we'll communicate.  It also has methods to write
+ * UDP port over which we'll communicate.  It also has methods to write
  * a byte stream buffer.  MAVlink is not used in this object yet, it's just
  * a serialization interface.  To help with read and write pthreading, it
  * gaurds any port operation with a pthread mutex.
  */
-class Serial_Port: public Generic_Port
+class UDP_Port: public Generic_Port
 {
 
 public:
 
-    Serial_Port(void* new_settings, size_t settings_size);
-    ~Serial_Port();
+    UDP_Port(void* new_settings, size_t settings_size);
+    ~UDP_Port();
 
     char read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_);
 
@@ -33,7 +35,7 @@ public:
     char start();
     void stop();
 
-    QSerialPort* Port = nullptr;
+    QUdpSocket* Port = nullptr;
 
     bool is_heartbeat_emited(void);
     bool toggle_heartbeat_emited(bool val);
@@ -41,7 +43,6 @@ public:
     QString get_settings_QString(void);
     void get_settings(void* current_settings);
     connection_type get_type(void);
-
 
 
     // void cleanup(void);
@@ -54,13 +55,16 @@ private:
 
     mavlink_status_t lastStatus;
 
-    int _read_port(char* cp);
+    // bool _read_port(QNetworkDatagram* datagram);
+    // int _read_port(char* cp);
     int _write_port(char *buf, unsigned len);
 
     bool exiting = false;
 
-    serial_settings settings;
+    udp_settings settings;
+
+    QNetworkDatagram datagram;
 
 };
 
-#endif // SERIAL_PORT_H
+#endif // UDP_PORT_H
