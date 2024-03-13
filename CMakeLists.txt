@@ -67,7 +67,7 @@ target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 
 # Link all the outside libraries used in this project (from libs folder):
 target_link_libraries(KGroundControl PUBLIC mavlink)
-#target_link_libraries(KGroundControl PUBLIC optitrack)
+target_link_libraries(KGroundControl PUBLIC optitrack)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
