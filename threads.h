@@ -20,7 +20,7 @@ public slots:
 
 protected:
     QMutex* mutex;
-    generic_thread_settings settings_;
+    generic_thread_settings generic_thread_settings_;
 };
 
 

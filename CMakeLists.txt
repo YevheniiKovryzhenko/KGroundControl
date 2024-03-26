@@ -15,33 +15,49 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
 
+set(PROJECT_HEADERS
+    connection_manager.h
+    generic_port.h
+    kgroundcontrol.h
+    mavlink_enum_types.h
+    mavlink_inspector.h
+    mavlink_manager.h
+    serial_port.h
+    settings.h
+    threads.h
+    udp_port.h
+    mocap.h)
+
 set(PROJECT_SOURCES
-        main.cpp
-        kgroundcontrol.cpp
-        kgroundcontrol.h
-        kgroundcontrol.ui
-        connection_manager.cpp
-        connection_manager.h
-        generic_port.h
-        mavlink_manager.cpp
-        mavlink_manager.h
-        serial_port.cpp
-        serial_port.h
-        settings.cpp
-        settings.h
+    connection_manager.cpp
+    kgroundcontrol.cpp
+    main.cpp
+    mavlink_enum_types.cpp
+    mavlink_inspector.cpp
+    mavlink_manager.cpp
+    serial_port.cpp
+    settings.cpp
+    threads.cpp
+    udp_port.cpp
+    mocap.cpp
 )
+
+set(PROJECT_UI
+    kgroundcontrol.ui
+    mavlink_inspector.ui
+)
+
+
 
 add_subdirectory(libs) #libs/ has all of the required libraries 
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(KGroundControl
         MANUAL_FINALIZATION
+        ${PROJECT_HEADERS}
         ${PROJECT_SOURCES}
-        mavlink_inspector.h mavlink_inspector.cpp mavlink_inspector.ui
-        mavlink_enum_types.h mavlink_enum_types.cpp
-        threads.h threads.cpp
-        udp_port.h udp_port.cpp
-
+        ${PROJECT_UI}
+        mocap_manager.h mocap_manager.cpp mocap_manager.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET KGroundControl APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -50,16 +66,24 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
 else()
     if(ANDROID)
         add_library(KGroundControl SHARED
+            ${PROJECT_HEADERS}
             ${PROJECT_SOURCES}
+            ${PROJECT_UI}
         )
 # Define properties for Android with Qt 5 after find_package() calls as:
 #    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
     else()
         add_executable(KGroundControl
+            ${PROJECT_HEADERS}
             ${PROJECT_SOURCES}
+            ${PROJECT_UI}
         )
     endif()
 endif()
+
+# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui")
 
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)

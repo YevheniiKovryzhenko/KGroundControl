@@ -3,6 +3,8 @@
 
 #include <QMainWindow>
 
+#include "mocap_manager.h"
+#include "mocap.h"
 #include "connection_manager.h"
 #include "mavlink_manager.h"
 
@@ -63,12 +65,17 @@ private slots:
 
     void on_list_connections_itemSelectionChanged();
 
+    void on_btn_mocap_clicked();
+
 private:
     Ui::KGroundControl *ui;
 
-    connection_manager* connection_manager_;
-    mavlink_manager* mavlink_manager_;
-    system_status_thread* systhread_;
+    mocap_manager* mocap_manager_ = nullptr;
+
+    connection_manager* connection_manager_ = nullptr;
+    mavlink_manager* mavlink_manager_ = nullptr;
+    system_status_thread* systhread_ = nullptr;
+    mocap_thread* mocap_thread_ = nullptr;
 
     void update_port_status_txt(void);
 };

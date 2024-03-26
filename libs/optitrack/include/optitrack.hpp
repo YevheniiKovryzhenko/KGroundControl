@@ -23,9 +23,8 @@
 
 #include <vector>
 #include <QUdpSocket>
-#include <QWidget>
+#include <QObject>
 #include <QMutex>
-#include <QThread>
 
 #define SOCKET int  // A sock handle is just an int in linux
 
@@ -51,47 +50,18 @@ struct optitrack_message_t
     bool trackingValid;     // Whether or not tracking was valid for the rigid body
 };
 
-class mocap_data_t:public optitrack_message_t
-{
-public:
-    uint64_t time_us_old;
-    uint64_t time_us;
-    double roll;
-    double pitch;
-    double yaw;
-private:
-};
-
-class mocap_optitrack : public QWidget
+class mocap_optitrack : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit mocap_optitrack(QWidget *parent = nullptr);
+    explicit mocap_optitrack(QObject *parent = nullptr);
     ~mocap_optitrack();
 
-    bool start(void);
+    bool read(std::vector<optitrack_message_t> &msg_out);
+    bool read_ipv6(std::vector<optitrack_message_t> &msg_out);
 
-signals:
-    void new_data_available(void);
 
-private slots:
-    void processPendingDatagrams();
-
-private:
-    /**
-    * guess_optitrack_network_interface tries to find the IP address of the interface to use for receiving Optitrack data.
-    * The strategy used will:
-    *
-    *   1) Enumerate all possible network interfaces.
-    *   2) Ignore 'lo'
-    *   3) Either:
-    *       - Find the first interface that starts with the letter "w", which most likely indicates a wireless network.
-    *       - Or, return any interface found if no interface starts with "w".
-    *
-    * \return   IP address of the multicast interface to use with optitrack
-    */
-    bool guess_optitrack_network_interface(QNetworkInterface &interface, QString &interface_address);
 
     /**
     * create_optitrack_data_socket creates a socket for receiving Optitrack data from the Optitrack server.
@@ -102,7 +72,10 @@ private:
     * \param    port                Port to which optitrack data is being sent
     * \return   SOCKET handle to use for receiving data from the Optitrack server.
     */
-    bool create_optitrack_data_socket(QNetworkInterface &interface, QString &interface_address, unsigned short port);
+    bool create_optitrack_data_socket(\
+                                      QNetworkInterface &interface, \
+                                      QString local_address, unsigned short local_port,\
+                                      QString multicast_address);
 
     /**
     *
@@ -116,14 +89,34 @@ private:
     * \param    port                Port to which optitrack data is being sent
     * \return   SOCKET handle to use for receiving data from the Optitrack server.
     */
-    // static QUdpSocket* create_optitrack_data_socket_ipv6(const std::string& interfaceIp, unsigned short port);
+    bool create_optitrack_data_socket_ipv6(\
+                                           QNetworkInterface &interface, \
+                                           QString local_address, unsigned short local_port,\
+                                           QString multicast_address);
 
 
     /**
     * parse_optitrack_packet_into_messages parses the contents of a datagram received from the Optitrack server
     * into a vector containing the 3D position + quaternion for every rigid body
     */
-    std::vector<optitrack_message_t> parse_optitrack_packet_into_messages(const char* packet, int size);
+    static std::vector<optitrack_message_t> parse_optitrack_packet_into_messages(const char* packet);
+
+    /**
+    * guess_optitrack_network_interface tries to find the IP address of the interface to use for receiving Optitrack data.
+    * The strategy used will:
+    *
+    *   1) Enumerate all possible network interfaces.
+    *   2) Ignore 'lo'
+    *   3) Either:
+    *       - Find the first interface that starts with the letter "w", which most likely indicates a wireless network.
+    *       - Or, return any interface found if no interface starts with "w".
+    *
+    * \return   IP address of the multicast interface to use with optitrack
+    */
+    static bool guess_optitrack_network_interface(QNetworkInterface &interface);
+    static bool guess_optitrack_network_interface_ipv6(QNetworkInterface &interface);
+
+    static bool get_network_interface(QNetworkInterface &interface, QString address);
 
     /**
     *
@@ -133,60 +126,27 @@ private:
     * \param    pitch       return pitch
     * \param    yaw         return yaw
     */
-    void toEulerAngle(const optitrack_message_t& msg, double& roll, double& pitch, double& yaw);
+    static void toEulerAngle(const optitrack_message_t& msg, double& roll, double& pitch, double& yaw);
 
-
+private:
+    bool port_open = false;
     QUdpSocket *Port = nullptr;
     QNetworkInterface* iface = nullptr;
-    // QString* iface_address = nullptr;
-};
+    QMutex* mutex = nullptr;
+    QString multicast_address_;
 
-
-
-class mocap_node_t : public QThread
-{
-    Q_OBJECT
-public:
-    char reading_status;
-
-    bool YUP2END;
-    bool ZUP2NED;
-
-    char start(std::string ip_addr);
-    char stop(void);
-    void togle_YUP2NED(bool in);
-    void togle_ZUP2NED(bool in);
-    char get_data(mocap_data_t& buff, int ID);
-
-    void start_read_thread(void);
-
-public:
-    mocap_node_t(generic_thread_settings* settings_in_);
-    ~mocap_node_t();
-
-public slots:
-    void update_settings(generic_thread_settings* settings_in_);
-
-protected:
-    QMutex* mutex;
-    generic_thread_settings settings_;
-private:
-    uint64_t time_us;
-    uint64_t time_us_old;
-    pthread_mutex_t  lock;
-    thread_gen_t thread;
-    bool time_to_exit;
+    bool port_ipv6_open = false;
+    QUdpSocket *Port_ipv6 = nullptr;
+    QNetworkInterface* iface_ipv6 = nullptr;
+    QMutex* mutex_ipv6 = nullptr;
+    QString multicast_address_ipv6_;
 
     const static int BUFF_LEN = 20000;
     char buff[BUFF_LEN];
-
-    std::vector<optitrack_message_t> incomingMessages;
-
-
-    char init(std::string ip_addr);
-    void read_messages(void);
-    char march(void);
-    void read_thread(void);
+    int buff_index = 0;
+    char buff_ipv6[BUFF_LEN];
+    int buff_ipv6_index = 0;
+    // QString* iface_address = nullptr;
 };
 
 

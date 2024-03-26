@@ -12,7 +12,7 @@ generic_thread::~generic_thread(void)
 void generic_thread::update_settings(generic_thread_settings* settings_in_)
 {
     mutex->lock();
-    memcpy(&settings_, settings_in_, sizeof(generic_thread_settings));
+    memcpy(&generic_thread_settings_, settings_in_, sizeof(generic_thread_settings));
     mutex->unlock();
 }
 
@@ -24,7 +24,7 @@ port_read_thread::port_read_thread(generic_thread_settings *new_settings, mavlin
     mavlink_manager_ = mavlink_manager_ptr;
     port_ = port_ptr;
 
-    start(settings_.priority);
+    start(generic_thread_settings_.priority);
 }
 
 void port_read_thread::run()
@@ -34,7 +34,7 @@ void port_read_thread::run()
     {
         mavlink_message_t message;
         if (static_cast<bool>(port_->read_message(message, MAVLINK_COMM_0))) mavlink_manager_->parse(&message);
-        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(settings_.update_rate_hz))});
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
 
@@ -53,7 +53,7 @@ mavlink_inspector_thread::mavlink_inspector_thread(QWidget *parent, generic_thre
     QObject::connect(mavlink_manager_, &mavlink_manager::updated, mav_inspector, &MavlinkInspector::create_new_slot_btn_display);
     QObject::connect(mav_inspector, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
 
-    start(settings_.priority);
+    start(generic_thread_settings_.priority);
 }
 
 mavlink_inspector_thread::~mavlink_inspector_thread()
@@ -68,7 +68,7 @@ void mavlink_inspector_thread::run()
 
     while (!(QThread::currentThread()->isInterruptionRequested()) && mav_inspector->isVisible())
     {
-        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(settings_.update_rate_hz))});
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 
     // qDebug() << "mavlink_inspector_thread exiting...";

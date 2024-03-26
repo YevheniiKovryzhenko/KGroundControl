@@ -76,11 +76,11 @@ void connection_manager::remove(QListWidget* widget_)
                 PortThreads[i]->requestInterruption();
                 for (int ii = 0; ii < 300; ii++)
                 {
-                    if (!PortThreads[i]->isRunning())
+                    if (!PortThreads[i]->isRunning() && PortThreads[i]->isFinished())
                     {
                         break;
                     }
-                    else if (ii == 99)
+                    else if (ii == 299)
                     {
                         (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
                         PortThreads[i]->terminate();
@@ -165,11 +165,11 @@ void connection_manager::remove_all(void)
         PortThreads[i]->requestInterruption();
         for (int ii = 0; ii < 300; ii++)
         {
-            if (!PortThreads[i]->isRunning())
+            if (!PortThreads[i]->isRunning() && PortThreads[i]->isFinished())
             {
                 break;
             }
-            else if (ii == 99)
+            else if (ii == 299)
             {
                 (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
                 PortThreads[i]->terminate();
@@ -245,7 +245,7 @@ system_status_thread::system_status_thread(QWidget *parent, generic_thread_setti
 {
     update_kgroundcontrol_settings(kground_control_settings_in_);
     connection_manager_ = connection_manager_in_;
-    start(settings_.priority);
+    start(generic_thread_settings_.priority);
 }
 
 
@@ -257,7 +257,7 @@ void system_status_thread::run()
         mavlink_message_t message;
         mavlink_msg_heartbeat_pack(kground_control_settings_.sysid, kground_control_settings_.compid, &message, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, MAV_MODE_GUIDED_ARMED, 0, MAV_STATE_ACTIVE);
         connection_manager_->write_hearbeat(&message);
-        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(settings_.update_rate_hz))});
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
 

@@ -137,14 +137,41 @@ KGroundControl::~KGroundControl()
 
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
+    // save current state of the app:
     // if (maybeSave()) {
     //     writeSettings();
     //     event->accept();
     // } else {
     //     event->ignore();
     // }
+
+
+    //stop mocap thread if running:
+    if (mocap_thread_ != NULL)
+    {
+        mocap_thread_->requestInterruption();
+        for (int ii = 0; ii < 300; ii++)
+        {
+            if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
+            {
+                break;
+            }
+            else if (ii == 299)
+            {
+                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
+                mocap_thread_->terminate();
+            }
+
+            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+        }
+
+        delete mocap_thread_;
+        mocap_thread_ = nullptr;
+    }
+
+
+    //close all other active ports:
     connection_manager_->remove_all();
-    // QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*static_cast<double>(0.1))});
     event->accept();
 }
 
@@ -485,5 +512,21 @@ void KGroundControl::update_port_status_txt(void)
             ui->txt_port_info->append(connection_manager_->get_port_settings_QString(item->text()));
         }
     }
+}
+
+
+void KGroundControl::on_btn_mocap_clicked()
+{
+    //open mocap ui window, it will handle the rest:
+    mocap_manager_ = new mocap_manager(this, &mocap_thread_);
+    mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    mocap_manager_->setWindowIconText("Motion Capture Manager");
+    mocap_manager_->show();
+    // setParent(mav_inspector);
+
+    // QObject::connect(mavlink_manager_, &mavlink_manager::updated, mav_inspector, &MavlinkInspector::create_new_slot_btn_display);
+    // QObject::connect(mav_inspector, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
+
+    // start(generic_thread_settings_.priority);
 }
 

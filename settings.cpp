@@ -150,3 +150,45 @@ QString kgroundcontrol_settings::get_QString(void)
 
     return text_out;
 }
+
+
+void mocap_settings::printf(void)
+{
+    qDebug() << get_QString();
+}
+
+QString mocap_settings::get_QString(void)
+{
+    QString detailed_text_ = "Connection Type: ";
+    switch (type) {
+    case UDP:
+        detailed_text_ += "UDP\n";
+        break;
+    case Serial:
+        detailed_text_ += "Serial\n";
+    }
+    if (use_ipv6) detailed_text_ += "Use IPv6: YES\n";
+    else detailed_text_ += "Use IPv6: NO\n";
+    detailed_text_ += "Host Address: " + host_address + "\n";
+    detailed_text_ += "Multicast Address: " + multicast_address + "\n";
+    detailed_text_ += "Local Address: " + local_address + "\n";
+    detailed_text_ += "Local Port: " + QString::number(local_port) + "\n";
+
+    detailed_text_ += "Data Rotation: ";
+    switch (data_rotation)
+    {
+    case NONE:
+        detailed_text_ += "NONE\n";
+        break;
+
+    case YUP2NED:
+        detailed_text_ += "YUP2END\n";
+        break;
+
+    case ZUP2NED:
+        detailed_text_ += "ZUP2NED\n";
+        break;
+    }
+
+    return detailed_text_;
+}

@@ -18,7 +18,6 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
 add_library(
     optitrack STATIC
     include/optitrack.hpp
-    include/optitrack_channels.h
     src/optitrack.cpp
     )
 target_link_libraries(optitrack PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)

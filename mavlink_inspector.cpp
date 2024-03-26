@@ -3,7 +3,6 @@
 
 #include "mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
-#include "settings.h"
 
 MavlinkInspector::MavlinkInspector(QWidget *parent)
     : QWidget(parent)

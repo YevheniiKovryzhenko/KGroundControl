@@ -7,6 +7,7 @@
 #include <QUdpSocket>
 #include <QThread>
 
+#include "optitrack.hpp"
 #include "mavlink_enum_types.h"
 enum connection_type
 {
@@ -14,7 +15,12 @@ enum connection_type
     UDP
 };
 
-
+enum mocap_rotation
+{
+    NONE,
+    YUP2NED,
+    ZUP2NED
+};
 
 
 class generic_port_settings
@@ -49,9 +55,6 @@ class udp_settings : public generic_port_settings
 {
 
 public:
-    // udp_settings(){};
-    // ~udp_settings(){};
-
     QString local_address = "0.0.0.0";
     uint16_t local_port = 14551; //also bind port (reading from here)
 
@@ -85,6 +88,28 @@ public:
     uint8_t sysid = 254;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::mavlink_component_id::MISSIONPLANNER;
 
+
+    QString get_QString(void);
+    void printf(void);
+};
+
+class mocap_settings
+{
+
+public:
+
+    const static connection_type type = UDP;
+    mocap_rotation data_rotation = NONE;
+
+    bool use_ipv6 = false;
+
+    QString local_address = "0.0.0.0";
+    uint16_t local_port = PORT_DATA; //also bind port (reading from here)
+
+    QString host_address;
+    // uint16_t host_port; //writing here //unused
+
+    QString multicast_address = MULTICAST_ADDRESS;
 
     QString get_QString(void);
     void printf(void);
