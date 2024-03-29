@@ -83,9 +83,9 @@ bool Serial_Port::toggle_heartbeat_emited(bool val)
 // ------------------------------------------------------------------------------
 //   Read from Serial
 // ------------------------------------------------------------------------------
-char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_)
+bool Serial_Port::read_message(void* message, int mavlink_channel_)
 {
-    uint8_t          msgReceived = false;
+    bool msgReceived = false;
 
     // --------------------------------------------------------------------------
     //   READ FROM PORT
@@ -105,7 +105,7 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
         if (result > 0)
         {
             // the parsing
-            msgReceived = mavlink_parse_char(mavlink_channel_, cp, &message, &status);
+            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), cp, static_cast<mavlink_message_t*>(message), &status));
 
             // check for dropped packets
             if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
@@ -128,12 +128,12 @@ char Serial_Port::read_message(mavlink_message_t &message, mavlink_channel_t mav
 // ------------------------------------------------------------------------------
 //   Write to Serial
 // ------------------------------------------------------------------------------
-int Serial_Port::write_message(const mavlink_message_t &message)
+int Serial_Port::write_message(void* message)
 {
     char buf[300];
 
     // Translate message to buffer
-    unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, &message);
+    unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, static_cast<mavlink_message_t*>(message));
 
     // Write buffer to serial port, locks port while writing
     int bytesWritten = _write_port(buf,len);

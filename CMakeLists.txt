@@ -21,12 +21,13 @@ set(PROJECT_HEADERS
     kgroundcontrol.h
     mavlink_enum_types.h
     mavlink_inspector.h
-    mavlink_manager.h
+
     serial_port.h
     settings.h
     threads.h
     udp_port.h
-    mocap.h)
+    mocap_manager.h
+)
 
 set(PROJECT_SOURCES
     connection_manager.cpp
@@ -34,17 +35,18 @@ set(PROJECT_SOURCES
     main.cpp
     mavlink_enum_types.cpp
     mavlink_inspector.cpp
-    mavlink_manager.cpp
+
     serial_port.cpp
     settings.cpp
     threads.cpp
     udp_port.cpp
-    mocap.cpp
+    mocap_manager.cpp
 )
 
 set(PROJECT_UI
     kgroundcontrol.ui
     mavlink_inspector.ui
+    mocap_manager.ui
 )
 
 
@@ -57,7 +59,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_HEADERS}
         ${PROJECT_SOURCES}
         ${PROJECT_UI}
-        mocap_manager.h mocap_manager.cpp mocap_manager.ui
+        relaydialog.h relaydialog.cpp relaydialog.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET KGroundControl APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR

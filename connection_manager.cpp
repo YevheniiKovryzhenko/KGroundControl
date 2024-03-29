@@ -1,8 +1,35 @@
 #include "connection_manager.h"
+#include "serial_port.h"
+#include "udp_port.h"
 
 #include <QDateTime>
 #include <QErrorMessage>
 #include <QObject>
+
+port_read_thread::port_read_thread(generic_thread_settings *new_settings)
+    : generic_thread(new_settings)
+{
+    start(generic_thread_settings_.priority);
+}
+
+void port_read_thread::run()
+{
+
+    while (!(QThread::currentThread()->isInterruptionRequested()))
+    {
+        mavlink_message_t message;
+        void* ptr = static_cast<mavlink_message_t*>(&message);
+        // if (static_cast<bool>(port_->read_message(message, MAVLINK_COMM_0)))
+        if (emit read_message(ptr, static_cast<int>(MAVLINK_COMM_0)))
+        {
+            // mavlink_manager_->parse(&message);
+            emit parse(ptr);
+            emit write_message(ptr);
+        }
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+    }
+}
+
 
 connection_manager::connection_manager(QObject* parent)
     : QObject(parent)
@@ -48,62 +75,111 @@ QVector<QString> connection_manager::get_names(void)
     return out;
 }
 
-void connection_manager::add(QListWidget* widget_, QString &new_port_name, Generic_Port* new_port, port_read_thread* new_port_thread)
-{
-    is_unique(new_port_name);
+bool connection_manager::add(QString new_port_name, \
+                             connection_type port_type, void* port_settings_, size_t settings_size,\
+                             generic_thread_settings* thread_settings_,\
+                             mavlink_manager* mavlink_manager_)
+{    
+    Generic_Port* port_;
+    port_read_thread* new_port_thread;
+    switch (port_type) {
+    case Serial:
+        port_ = new Serial_Port(port_settings_, settings_size);
+        break;
+
+    case UDP:
+        port_ = new UDP_Port(port_settings_, settings_size);
+        break;
+    }
+
+
+    if (port_->start() == 0)
+    {
+        new_port_thread = new port_read_thread(thread_settings_);
+
+        connect(new_port_thread, &port_read_thread::read_message, port_, &Generic_Port::read_message, Qt::DirectConnection);
+        connect(new_port_thread, &port_read_thread::parse, mavlink_manager_, &mavlink_manager::parse, Qt::DirectConnection);
+
+        QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
+        if (!new_port_thread->isRunning())
+        {
+            (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
+            new_port_thread->terminate();
+            delete new_port_thread;
+            port_->stop();
+            delete port_;
+            return false;
+        }
+    }
+    else
+    {
+        delete port_;
+        return false;
+    }
 
     mutex->lock();
-    port_names << new_port_name;
-    Ports << new_port;
-    PortThreads << new_port_thread;
-
-    widget_->addItem(new_port_name);
-    heartbeat_emited << false;
+    port_names.append(new_port_name);
+    Ports.append(port_);
+    PortThreads.append(new_port_thread);
+    routing_table.append(QVector<QString>());
+    heartbeat_emited.append(false);
     n_connections++;
     mutex->unlock();
+    return true;
 }
 
-void connection_manager::remove(QListWidget* widget_)
+bool connection_manager::remove(QString port_name_)
 {
     mutex->lock();
-    QList<QListWidgetItem*> items = widget_->selectedItems();
-    foreach (QListWidgetItem* item, items)
+    for(unsigned int i = 0; i < n_connections; i++)
     {
-        for(unsigned int i = 0; i < n_connections; i++)
+        if (port_name_.compare(port_names[i]) == 0)
         {
-            if (item->text().compare(port_names[i]) == 0)
+            PortThreads[i]->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
             {
-                PortThreads[i]->requestInterruption();
-                for (int ii = 0; ii < 300; ii++)
+                if (!PortThreads[i]->isRunning() && PortThreads[i]->isFinished())
                 {
-                    if (!PortThreads[i]->isRunning() && PortThreads[i]->isFinished())
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
+                    PortThreads[i]->terminate();
+                }
+
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
+            Ports[i]->stop();
+
+            port_names.remove(i);
+            Ports.remove(i);
+            heartbeat_emited.remove(i);
+
+            //update routing table:
+            routing_table.remove(i); //remove current column
+            for (int j = 0; j < routing_table.size(); j++) //check all other columns and remove this entry
+            {
+                for (int jj = 0; jj < routing_table[j].size(); jj++)
+                {
+                    if (port_name_.compare(routing_table[j][jj]) == 0)
                     {
+                        routing_table[j].remove(jj);
                         break;
                     }
-                    else if (ii == 299)
-                    {
-                        (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
-                        PortThreads[i]->terminate();
-                    }
-
-                    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
                 }
-                Ports[i]->stop();
-
-                port_names.remove(i);
-                Ports.remove(i);
-                heartbeat_emited.remove(i);
-                n_connections--;
-                break;
             }
-        }
 
-        delete widget_->takeItem(widget_->row(item));
+            n_connections--;
+            mutex->unlock();
+            return true;
+        }
     }
     mutex->unlock();
+    return false;
 }
 
-bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_val)
+bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_val, void* systhread_)
 {
     mutex->lock();
     for (int i = 0; i < n_connections; i++)
@@ -112,6 +188,8 @@ bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_v
         {
             if (heartbeat_emited[i] != on_off_val)
             {
+                if (on_off_val) connect(static_cast<system_status_thread*>(systhread_), &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message, Qt::DirectConnection);
+                else disconnect(static_cast<system_status_thread*>(systhread_), &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);
                 heartbeat_emited[i] = on_off_val;
                 Ports[i]->toggle_heartbeat_emited(on_off_val);
                 mutex->unlock();
@@ -144,47 +222,25 @@ bool connection_manager::is_heartbeat_emited(QString port_name_)
     return false;
 }
 
-void connection_manager::write_hearbeat(mavlink_message_t* heartbeat_out)
-{
-    mutex->lock();
-    for (int i = 0; i < n_connections; i++)
-    {
-        if (heartbeat_emited[i])
-        {
-            Ports[i]->write_message(*heartbeat_out);
-        }
-    }
-    mutex->unlock();
-}
+// void connection_manager::relay_parsed_hearbeat(void* parsed_heartbeat_msg_)
+// {
+//     mutex->lock();
+//     for (int i = 0; i < n_connections; i++)
+//     {
+//         if (heartbeat_emited[i])
+//         {
+//             Ports[i]->write_message(parsed_heartbeat_msg_);
+//         }
+//     }
+//     mutex->unlock();
+// }
 
 void connection_manager::remove_all(void)
 {
-    mutex->lock();
-    for(unsigned int i = 0; i < n_connections; i++)
+    while (port_names.size() > 0)
     {
-        PortThreads[i]->requestInterruption();
-        for (int ii = 0; ii < 300; ii++)
-        {
-            if (!PortThreads[i]->isRunning() && PortThreads[i]->isFinished())
-            {
-                break;
-            }
-            else if (ii == 299)
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
-                PortThreads[i]->terminate();
-            }
-
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-        }
-        Ports[i]->stop();
-
-        port_names.remove(i);
-        Ports.remove(i);
-        heartbeat_emited.remove(i);
+        remove(port_names[0]);
     }
-    n_connections = 0;
-    mutex->unlock();
 }
 
 bool connection_manager::get_port_settings(QString port_name_, void* settings_)
@@ -229,6 +285,7 @@ QString connection_manager::get_port_settings_QString(QString port_name_)
         {
             out = Ports[i]->get_settings_QString();
             mutex->unlock();
+            // qDebug() << out;
             return out;
         }
     }
@@ -236,27 +293,155 @@ QString connection_manager::get_port_settings_QString(QString port_name_)
     return out;
 }
 
+bool connection_manager::get_routing(QString src_port_name_, QVector<QString> &routing_port_names)
+{
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == src_port_name_)
+        {
+            routing_port_names = routing_table[i];
+            mutex->unlock();
+            return true;
+        }
+    }
+    mutex->unlock();
+    return false;
+}
+
+bool connection_manager::add_routing(QString src_port_name_, QString target_port_name_)
+{
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == src_port_name_)
+        {
+            for (int ii = 0; ii < n_connections; ii++)
+            {
+                if (port_names[ii] == target_port_name_)
+                {
+                    connect(PortThreads[ii], &port_read_thread::write_message, Ports[i], &Generic_Port::write_message, Qt::DirectConnection);
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    return false;
+}
+bool connection_manager::remove_routing(QString src_port_name_, QString target_port_name_)
+{
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == src_port_name_)
+        {
+            for (int ii = 0; ii < n_connections; ii++)
+            {
+                if (port_names[ii] == target_port_name_)
+                {
+                    disconnect(PortThreads[ii], &port_read_thread::write_message, Ports[i], &Generic_Port::write_message);
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+bool connection_manager::update_routing(QString src_port_name_, QVector<QString> &routing_port_names)
+{
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == src_port_name_)
+        {
+            QVector<QString> old_routing = routing_table[i];
+            bool is_a_match_ = false;
+
+            //first, let's scan to add any new connections:
+            foreach(QString new_target, routing_port_names)
+            {
+                //check if already connected:
+                foreach(QString old_target, old_routing)
+                {
+                    is_a_match_ = old_target == new_target;
+                    if (is_a_match_) break;
+                }
+                if (!is_a_match_) add_routing(src_port_name_, new_target);//new connection, add it now!
+                is_a_match_ = false;//we will start again for a new target
+            }
+
+            //now, let's check if some connections must be removed:
+            foreach(QString old_target, old_routing)
+            {
+                foreach(QString new_target, routing_port_names)
+                {
+                    is_a_match_ = old_target == new_target;
+                    if (is_a_match_) break;
+                }
+                if (!is_a_match_) remove_routing(src_port_name_, old_target);//disabled connection, remove it now!
+                is_a_match_ = false;//we will start again for a new target
+            }
+            routing_table[i].clear();
+            routing_table[i] = routing_port_names;
+            mutex->unlock();
+            return true;
+        }
+    }
+    mutex->unlock();
+    return false;
+}
+
+// bool connection_manager::relay_msg(QString src_port_name_, mavlink_message_t &msg_)
+// {
+//     mutex->lock();
+//     if (routing_table.size() > 0)
+//     {
+//         for (int i = 0; i < n_connections; i++)
+//         {
+//             if (port_names[i] == src_port_name_)
+//             {
+//                 if (routing_table[i].size() > 0)
+//                 {
+//                     foreach (QString relay_port_name_, routing_table[i])
+//                     {
+//                         for (int ii = 0; ii < n_connections; ii++)
+//                         {
+//                             if (ii == i) continue; //don't loopback...
+//                             else if (port_names[ii] == relay_port_name_) Ports[ii]->write_message(msg_);
+//                         }
+//                     }
+//                     mutex->unlock();
+//                     return true;
+//                 }
+//                 break;
+//             }
+//         }
+//     }
+//     mutex->unlock();
+//     return false;
+// }
 
 
-
-
-system_status_thread::system_status_thread(QWidget *parent, generic_thread_settings* settings_in_, kgroundcontrol_settings* kground_control_settings_in_, connection_manager* connection_manager_in_)
+system_status_thread::system_status_thread(generic_thread_settings* settings_in_, kgroundcontrol_settings* kground_control_settings_in_)
     : generic_thread(settings_in_)
 {
     update_kgroundcontrol_settings(kground_control_settings_in_);
-    connection_manager_ = connection_manager_in_;
     start(generic_thread_settings_.priority);
+}
+system_status_thread::~system_status_thread()
+{
+
 }
 
 
 void system_status_thread::run()
 {
-
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         mavlink_message_t message;
         mavlink_msg_heartbeat_pack(kground_control_settings_.sysid, kground_control_settings_.compid, &message, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, MAV_MODE_GUIDED_ARMED, 0, MAV_STATE_ACTIVE);
-        connection_manager_->write_hearbeat(&message);
+        emit send_parsed_hearbeat(static_cast<void*>(&message));
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }

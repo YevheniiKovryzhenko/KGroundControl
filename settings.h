@@ -55,10 +55,10 @@ class udp_settings : public generic_port_settings
 {
 
 public:
-    QString local_address = "0.0.0.0";
-    uint16_t local_port = 14551; //also bind port (reading from here)
-
     QString host_address = "127.0.0.1";
+    QString local_address = "0.0.0.0";
+
+    uint16_t local_port = 14551; //also bind port (reading from here)
     uint16_t host_port = 14550; //writing here
 
     QString get_QString(void);

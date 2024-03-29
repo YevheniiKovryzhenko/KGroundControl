@@ -1,8 +1,8 @@
 #include "kgroundcontrol.h"
+#include "qforeach.h"
 #include "ui_kgroundcontrol.h"
 #include "settings.h"
-#include "serial_port.h"
-#include "udp_port.h"
+#include "relaydialog.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -10,6 +10,8 @@
 #include <QMessageBox>
 #include <QCloseEvent>
 #include <QStringList>
+#include <QDialog>
+
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -21,6 +23,14 @@ KGroundControl::KGroundControl(QWidget *parent)
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
 
+    connect(this, &KGroundControl::switch_emit_heartbeat, connection_manager_, &connection_manager::switch_emit_heartbeat, Qt::DirectConnection);
+    connect(this, &KGroundControl::is_heartbeat_emited, connection_manager_, &connection_manager::is_heartbeat_emited, Qt::DirectConnection);
+    connect(this, &KGroundControl::get_port_settings, connection_manager_, &connection_manager::get_port_settings, Qt::DirectConnection);
+    connect(this, &KGroundControl::get_port_type, connection_manager_, &connection_manager::get_port_type, Qt::DirectConnection);
+    connect(this, &KGroundControl::remove_port, connection_manager_, &connection_manager::remove, Qt::DirectConnection);
+    connect(this, &KGroundControl::check_if_port_name_is_unique, connection_manager_, &connection_manager::is_unique, Qt::DirectConnection);
+    connect(this, &KGroundControl::add_port, connection_manager_, &connection_manager::add, Qt::DirectConnection);
+    connect(this, &KGroundControl::get_port_settings_QString, connection_manager_, &connection_manager::get_port_settings_QString, Qt::DirectConnection);
 
 
     // Start of Commns Pannel configuration:
@@ -123,8 +133,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     generic_thread_settings systhread_settings_;
     systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
     systhread_settings_.update_rate_hz = 1;
-    systhread_ = new system_status_thread(this, &systhread_settings_, &settings, connection_manager_);
-    QObject::connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings);
+    systhread_ = new system_status_thread(&systhread_settings_, &settings);
+    // connect(systhread_, &system_status_thread::send_parsed_hearbeat, connection_manager_, &connection_manager::relay_parsed_hearbeat, Qt::DirectConnection);
+    connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
     // END of System Thear Configuration //
 
     ui->stackedWidget_c2t->setCurrentIndex(0);
@@ -145,11 +156,13 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     //     event->ignore();
     // }
 
+    //stop all threads if running:
+    if (systhread_ != NULL) systhread_->requestInterruption();
+    if (mocap_thread_ != NULL) mocap_thread_->requestInterruption();
 
     //stop mocap thread if running:
     if (mocap_thread_ != NULL)
     {
-        mocap_thread_->requestInterruption();
         for (int ii = 0; ii < 300; ii++)
         {
             if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
@@ -158,7 +171,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
             }
             else if (ii == 299)
             {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the thread, manually terminating...\n");
+                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
                 mocap_thread_->terminate();
             }
 
@@ -169,6 +182,28 @@ void KGroundControl::closeEvent(QCloseEvent *event)
         mocap_thread_ = nullptr;
     }
 
+    //stop system thread if running:
+    if (systhread_ != NULL)
+    {
+
+        for (int ii = 0; ii < 300; ii++)
+        {
+            if (!systhread_->isRunning() && systhread_->isFinished())
+            {
+                break;
+            }
+            else if (ii == 299)
+            {
+                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the system thread, manually terminating...\n");
+                systhread_->terminate();
+            }
+
+            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+        }
+
+        delete systhread_;
+        systhread_ = nullptr;
+    }
 
     //close all other active ports:
     connection_manager_->remove_all();
@@ -205,6 +240,8 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
 
     connection_type type_;
+    QString new_port_name = ui->txt_port_name->text();
+    emit check_if_port_name_is_unique(new_port_name);
 
     if (ui->btn_c2t_serial->isChecked() == 0) type_ = UDP;
     else type_ = Serial;
@@ -216,7 +253,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 
         serial_settings_.type = type_;
 
-        serial_settings_.uart_name = ui->cmbx_uart->currentText();
+        serial_settings_.uart_name = QString(ui->cmbx_uart->currentText());
 
         serial_settings_.baudrate = ui->cmbx_baudrate->currentText().toUInt();
 
@@ -239,37 +276,14 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
         else if (StopBits.compare("One and Half Stop") == 0) serial_settings_.StopBits = QSerialPort::StopBits::OneAndHalfStop;
         else serial_settings_.StopBits = QSerialPort::StopBits::OneStop;
 
-
-
-
-        Generic_Port* port_ = new Serial_Port(&serial_settings_, sizeof(serial_settings_));
-        QString new_port_name = ui->txt_port_name->text();
-        if (port_->start() == 0)
+        if (emit add_port(new_port_name, Serial, static_cast<void*>(&serial_settings_), sizeof(serial_settings_), &thread_settings_, mavlink_manager_))
         {
-            // generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr
-            port_read_thread* new_port_thread = new port_read_thread(&thread_settings_, mavlink_manager_, port_);
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
-            // connection_manager_.add(ui->list_connections, new_port_name, port_);
-            if (new_port_thread->isRunning()) connection_manager_->add(ui->list_connections, new_port_name, port_, new_port_thread);
-            else
-            {
-                (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
-                new_port_thread->terminate();
-                delete new_port_thread;
-                port_->stop();
-                delete port_;
-            }
+            QMessageBox msgBox;
+            msgBox.setText("Successfully Opened Serial Port!");
+            msgBox.setDetailedText(serial_settings_.get_QString() + thread_settings_.get_QString());
+            msgBox.exec();
         }
-        else
-        {
-            delete port_;
-            return;
-        }
-
-        QMessageBox msgBox;
-        msgBox.setText("Successfully Opened Serial Port!");
-        msgBox.setDetailedText(serial_settings_.get_QString() + thread_settings_.get_QString());
-        msgBox.exec();
+        else return;
 
         // serial_settings_.printf(); //debug
         // thread_settings_.printf(); //debug
@@ -279,52 +293,28 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
     case UDP:
     {
         udp_settings udp_settings_;
-
         udp_settings_.type = type_;
-
-        udp_settings_.host_address = (ui->cmbx_host_address->currentText());
+        udp_settings_.host_address = ui->cmbx_host_address->currentText();
         udp_settings_.host_port = ui->txt_host_port->text().toUInt();
-        udp_settings_.local_address = (ui->cmbx_local_address->currentText());
+        udp_settings_.local_address = ui->cmbx_local_address->currentText();
         udp_settings_.local_port = ui->txt_local_port->text().toUInt();
 
-        Generic_Port* port_ = new UDP_Port(&udp_settings_, sizeof(udp_settings_));
-        QString new_port_name = ui->txt_port_name->text();
-        if (port_->start() == 0)
+        if (emit add_port(new_port_name, UDP, static_cast<void*>(&udp_settings_), sizeof(udp_settings_), &thread_settings_, mavlink_manager_))
         {
-            // generic_thread_settings &new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr
-            port_read_thread* new_port_thread = new port_read_thread(&thread_settings_, mavlink_manager_, port_);
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
-            // connection_manager_.add(ui->list_connections, new_port_name, port_);
-            if (new_port_thread->isRunning()) connection_manager_->add(ui->list_connections, new_port_name, port_, new_port_thread);
-            else
-            {
-                (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
-                new_port_thread->terminate();
-                delete new_port_thread;
-                port_->stop();
-                delete port_;
-            }
+            QMessageBox msgBox;
+            msgBox.setText("Successfully Started UDP Communication!");
+            msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
+            msgBox.exec();
         }
-        else
-        {
-            delete port_;
-            return;
-        }
-
-
-        QMessageBox msgBox;
-        msgBox.setText("Successfully Started UDP Communication!");
-        msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
-        msgBox.exec();
+        else return;
 
         // udp_settings_.printf(); //debug
         break;
     }
     }
-
-
+    ui->list_connections->addItem(new_port_name);
     ui->stackedWidget_main->setCurrentIndex(1);
-
+    emit port_added(new_port_name);
 }
 
 
@@ -364,7 +354,9 @@ void KGroundControl::on_btn_host_update_clicked()
 {
     ui->cmbx_host_address->clear();
     const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHost);
-    ui->cmbx_host_address->addItem(localhost.toString());
+    // for (int i = 0; i < ui->list_connections->count(); i++) qDebug() << (emit get_port_settings_QString(ui->list_connections->item(i)->text()));
+    ui->cmbx_host_address->addItem(localhost.toString()); //this somehow corrupts UDP ip !!!
+    // for (int i = 0; i < ui->list_connections->count(); i++) qDebug() << (emit get_port_settings_QString(ui->list_connections->item(i)->text()));
     for (const QHostAddress &address: QNetworkInterface::allAddresses())
     {
         if (address.protocol() == QAbstractSocket::IPv4Protocol && address != localhost)
@@ -380,7 +372,7 @@ void KGroundControl::on_btn_local_update_clicked()
     ui->cmbx_local_address->clear();
     const QHostAddress &localhost = QHostAddress(QHostAddress::Any);
     ui->cmbx_local_address->addItem(localhost.toString());
-    for (const QHostAddress &address: QNetworkInterface::allAddresses())
+    for (QHostAddress &address: QNetworkInterface::allAddresses())
     {
         if (address.protocol() == QAbstractSocket::IPv4Protocol && address != localhost)
         {
@@ -410,7 +402,15 @@ void KGroundControl::on_btn_add_comm_clicked()
 
 void KGroundControl::on_btn_remove_comm_clicked()
 {
-    connection_manager_->remove(ui->list_connections);
+    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    foreach (QListWidgetItem* item, items)
+    {
+        QString port_name_ = item->text();
+        emit switch_emit_heartbeat(port_name_, false, systhread_);
+        if (emit remove_port(port_name_)) emit port_removed(port_name_);
+    }
+
+    qDeleteAll(items);
     on_btn_uart_update_clicked();
     update_port_status_txt();
 }
@@ -418,10 +418,17 @@ void KGroundControl::on_btn_remove_comm_clicked()
 
 void KGroundControl::on_btn_mavlink_inspector_clicked()
 {
-    generic_thread_settings thread_settings_;
-    thread_settings_.priority = QThread::Priority::LowPriority;
-    thread_settings_.update_rate_hz = 30;
-    new mavlink_inspector_thread(this, &thread_settings_, mavlink_manager_);
+    // generic_thread_settings thread_settings_;
+    // thread_settings_.priority = QThread::Priority::LowPriority;
+    // thread_settings_.update_rate_hz = 30;
+    // new mavlink_inspector_thread(this, &thread_settings_, mavlink_manager_);
+
+    MavlinkInspector* mavlink_inpector_ = new MavlinkInspector(this);
+    mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    mavlink_inpector_->setWindowIconText("Mavlink Inspector");
+    mavlink_inpector_->show();
+    connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display);
+    connect(mavlink_inpector_, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
 }
 
 
@@ -469,7 +476,7 @@ void KGroundControl::on_checkBox_emit_system_heartbeat_toggled(bool checked)
     QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
     foreach (QListWidgetItem* item, items)
     {
-        connection_manager_->switch_emit_heartbeat(item->text(), checked);
+        emit switch_emit_heartbeat(item->text(), checked, systhread_);
     }
 
     update_port_status_txt();
@@ -484,7 +491,7 @@ void KGroundControl::on_list_connections_itemSelectionChanged()
     {
         ui->groupBox_connection_ctrl->setEnabled(true);
 
-        ui->checkBox_emit_system_heartbeat->setChecked(connection_manager_->is_heartbeat_emited(items[0]->text()));
+        ui->checkBox_emit_system_heartbeat->setChecked(emit is_heartbeat_emited(items[0]->text()));
         ui->checkBox_emit_system_heartbeat->setCheckable(true);
     }
     else
@@ -500,17 +507,10 @@ void KGroundControl::update_port_status_txt(void)
 {
     QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
     ui->txt_port_info->clear();
-    if (items.size() == 1)
-    {
-        ui->txt_port_info->setText(connection_manager_->get_port_settings_QString(items[0]->text()));
-    }
+    if (items.size() == 1) ui->txt_port_info->setText(emit get_port_settings_QString(items[0]->text()));
     else if (items.size() > 1)
     {
-
-        foreach (QListWidgetItem* item, items)
-        {
-            ui->txt_port_info->append(connection_manager_->get_port_settings_QString(item->text()));
-        }
+        foreach (QListWidgetItem* item, items) ui->txt_port_info->append(emit get_port_settings_QString(item->text()));
     }
 }
 
@@ -522,11 +522,27 @@ void KGroundControl::on_btn_mocap_clicked()
     mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     mocap_manager_->setWindowIconText("Motion Capture Manager");
     mocap_manager_->show();
-    // setParent(mav_inspector);
+}
 
-    // QObject::connect(mavlink_manager_, &mavlink_manager::updated, mav_inspector, &MavlinkInspector::create_new_slot_btn_display);
-    // QObject::connect(mav_inspector, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
 
-    // start(generic_thread_settings_.priority);
+void KGroundControl::on_btn_relay_clicked()
+{
+    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
+    foreach (QListWidgetItem* item, items)
+    {
+        QVector<QString> available_port_names;
+        for (int i = 0; i < ui->list_connections->count(); i++)
+        {
+            QListWidgetItem* item_ = ui->list_connections->item(i);
+            if (item_->text() != item->text()) available_port_names.push_back(item_->text());
+        }
+        if (available_port_names.size() > 0)
+        {
+            RelayDialog relay_dialog(this, item->text(), available_port_names);
+            connect(&relay_dialog, &RelayDialog::selected_items, connection_manager_, &connection_manager::update_routing, Qt::SingleShotConnection);
+            relay_dialog.exec();
+        }
+    }
+
 }
 

@@ -29,9 +29,6 @@ public:
     UDP_Port(void* new_settings, size_t settings_size);
     ~UDP_Port();
 
-    char read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_);
-
-
     char start();
     void stop();
 
@@ -47,7 +44,8 @@ public:
 
     // void cleanup(void);
 public slots:
-    int write_message(const mavlink_message_t &message);
+    bool read_message(void* message, int mavlink_channel_);
+    int write_message(void* message);
 
 private:
 

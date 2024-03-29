@@ -4,9 +4,8 @@
 #include <QMainWindow>
 
 #include "mocap_manager.h"
-#include "mocap.h"
 #include "connection_manager.h"
-#include "mavlink_manager.h"
+#include "mavlink_inspector.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -26,6 +25,22 @@ public:
 
 signals:
     void settings_updated(kgroundcontrol_settings* new_settings);
+
+    bool switch_emit_heartbeat(QString port_name_, bool on_off_val, void* system_status_thread_);
+    bool is_heartbeat_emited(QString port_name_);
+    QString get_port_settings_QString(QString port_name_);
+    bool get_port_settings(QString port_name_, void* settings_);
+    bool get_port_type(QString port_name_, connection_type &type);
+
+    bool check_if_port_name_is_unique(QString &in);
+    bool add_port(QString port_name, \
+             connection_type port_type, void* port_settings_, size_t settings_size,\
+             generic_thread_settings* thread_settings_,\
+             mavlink_manager* mavlink_manager_);
+    void port_added(QString port_name);
+
+    bool remove_port(QString port_name);
+    void port_removed(QString port_name);
 
 private slots:
 
@@ -67,12 +82,14 @@ private slots:
 
     void on_btn_mocap_clicked();
 
+    void on_btn_relay_clicked();
+
 private:
     Ui::KGroundControl *ui;
 
     mocap_manager* mocap_manager_ = nullptr;
-
     connection_manager* connection_manager_ = nullptr;
+
     mavlink_manager* mavlink_manager_ = nullptr;
     system_status_thread* systhread_ = nullptr;
     mocap_thread* mocap_thread_ = nullptr;

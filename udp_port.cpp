@@ -50,9 +50,9 @@ bool UDP_Port::toggle_heartbeat_emited(bool val)
 // ------------------------------------------------------------------------------
 //   Read from UDP
 // ------------------------------------------------------------------------------
-char UDP_Port::read_message(mavlink_message_t &message, mavlink_channel_t mavlink_channel_)
+bool UDP_Port::read_message(void* message, int mavlink_channel_)
 {
-    uint8_t          msgReceived = false;
+    bool msgReceived = false;
 
     // check if old data has not been parsed yet
     if (datagram.data().size() > 0)
@@ -67,7 +67,7 @@ char UDP_Port::read_message(mavlink_message_t &message, mavlink_channel_t mavlin
         for (i = 0; i < data.size(); i++)
         {
             // the parsing
-            msgReceived = mavlink_parse_char(mavlink_channel_, data[i], &message, &status);
+            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status));
 
 
             // check for dropped packets
@@ -110,7 +110,7 @@ char UDP_Port::read_message(mavlink_message_t &message, mavlink_channel_t mavlin
         for (i = 0; i < data.size(); i++)
         {
             // the parsing
-            msgReceived = mavlink_parse_char(mavlink_channel_, data[i], &message, &status);
+            msgReceived = mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status);
 
 
             // check for dropped packets
@@ -136,12 +136,12 @@ char UDP_Port::read_message(mavlink_message_t &message, mavlink_channel_t mavlin
 // ------------------------------------------------------------------------------
 //   Write to UDP
 // ------------------------------------------------------------------------------
-int UDP_Port::write_message(const mavlink_message_t &message)
+int UDP_Port::write_message(void* message)
 {
     char buf[300];
 
     // Translate message to buffer
-    unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, &message);
+    unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, static_cast<mavlink_message_t*>(message));
 
     // Write buffer to serial port, locks port while writing
     int bytesWritten = _write_port(buf,len);

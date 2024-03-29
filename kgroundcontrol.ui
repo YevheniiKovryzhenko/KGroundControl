@@ -193,7 +193,7 @@
                 </widget>
                </item>
                <item>
-                <widget class="QPushButton" name="btn_add_comm_2">
+                <widget class="QPushButton" name="btn_relay">
                  <property name="text">
                   <string>Relay</string>
                  </property>
@@ -2041,7 +2041,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
   <buttongroup name="buttonGroup_2"/>
+  <buttongroup name="buttonGroup"/>
  </buttongroups>
 </ui>

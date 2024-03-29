@@ -4,8 +4,9 @@
 #include <QThread>
 
 #include "settings.h"
-#include "mavlink_manager.h"
-#include "generic_port.h"
+// #include "mavlink_manager.h"
+// #include "mavlink_inspector.h"
+// #include "generic_port.h"
 
 class generic_thread : public QThread
 {
@@ -21,38 +22,6 @@ public slots:
 protected:
     QMutex* mutex;
     generic_thread_settings generic_thread_settings_;
-};
-
-
-
-class port_read_thread : public generic_thread
-{
-    Q_OBJECT
-
-public:
-    explicit port_read_thread(generic_thread_settings *new_settings, mavlink_manager* mavlink_manager_ptr, Generic_Port* port_ptr);
-    // ~port_read_thread();
-
-    void run();
-
-private:
-    mavlink_manager* mavlink_manager_;
-    Generic_Port* port_;
-
-};
-
-class mavlink_inspector_thread  : public generic_thread
-{
-    Q_OBJECT
-
-public:
-    explicit mavlink_inspector_thread(QWidget *parent, generic_thread_settings *new_settings, mavlink_manager* mavlink_manager_ptr);
-    ~mavlink_inspector_thread();
-    void run();
-
-private:
-    MavlinkInspector* mav_inspector;
-    mavlink_manager* mavlink_manager_;
 };
 
 #endif // THREADS_H
