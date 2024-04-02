@@ -1,6 +1,7 @@
 #include "threads.h"
 
-generic_thread::generic_thread(generic_thread_settings* settings_in_)
+generic_thread::generic_thread(QObject* parent, generic_thread_settings* settings_in_)
+    : QThread(parent)
 {
     mutex = new QMutex;
     update_settings(settings_in_);
@@ -19,4 +20,9 @@ void generic_thread::update_settings(generic_thread_settings* settings_in_)
     memcpy(&generic_thread_settings_, settings_in_, sizeof(generic_thread_settings));
 
     mutex->unlock();
+}
+
+QString generic_thread::get_settings_QString(void)
+{
+    return generic_thread_settings_.get_QString();
 }

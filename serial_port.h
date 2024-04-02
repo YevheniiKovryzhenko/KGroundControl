@@ -21,33 +21,36 @@
  */
 class Serial_Port: public Generic_Port
 {
-
+    Q_OBJECT
 public:
 
-    Serial_Port(void* new_settings, size_t settings_size);
+    Serial_Port(QObject* parent, serial_settings* new_settings, size_t settings_size);
     ~Serial_Port();
 
     char start();
     void stop();
 
-    QSerialPort* Port = nullptr;
+    connection_type get_type(void);
+
+    // void cleanup(void);
+public slots:
+    bool read_message(void* message, int mavlink_channel_);
+    int write_message(void* message);
+    int write_to_port(QByteArray &message);
 
     bool is_heartbeat_emited(void);
     bool toggle_heartbeat_emited(bool val);
 
     QString get_settings_QString(void);
     void get_settings(void* current_settings);
-    connection_type get_type(void);
 
-
-
-    // void cleanup(void);
-public slots:
-    bool read_message(void* message, int mavlink_channel_);
-    int write_message(void* message);
+// signals:
+//     void ready_to_forward_new_data(const QByteArray& new_data);
 
 private:
+    void read_port(void);
 
+    QSerialPort* Port = nullptr;
     QMutex* mutex = nullptr;
 
     mavlink_status_t lastStatus;
@@ -58,6 +61,8 @@ private:
     bool exiting = false;
 
     serial_settings settings;
+
+    QByteArray bytearray;
 
 };
 

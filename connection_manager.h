@@ -13,24 +13,25 @@ class port_read_thread : public generic_thread
     Q_OBJECT
 
 public:
-    explicit port_read_thread(generic_thread_settings *new_settings);
+    explicit port_read_thread(QObject* parent, generic_thread_settings *new_settings);
     // ~port_read_thread();
 
     void run();
 
 signals:
     bool read_message(void* message, int mavlink_channel_);
-    void parse(void* message);
+    void parse(void* message, qint64 msg_time_stamp);
     int write_message(void* message);
 
 private:
+    // mavlink_message_t message;
 };
 
 class system_status_thread  : public generic_thread
 {
     Q_OBJECT
 public:
-    explicit system_status_thread(generic_thread_settings* settings_in_, kgroundcontrol_settings* kground_control_settings_in_);
+    explicit system_status_thread(QObject* parent, generic_thread_settings* settings_in_, kgroundcontrol_settings* kground_control_settings_in_);
     ~system_status_thread();
 
     void run();
@@ -54,6 +55,14 @@ public:
     connection_manager(QObject* parent = nullptr);
     ~connection_manager();
 
+signals:
+    bool heartbeat_swiched(bool val);
+    void kgroundcontrol_settings_updated(kgroundcontrol_settings* kground_control_settings_in_);
+    void port_settings_request(void* settings_);
+    connection_type port_type_request(void);
+    QString port_settings_QString_request(void);
+    QString port_read_thread_settings_QString_request(void);
+
 public slots:
     bool is_unique(QString &in);
 
@@ -68,7 +77,7 @@ public slots:
 
     unsigned int get_n(void);
 
-    bool switch_emit_heartbeat(QString port_name_, bool on_off_val, void* systhread_);
+    bool switch_emit_heartbeat(QString port_name_, bool on_off_val);
     bool is_heartbeat_emited(QString port_name_);
 
 
@@ -84,10 +93,13 @@ public slots:
     bool get_routing(QString src_port_name_, QVector<QString> &routing_port_names);
     // bool relay_msg(QString src_port_name_, mavlink_message_t &msg);
 
+    void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
+
 private:
 
     bool add_routing(QString src_port_name_, QString target_port_name);
     bool remove_routing(QString src_port_name_, QString target_port_name);
+    void remove_routing(QString target_port_name);
 
     QMutex* mutex;
     unsigned int n_connections = 0;
@@ -98,6 +110,8 @@ private:
     QVector<bool> heartbeat_emited;
 
     QVector<QVector<QString>> routing_table;
+
+    system_status_thread* systhread_ = nullptr;
 };
 
 

@@ -118,8 +118,8 @@ QString mocap_data_t::get_QString(void)
     return detailed_text_;
 }
 
-mocap_thread::mocap_thread(generic_thread_settings *new_settings, mocap_settings *mocap_new_settings)
-    : generic_thread(new_settings)
+mocap_thread::mocap_thread(QObject* parent, generic_thread_settings *new_settings, mocap_settings *mocap_new_settings)
+    : generic_thread(parent, new_settings)
 {
     start(mocap_new_settings);
 }
@@ -489,7 +489,7 @@ void mocap_manager::on_btn_connection_confirm_clicked()
 
     on_btn_terminate_all_clicked();
 
-    (*mocap_thread_) = new mocap_thread(&thread_settings_, &udp_settings_);
+    (*mocap_thread_) = new mocap_thread(this, &thread_settings_, &udp_settings_);
     QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
     if (!(*mocap_thread_)->isRunning())
     {
@@ -596,7 +596,7 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
 
     terminate_visuals_thread();
 
-    mocap_data_inspector_thread_ = new mocap_data_inspector_thread(&thread_settings_);
+    mocap_data_inspector_thread_ = new mocap_data_inspector_thread(this, &thread_settings_);
     QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.5)});
     if (!mocap_data_inspector_thread_->isRunning())
     {
@@ -676,8 +676,8 @@ void mocap_manager::update_visuals_mocap_data(void)
 }
 
 
-mocap_data_inspector_thread::mocap_data_inspector_thread(generic_thread_settings *new_settings)
-    : generic_thread(new_settings)
+mocap_data_inspector_thread::mocap_data_inspector_thread(QObject* parent, generic_thread_settings *new_settings)
+    : generic_thread(parent, new_settings)
 {
     start(generic_thread_settings_.priority);
 }

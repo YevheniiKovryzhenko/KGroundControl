@@ -44,10 +44,11 @@
 //   Con/De structors
 // ------------------------------------------------------------------------------
 
-Serial_Port::Serial_Port(void* new_settings, size_t settings_size)
+Serial_Port::Serial_Port(QObject* parent, serial_settings* new_settings, size_t settings_size)
+    : Generic_Port(parent)
 {
     mutex = new QMutex();
-    memcpy(&settings, (serial_settings*)new_settings, settings_size);
+    memcpy(&settings, new_settings, settings_size);
 }
 
 Serial_Port::~Serial_Port()
@@ -75,51 +76,57 @@ bool Serial_Port::toggle_heartbeat_emited(bool val)
     return res;
 }
 
-// void Serial_Port::cleanup(void)
-// {
-//     exiting = true;
-// }
 
 // ------------------------------------------------------------------------------
-//   Read from Serial
+//   Read from Port
+// ------------------------------------------------------------------------------
+void Serial_Port::read_port(void)
+{
+    mutex->lock();
+    QByteArray new_data = Port->readAll();
+    bytearray.append(new_data);
+    mutex->unlock();
+
+    emit ready_to_forward_new_data(new_data);
+}
+// ------------------------------------------------------------------------------
+//   Read from Internal Buffer and Parse MAVLINK message
 // ------------------------------------------------------------------------------
 bool Serial_Port::read_message(void* message, int mavlink_channel_)
 {
     bool msgReceived = false;
+    mavlink_status_t status;
 
-    // --------------------------------------------------------------------------
-    //   READ FROM PORT
-    // --------------------------------------------------------------------------
-
-    // this function locks the port during read
-    while (!exiting && !msgReceived && Port->bytesAvailable() > 0)
+    mutex->lock();
+    if (bytearray.size() > 0)
     {
-        uint8_t          cp;
-        mavlink_status_t status;
-        int result = _read_port((char*)&cp);
-
-
         // --------------------------------------------------------------------------
         //   PARSE MESSAGE
         // --------------------------------------------------------------------------
-        if (result > 0)
+        int i;
+        for (i = 0; i < bytearray.size(); i++)
         {
             // the parsing
-            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), cp, static_cast<mavlink_message_t*>(message), &status));
+            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), bytearray[i], static_cast<mavlink_message_t*>(message), &status));
 
-            // check for dropped packets
-            if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
+
+
+
+            if (msgReceived)
             {
-                (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
+                i++;
+                break;
             }
-            lastStatus = status;
         }
+        if (i < bytearray.size()) bytearray.remove(0, i+1); //keep data for next parsing run
+        else bytearray.clear(); //start fresh next time
+    }
+    lastStatus = status;
+    mutex->unlock();
 
-        // Couldn't read from port
-        else
-        {
-            (new QErrorMessage)->showMessage(Port->errorString());
-        }
+    if (msgReceived && status.packet_rx_drop_count > 0)
+    {
+        qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
     }
     // Done!
     return msgReceived;
@@ -140,6 +147,22 @@ int Serial_Port::write_message(void* message)
 
     return bytesWritten;
 }
+int Serial_Port::write_to_port(QByteArray &message)
+{
+
+    // Lock
+    mutex->lock();
+
+    // Write packet via serial link
+    int len = Port->write(message);
+
+    // Unlock
+    mutex->unlock();
+
+
+    return len;
+}
+
 
 
 // ------------------------------------------------------------------------------
@@ -155,7 +178,7 @@ char Serial_Port::start(void)
     //   SETUP PORT AND OPEN PORT
     // --------------------------------------------------------------------------
 
-    Port = new QSerialPort();
+    Port = new QSerialPort(this);
     Port->setPortName(settings.uart_name);
     Port->setBaudRate(settings.baudrate);
     Port->setDataBits(settings.DataBits);
@@ -165,6 +188,7 @@ char Serial_Port::start(void)
     if (!Port->open(QIODevice::ReadWrite))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
+        // delete Port;
         return -1;
     }
     Port->flush();
@@ -172,6 +196,7 @@ char Serial_Port::start(void)
     //   CONNECTED!
     // --------------------------------------------------------------------------    
     lastStatus.packet_rx_drop_count = 0;
+    connect(Port, &QSerialPort::readyRead, this, &Serial_Port::read_port);
 
     return 0;
 
@@ -214,7 +239,7 @@ int Serial_Port::_write_port(char *buf, unsigned len)
     mutex->lock();
 
     // Write packet via serial link
-    Port->write(buf, len);
+    len = Port->write(buf, len);
 
     // Unlock
     mutex->unlock();

@@ -17,23 +17,27 @@ class Generic_Port : public QObject
 
 public:
 
-    Generic_Port(){};
+    Generic_Port(QObject* parent = nullptr) : QObject(parent) {};
     virtual ~Generic_Port(){};
     virtual char start()=0;
     virtual void stop()=0;
 
-    virtual bool is_heartbeat_emited(void)=0;
-    virtual bool toggle_heartbeat_emited(bool val)=0;
-
-    virtual QString get_settings_QString(void)=0;
-    virtual void get_settings(void* current_settings)=0;
     virtual connection_type get_type(void)=0;
 
     // virtual void cleanup(void);
+signals:
+    int ready_to_forward_new_data(QByteArray &new_data);
 
 public slots:
     virtual bool read_message(void* message, int mavlink_channel_)=0;
     virtual int write_message(void* message)=0;
+    virtual int write_to_port(QByteArray &message)=0;
+
+    virtual bool toggle_heartbeat_emited(bool val)=0;
+    virtual bool is_heartbeat_emited(void)=0;
+
+    virtual QString get_settings_QString(void)=0;
+    virtual void get_settings(void* current_settings)=0;
 
 
 };

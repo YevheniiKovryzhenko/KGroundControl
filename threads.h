@@ -13,11 +13,13 @@ class generic_thread : public QThread
     Q_OBJECT
 
 public:
-    generic_thread(generic_thread_settings* settings_in_);
+    generic_thread(QObject* parent, generic_thread_settings* settings_in_);
     ~generic_thread();
 
 public slots:
     void update_settings(generic_thread_settings* settings_in_);
+
+    QString get_settings_QString(void);
 
 protected:
     QMutex* mutex;

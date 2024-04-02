@@ -21,12 +21,12 @@ public:
     KGroundControl(QWidget *parent = nullptr);
     ~KGroundControl();
 
-    kgroundcontrol_settings settings;
+
 
 signals:
     void settings_updated(kgroundcontrol_settings* new_settings);
 
-    bool switch_emit_heartbeat(QString port_name_, bool on_off_val, void* system_status_thread_);
+    bool switch_emit_heartbeat(QString port_name_, bool on_off_val);
     bool is_heartbeat_emited(QString port_name_);
     QString get_port_settings_QString(QString port_name_);
     bool get_port_settings(QString port_name_, void* settings_);
@@ -86,12 +86,12 @@ private slots:
 
 private:
     Ui::KGroundControl *ui;
-
+    kgroundcontrol_settings settings;
     mocap_manager* mocap_manager_ = nullptr;
     connection_manager* connection_manager_ = nullptr;
 
     mavlink_manager* mavlink_manager_ = nullptr;
-    system_status_thread* systhread_ = nullptr;
+    // system_status_thread* systhread_ = nullptr;
     mocap_thread* mocap_thread_ = nullptr;
 
     void update_port_status_txt(void);

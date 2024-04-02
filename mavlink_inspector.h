@@ -5,47 +5,44 @@
 #include <QVBoxLayout>
 #include <QMutex>
 #include <QListWidget>
+#include <QQueue>
 
 #include "common/mavlink.h"
 #include "mavlink_enum_types.h"
 #include "threads.h"
 
 
-
-// template <typename T>
-// class ring_buffer
-// {
-// public:
-//     ring_buffer(size_t n);
-//     ~ring_buffer();
-
-//     void push(T &new_data);
-//     void clear();
-
-//     void get_last(T*);
-//     void get_first(T*);
-//     void get(T*, size_t ind);
-
-//     template<typename T_out> T_out avg(void);
-//     template<typename T_out> T_out avg_delta(void);
-
-// private:
-//     size_t n_;
-//     size_t max_ind_;
-//     T* data_ = nullptr;
-// };
+//Кольцевой буфер на основе стандартной очереди
+template <class T>
+class CQueue : public QQueue <T> {
+    //как наследоваться от стандартного контейнера
+    //для любого типа данных T
+private:
+    int count; //предельный размер
+public:
+    inline CQueue (int cnt) : QQueue<T>(),count(cnt) {
+        //конструктор
+    }
+    inline void enqueue (const T &t) {
+        //перегрузка метода постановки в очередь
+        if (count==QQueue<T>::count()) {
+            QQueue<T>::dequeue();
+            //удалить старейший элемент по заполнении
+        }
+        QQueue<T>::enqueue(t);
+    }
+};
 
 template <typename mav_type_in>
 class mavlink_processor
 {
-
 public:
     mavlink_processor();
     ~mavlink_processor();
 
-    void update_msg(mav_type_in &new_msg);
-    // ring_buffer<qint64> timestamps = ring_buffer<qint64>(5);
-    qint64 timestamp;
+    void update_msg(mav_type_in &new_msg, qint64 msg_time_stamp);
+    // CQueue<qint64> timestamps = CQueue<qint64>(5);
+    qint64 timestamp_ms;
     bool exists(void);
 private:
     mav_type_in* msg = NULL;
@@ -92,8 +89,22 @@ public:
     MAVHEADER_DEF_MACRO(debug_vect)
     MAVHEADER_DEF_MACRO(debug)
     MAVHEADER_DEF_MACRO(distance_sensor)
+    MAVHEADER_DEF_MACRO(servo_output_raw)
+    MAVHEADER_DEF_MACRO(vfr_hud)
+    MAVHEADER_DEF_MACRO(attitude_quaternion)
+    MAVHEADER_DEF_MACRO(scaled_imu)
+    MAVHEADER_DEF_MACRO(scaled_imu2)
+    MAVHEADER_DEF_MACRO(scaled_imu3)
+    MAVHEADER_DEF_MACRO(timesync)
+    MAVHEADER_DEF_MACRO(attitude_target)
+    MAVHEADER_DEF_MACRO(ping)
+    MAVHEADER_DEF_MACRO(vibration)
+    MAVHEADER_DEF_MACRO(home_position)
+    MAVHEADER_DEF_MACRO(extended_sys_state)
+    MAVHEADER_DEF_MACRO(adsb_vehicle)
+    MAVHEADER_DEF_MACRO(link_node_status)
 
-    bool decode_msg(mavlink_message_t* new_msg, QString& msg_name_out);
+    bool decode_msg(mavlink_message_t* new_msg, QString& msg_name_out, qint64 msg_time_stamp);
 
 signals:
     MAVHEADER_SIGDEF_MACRO(heartbeat)
@@ -118,16 +129,21 @@ signals:
     MAVHEADER_SIGDEF_MACRO(debug_vect)
     MAVHEADER_SIGDEF_MACRO(debug)
     MAVHEADER_SIGDEF_MACRO(distance_sensor)
+    MAVHEADER_SIGDEF_MACRO(servo_output_raw)
+    MAVHEADER_SIGDEF_MACRO(vfr_hud)
+    MAVHEADER_SIGDEF_MACRO(attitude_quaternion)
+    MAVHEADER_SIGDEF_MACRO(scaled_imu)
+    MAVHEADER_SIGDEF_MACRO(scaled_imu2)
+    MAVHEADER_SIGDEF_MACRO(scaled_imu3)
+    MAVHEADER_SIGDEF_MACRO(timesync)
+    MAVHEADER_SIGDEF_MACRO(attitude_target)
+    MAVHEADER_SIGDEF_MACRO(ping)
+    MAVHEADER_SIGDEF_MACRO(vibration)
+    MAVHEADER_SIGDEF_MACRO(home_position)
+    MAVHEADER_SIGDEF_MACRO(extended_sys_state)
+    MAVHEADER_SIGDEF_MACRO(adsb_vehicle)
+    MAVHEADER_SIGDEF_MACRO(link_node_status)
 };
-
-// class mavlink_relay : public QObject
-// {
-//     Q_OBJECT
-// public:
-//     mavlink_relay(QObject* parent);
-//     ~mavlink_relay();
-
-// };
 
 
 class mavlink_manager : public QObject
@@ -140,13 +156,13 @@ public:
 
 public slots:
     unsigned int get_n(void);
-    void parse(void* new_msg);
+    void parse(void* new_msg, qint64 msg_time_stamp);
 
     void clear(void);
 
 signals:
 
-    void updated(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name);
+    void updated(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, qint64 msg_time_stamp);
 
 private:
     bool is_new(mavlink_message_t* new_msg);
@@ -163,19 +179,19 @@ private:
 
 
 
-// class mavlink_inspector_thread  : public generic_thread
-// {
-//     Q_OBJECT
+class mavlink_inspector_thread  : public generic_thread
+{
+    Q_OBJECT
 
-// public:
-//     explicit mavlink_inspector_thread(generic_thread_settings *new_settings);
-//     ~mavlink_inspector_thread();
-//     void run();
+public:
+    explicit mavlink_inspector_thread(QObject* parent, generic_thread_settings* new_settings);
+    ~mavlink_inspector_thread();
+    void run();
 
-// private:
-//     // MavlinkInspector* mav_inspector;
-//     // mavlink_manager* mavlink_manager_;
-// };
+signals:
+    void update_all_visuals(void);
+private:
+};
 
 
 namespace Ui {
@@ -191,7 +207,7 @@ public:
     ~MavlinkInspector();
 
 public slots:
-    void create_new_slot_btn_display(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name);
+    void create_new_slot_btn_display(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, qint64 msg_time_stamp);
 
 
 private slots:
@@ -199,12 +215,13 @@ private slots:
     void on_btn_clear_clicked();
 
     void on_cmbx_sysid_currentTextChanged(const QString &arg1);
-
     void on_cmbx_compid_currentTextChanged(const QString &arg1);
 
     void clear_msg_list_container(void);
     void clear_sysid_list(void);
     void clear_compid_list(void);
+
+    void update_msg_list_visuals(void);
 
 signals:
     void clear_mav_manager();
@@ -218,8 +235,12 @@ private:
 
     QVector<QString> names;
 
+    static const size_t time_buffer_size = 30;
+    QVector<CQueue<qint64>*> timestamps_ms;
+    // QVector<CQueue<>>
+
     QMutex* mutex = nullptr;
-    // mavlink_inspector_thread* mavlink_inspector_thread_ = nullptr;
+    mavlink_inspector_thread* mavlink_inspector_thread_ = nullptr;
 };
 
 #endif // MAVLINK_INSPECTOR_H

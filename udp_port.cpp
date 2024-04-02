@@ -15,7 +15,8 @@
 //   Con/De structors
 // ------------------------------------------------------------------------------
 
-UDP_Port::UDP_Port(void* new_settings, size_t settings_size)
+UDP_Port::UDP_Port(QObject* parent, udp_settings* new_settings, size_t settings_size)
+    : Generic_Port(parent)
 {
     mutex = new QMutex();
     memcpy(&settings, (udp_settings*)new_settings, settings_size);
@@ -47,35 +48,126 @@ bool UDP_Port::toggle_heartbeat_emited(bool val)
 }
 
 
+// // ------------------------------------------------------------------------------
+// //   Read from UDP
+// // ------------------------------------------------------------------------------
+// bool UDP_Port::read_message(void* message, int mavlink_channel_)
+// {
+//     bool msgReceived = false;
+
+//     // check if old data has not been parsed yet
+//     if (datagram.data().size() > 0)
+//     {
+//         mavlink_status_t status;
+//         QByteArray data = datagram.data();
+
+//         // --------------------------------------------------------------------------
+//         //   PARSE MESSAGE
+//         // --------------------------------------------------------------------------
+//         int i;
+//         for (i = 0; i < data.size(); i++)
+//         {
+//             // the parsing
+//             msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status));
+
+
+//             // check for dropped packets
+//             if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
+//             {
+//                 // (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
+//                 qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
+//             }
+//             lastStatus = status;
+
+//             if (msgReceived)
+//             {
+//                 i++;
+//                 break;
+//             }
+//         }
+//         if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
+//         else datagram.clear(); //start fresh next time
+
+//         if (msgReceived) return true;
+//     }
+
+//     // --------------------------------------------------------------------------
+//     //   READ FROM PORT
+//     // --------------------------------------------------------------------------
+
+//     // this function locks the port during read
+//     while (!exiting && !msgReceived && Port->hasPendingDatagrams() && Port->pendingDatagramSize() > 0)
+//     {
+//         mutex->lock();
+//         datagram = Port->receiveDatagram();
+//         mutex->unlock();
+
+//         mavlink_status_t status;
+//         QByteArray data = datagram.data();
+
+//         // --------------------------------------------------------------------------
+//         //   PARSE MESSAGE
+//         // --------------------------------------------------------------------------
+//         int i;
+//         for (i = 0; i < data.size(); i++)
+//         {
+//             // the parsing
+//             msgReceived = mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status);
+
+
+//             // check for dropped packets
+//             if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
+//             {
+//                 // (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
+//                 qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
+//             }
+//             lastStatus = status;
+
+//             if (msgReceived)
+//             {
+//                 i++;
+//                 break;
+//             }
+//         }
+//         if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
+//         else datagram.clear(); //start fresh next time
+//     }
+//     // Done!
+//     return msgReceived;
+// }
+
 // ------------------------------------------------------------------------------
-//   Read from UDP
+//   Read from Port
+// ------------------------------------------------------------------------------
+void UDP_Port::read_port(void)
+{
+    mutex->lock();
+    QNetworkDatagram datagram = Port->receiveDatagram();
+    QByteArray new_data = datagram.data();
+    bytearray.append(new_data);
+    mutex->unlock();
+
+    emit ready_to_forward_new_data(new_data);
+}
+// ------------------------------------------------------------------------------
+//   Read from Internal Buffer and Parse MAVLINK message
 // ------------------------------------------------------------------------------
 bool UDP_Port::read_message(void* message, int mavlink_channel_)
 {
     bool msgReceived = false;
+    mavlink_status_t status;
 
-    // check if old data has not been parsed yet
-    if (datagram.data().size() > 0)
+    mutex->lock();
+    if (bytearray.size() > 0)
     {
-        mavlink_status_t status;
-        QByteArray data = datagram.data();
-
         // --------------------------------------------------------------------------
         //   PARSE MESSAGE
         // --------------------------------------------------------------------------
         int i;
-        for (i = 0; i < data.size(); i++)
+        for (i = 0; i < bytearray.size(); i++)
         {
             // the parsing
-            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status));
-
-
-            // check for dropped packets
-            if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
-            {
-                (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
-            }
-            lastStatus = status;
+            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), bytearray[i], static_cast<mavlink_message_t*>(message), &status));
 
             if (msgReceived)
             {
@@ -83,55 +175,20 @@ bool UDP_Port::read_message(void* message, int mavlink_channel_)
                 break;
             }
         }
-        if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
-        else datagram.clear(); //start fresh next time
-
-        if (msgReceived) return true;
+        if (i < bytearray.size()) bytearray.remove(0, i+1); //keep data for next parsing run
+        else bytearray.clear(); //start fresh next time
     }
+    lastStatus = status;
+    mutex->unlock();
 
-    // --------------------------------------------------------------------------
-    //   READ FROM PORT
-    // --------------------------------------------------------------------------
-
-    // this function locks the port during read
-    while (!exiting && !msgReceived && Port->hasPendingDatagrams())
+    if (msgReceived && status.packet_rx_drop_count > 0)
     {
-        mutex->lock();
-        datagram = Port->receiveDatagram();
-        mutex->unlock();
-
-        mavlink_status_t status;
-        QByteArray data = datagram.data();
-
-        // --------------------------------------------------------------------------
-        //   PARSE MESSAGE
-        // --------------------------------------------------------------------------
-        int i;
-        for (i = 0; i < data.size(); i++)
-        {
-            // the parsing
-            msgReceived = mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status);
-
-
-            // check for dropped packets
-            if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
-            {
-                (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
-            }
-            lastStatus = status;
-
-            if (msgReceived)
-            {
-                i++;
-                break;
-            }
-        }
-        if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
-        else datagram.clear(); //start fresh next time
+        qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
     }
     // Done!
     return msgReceived;
 }
+
 
 // ------------------------------------------------------------------------------
 //   Write to UDP
@@ -148,6 +205,18 @@ int UDP_Port::write_message(void* message)
 
     return bytesWritten;
 }
+int UDP_Port::write_to_port(QByteArray &message)
+{
+    // Lock
+    mutex->lock();
+
+    // Write packet via UDP link
+    int len = Port->write(message);
+
+    // Unlock
+    mutex->unlock();
+    return len;
+}
 
 
 // ------------------------------------------------------------------------------
@@ -163,7 +232,7 @@ char UDP_Port::start(void)
     //   SETUP PORT AND OPEN PORT
     // --------------------------------------------------------------------------
 
-    Port = new QUdpSocket();
+    Port = new QUdpSocket(this);
     if (!Port->bind(QHostAddress(settings.local_address), settings.local_port))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
@@ -184,7 +253,7 @@ char UDP_Port::start(void)
     //   CONNECTED!
     // --------------------------------------------------------------------------
     lastStatus.packet_rx_drop_count = 0;
-
+    connect(Port, &QUdpSocket::readyRead, this, &UDP_Port::read_port);
     return 0;
 
 }
@@ -210,7 +279,7 @@ int UDP_Port::_write_port(char *buf, unsigned len)
     mutex->lock();
 
     // Write packet via UDP link
-    Port->write(buf, len);
+    len = Port->write(buf, len);
 
 
     // Unlock

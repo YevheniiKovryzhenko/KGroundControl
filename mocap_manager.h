@@ -27,7 +27,7 @@ class mocap_thread : public generic_thread
 {
     Q_OBJECT
 public:
-    explicit mocap_thread(generic_thread_settings *new_settings, mocap_settings *mocap_new_settings);
+    explicit mocap_thread(QObject* parent, generic_thread_settings *new_settings, mocap_settings *mocap_new_settings);
     ~mocap_thread();
 
     void update_settings(mocap_settings* settings_in_);
@@ -59,7 +59,7 @@ class mocap_data_inspector_thread : public generic_thread
 {
     Q_OBJECT
 public:
-    explicit mocap_data_inspector_thread(generic_thread_settings *new_settings);
+    explicit mocap_data_inspector_thread(QObject* parent, generic_thread_settings *new_settings);
     ~mocap_data_inspector_thread();
 
     void run();

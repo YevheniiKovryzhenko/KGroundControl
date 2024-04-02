@@ -23,32 +23,35 @@
  */
 class UDP_Port: public Generic_Port
 {
-
+    Q_OBJECT
 public:
 
-    UDP_Port(void* new_settings, size_t settings_size);
+    UDP_Port(QObject* parent, udp_settings* new_settings, size_t settings_size);
     ~UDP_Port();
 
     char start();
     void stop();
 
-    QUdpSocket* Port = nullptr;
+    connection_type get_type(void);
+
+    // void cleanup(void);
+public slots:
+    bool read_message(void* message, int mavlink_channel_);
+    int write_message(void* message);
+    int write_to_port(QByteArray &message);
 
     bool is_heartbeat_emited(void);
     bool toggle_heartbeat_emited(bool val);
 
     QString get_settings_QString(void);
     void get_settings(void* current_settings);
-    connection_type get_type(void);
 
-
-    // void cleanup(void);
-public slots:
-    bool read_message(void* message, int mavlink_channel_);
-    int write_message(void* message);
+// signals:
+//     void ready_to_forward_new_data(const QByteArray& new_data);
 
 private:
-
+    void read_port(void);
+    QUdpSocket* Port = nullptr;
     QMutex* mutex = nullptr;
 
     mavlink_status_t lastStatus;
@@ -61,7 +64,8 @@ private:
 
     udp_settings settings;
 
-    QNetworkDatagram datagram;
+    // QNetworkDatagram datagram;
+    QByteArray bytearray;
 
 };
 

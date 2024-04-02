@@ -29,9 +29,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     connect(this, &KGroundControl::get_port_type, connection_manager_, &connection_manager::get_port_type, Qt::DirectConnection);
     connect(this, &KGroundControl::remove_port, connection_manager_, &connection_manager::remove, Qt::DirectConnection);
     connect(this, &KGroundControl::check_if_port_name_is_unique, connection_manager_, &connection_manager::is_unique, Qt::DirectConnection);
-    connect(this, &KGroundControl::add_port, connection_manager_, &connection_manager::add, Qt::DirectConnection);
+    connect(this, &KGroundControl::add_port, connection_manager_, &connection_manager::add);
     connect(this, &KGroundControl::get_port_settings_QString, connection_manager_, &connection_manager::get_port_settings_QString, Qt::DirectConnection);
-
+    connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
 
     // Start of Commns Pannel configuration:
 
@@ -42,19 +42,29 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->txt_port_name->setText("Port_1");
     // Start of Serial submenu configuration:
     QStringList def_baudrates = {\
-                                 QString::number(QSerialPort::BaudRate::Baud1200),\
-                                 QString::number(QSerialPort::BaudRate::Baud2400),\
-                                 QString::number(QSerialPort::BaudRate::Baud4800),\
-                                 QString::number(QSerialPort::BaudRate::Baud9600),\
-                                 QString::number(QSerialPort::BaudRate::Baud38400),\
-                                 QString::number(QSerialPort::BaudRate::Baud19200),\
-                                 QString::number(QSerialPort::BaudRate::Baud57600),\
-                                 QString::number(QSerialPort::BaudRate::Baud115200)};
+        QString::number(QSerialPort::BaudRate::Baud1200),\
+        QString::number(QSerialPort::BaudRate::Baud2400),\
+        QString::number(QSerialPort::BaudRate::Baud4800),\
+        QString::number(QSerialPort::BaudRate::Baud9600),\
+        QString::number(14400),\
+        QString::number(QSerialPort::BaudRate::Baud38400),\
+        QString::number(QSerialPort::BaudRate::Baud19200),\
+        QString::number(38400),\
+        QString::number(56000),\
+        QString::number(QSerialPort::BaudRate::Baud57600),\
+        QString::number(QSerialPort::BaudRate::Baud115200),\
+        QString::number(128000),\
+        QString::number(230400),\
+        QString::number(256000),\
+        QString::number(460800),\
+        QString::number(500000),\
+        QString::number(921600)};
+
     ui->cmbx_baudrate->clear();
     ui->cmbx_baudrate->addItems(def_baudrates);
     ui->cmbx_baudrate->setEditable(true);
     ui->cmbx_baudrate->setValidator(new QIntValidator(900, 4000000));
-    ui->cmbx_baudrate->setCurrentIndex(3);
+    ui->cmbx_baudrate->setCurrentIndex(9);
 
     QStringList def_databits = {\
                                  QString::number(QSerialPort::DataBits::Data5),\
@@ -129,14 +139,16 @@ KGroundControl::KGroundControl(QWidget *parent)
     // End of Settings Pannel //
 
 
-    // Start of System Thread Configuration //
-    generic_thread_settings systhread_settings_;
-    systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
-    systhread_settings_.update_rate_hz = 1;
-    systhread_ = new system_status_thread(&systhread_settings_, &settings);
-    // connect(systhread_, &system_status_thread::send_parsed_hearbeat, connection_manager_, &connection_manager::relay_parsed_hearbeat, Qt::DirectConnection);
-    connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
+    // // Start of System Thread Configuration //
+    // generic_thread_settings systhread_settings_;
+    // systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
+    // systhread_settings_.update_rate_hz = 1;
+    // systhread_ = new system_status_thread(&systhread_settings_, &settings);
+    // // connect(systhread_, &system_status_thread::send_parsed_hearbeat, connection_manager_, &connection_manager::relay_parsed_hearbeat, Qt::DirectConnection);
+    // connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
     // END of System Thear Configuration //
+
+    // emit settings_updated(&settings);
 
     ui->stackedWidget_c2t->setCurrentIndex(0);
 }
@@ -157,12 +169,11 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     // }
 
     //stop all threads if running:
-    if (systhread_ != NULL) systhread_->requestInterruption();
-    if (mocap_thread_ != NULL) mocap_thread_->requestInterruption();
 
     //stop mocap thread if running:
     if (mocap_thread_ != NULL)
     {
+        mocap_thread_->requestInterruption();
         for (int ii = 0; ii < 300; ii++)
         {
             if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
@@ -180,30 +191,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
 
         delete mocap_thread_;
         mocap_thread_ = nullptr;
-    }
-
-    //stop system thread if running:
-    if (systhread_ != NULL)
-    {
-
-        for (int ii = 0; ii < 300; ii++)
-        {
-            if (!systhread_->isRunning() && systhread_->isFinished())
-            {
-                break;
-            }
-            else if (ii == 299)
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the system thread, manually terminating...\n");
-                systhread_->terminate();
-            }
-
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-        }
-
-        delete systhread_;
-        systhread_ = nullptr;
-    }
+    }    
 
     //close all other active ports:
     connection_manager_->remove_all();
@@ -406,7 +394,7 @@ void KGroundControl::on_btn_remove_comm_clicked()
     foreach (QListWidgetItem* item, items)
     {
         QString port_name_ = item->text();
-        emit switch_emit_heartbeat(port_name_, false, systhread_);
+        emit switch_emit_heartbeat(port_name_, false);
         if (emit remove_port(port_name_)) emit port_removed(port_name_);
     }
 
@@ -427,7 +415,7 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     mavlink_inpector_->setWindowIconText("Mavlink Inspector");
     mavlink_inpector_->show();
-    connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display);
+    connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display, Qt::QueuedConnection);
     connect(mavlink_inpector_, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
 }
 
@@ -476,7 +464,7 @@ void KGroundControl::on_checkBox_emit_system_heartbeat_toggled(bool checked)
     QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
     foreach (QListWidgetItem* item, items)
     {
-        emit switch_emit_heartbeat(item->text(), checked, systhread_);
+        emit switch_emit_heartbeat(item->text(), checked);
     }
 
     update_port_status_txt();
