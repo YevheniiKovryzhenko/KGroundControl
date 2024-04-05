@@ -10,6 +10,7 @@
 #include "common/mavlink.h"
 #include "mavlink_enum_types.h"
 #include "threads.h"
+#include "signal_filters.h"
 
 
 //Кольцевой буфер на основе стандартной очереди
@@ -235,9 +236,9 @@ private:
 
     QVector<QString> names;
 
-    static const size_t time_buffer_size = 30;
+    static const size_t time_buffer_size = 2;
     QVector<CQueue<qint64>*> timestamps_ms;
-    // QVector<CQueue<>>
+    QVector<LowPassFilter> time_stamp_filter;
 
     QMutex* mutex = nullptr;
     mavlink_inspector_thread* mavlink_inspector_thread_ = nullptr;

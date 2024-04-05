@@ -343,6 +343,8 @@ void MavlinkInspector::addbutton(QString name_)
     CQueue<qint64>* tmp = new CQueue<qint64>(time_buffer_size);
     tmp->enqueue(QDateTime::currentMSecsSinceEpoch());
     timestamps_ms.push_back(tmp);
+    LowPassFilter lowpass = LowPassFilter(30, 1);
+    time_stamp_filter.push_back(lowpass);
 }
 
 void MavlinkInspector::update_msg_list_visuals(void)
@@ -356,7 +358,7 @@ void MavlinkInspector::update_msg_list_visuals(void)
             QPushButton* item = qobject_cast<QPushButton*>(layout_item->widget());
             if (item != NULL)
             {
-                if (timestamps_ms[i]->size() > 2)
+                if (timestamps_ms[i]->size() > 1)
                 {
                     double avg_update_time_s = 0.0;
                     uint num_valid_samples = 0;
@@ -372,22 +374,28 @@ void MavlinkInspector::update_msg_list_visuals(void)
                             num_valid_samples++;
                         }
                     }
+                    double update_rate_hz;
                     if (num_valid_samples > 0)
                     {
                         avg_update_time_s /= static_cast<double>(num_valid_samples);
                         double time_since_last_msg_s = static_cast<double>(QDateTime::currentMSecsSinceEpoch() - last_valid_time_stamp_ms)*1.0E-3;
-                        double update_rate_hz = 1.0 / avg_update_time_s;
-                        if (time_since_last_msg_s > 0.3 && update_rate_hz > 10) update_rate_hz = 0.0;
-                        else if (update_rate_hz < 1.2 && time_since_last_msg_s > 2*avg_update_time_s) update_rate_hz = 0.0;
-                        else if (time_since_last_msg_s > 2*avg_update_time_s) //need to start lowering the dispay value to reflct the drop
-                        {
-                            if (1.0 / time_since_last_msg_s < 0.2*update_rate_hz) update_rate_hz = 0.0;
-                            else update_rate_hz = 1.0 / ((avg_update_time_s*num_valid_samples + time_since_last_msg_s) / (num_valid_samples+1));
-                        }
+                        update_rate_hz = time_stamp_filter[i].update(1.0 / avg_update_time_s);
 
-                        QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(update_rate_hz,-6, 'f', 1, ' ').arg(names[i], 30, ' '), 30 + 3 + 5, ' ');
-                        item->setText(tmp_name);
+                        if (time_since_last_msg_s > 0.3 && update_rate_hz > 30) update_rate_hz = 0.0;
+                        else if (update_rate_hz < 30 && time_since_last_msg_s > 10*avg_update_time_s) update_rate_hz = 0.0;
+                        else if (update_rate_hz < 15 && time_since_last_msg_s > 5*avg_update_time_s) update_rate_hz = 0.0;
+                        else if (update_rate_hz < 10 && time_since_last_msg_s > 3*avg_update_time_s) update_rate_hz = 0.0;
+                        else if (update_rate_hz < 5 && time_since_last_msg_s > 1.0) update_rate_hz = 0.0;
+                        else if (update_rate_hz < 1 && time_since_last_msg_s > 3) update_rate_hz = 0.0;
+
                     }
+                    else
+                    {
+                        update_rate_hz = time_stamp_filter[i].update(0.0);
+                    }
+
+                    QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(update_rate_hz,-6, 'f', 1, ' ').arg(names[i], 30, ' '), 30 + 3 + 5, ' ');
+                    item->setText(tmp_name);
                 }
             }
             else qDebug() << "Can't update visuals, object is not a pushbutton somehow!";
@@ -441,6 +449,7 @@ void MavlinkInspector::clear_msg_list_container(void)
         tmp = nullptr;
     }
     timestamps_ms.clear();
+    time_stamp_filter.clear();
 
     //start fresh:
     main_container = new QWidget();

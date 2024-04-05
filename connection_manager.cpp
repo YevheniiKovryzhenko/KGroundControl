@@ -526,35 +526,5 @@ void connection_manager::update_kgroundcontrol_settings(kgroundcontrol_settings*
     emit kgroundcontrol_settings_updated(kground_control_settings_in_);
 }
 
-// bool connection_manager::relay_msg(QString src_port_name_, mavlink_message_t &msg_)
-// {
-//     mutex->lock();
-//     if (routing_table.size() > 0)
-//     {
-//         for (int i = 0; i < n_connections; i++)
-//         {
-//             if (port_names[i] == src_port_name_)
-//             {
-//                 if (routing_table[i].size() > 0)
-//                 {
-//                     foreach (QString relay_port_name_, routing_table[i])
-//                     {
-//                         for (int ii = 0; ii < n_connections; ii++)
-//                         {
-//                             if (ii == i) continue; //don't loopback...
-//                             else if (port_names[ii] == relay_port_name_) Ports[ii]->write_message(msg_);
-//                         }
-//                     }
-//                     mutex->unlock();
-//                     return true;
-//                 }
-//                 break;
-//             }
-//         }
-//     }
-//     mutex->unlock();
-//     return false;
-// }
-
 
 
