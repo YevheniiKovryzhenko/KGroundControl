@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>518</width>
-    <height>708</height>
+    <width>503</width>
+    <height>664</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -24,7 +24,7 @@
     <item>
      <widget class="QStackedWidget" name="stackedWidget_main">
       <property name="currentIndex">
-       <number>2</number>
+       <number>3</number>
       </property>
       <widget class="QWidget" name="page_main_menu">
        <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -1744,7 +1744,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
               </property>
               <property name="minimumSize">
                <size>
-                <width>80</width>
+                <width>90</width>
                 <height>30</height>
                </size>
               </property>
@@ -1815,7 +1815,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
               </property>
               <property name="minimumSize">
                <size>
-                <width>80</width>
+                <width>90</width>
                 <height>30</height>
                </size>
               </property>
@@ -2031,7 +2031,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>518</width>
+     <width>503</width>
      <height>21</height>
     </rect>
    </property>

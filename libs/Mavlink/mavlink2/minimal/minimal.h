@@ -10,7 +10,7 @@
     #error Wrong include order: MAVLINK_MINIMAL.H MUST NOT BE DIRECTLY USED. Include mavlink.h from the same directory instead or set ALL AND EVERY defines from MAVLINK.H manually accordingly, including the #define MAVLINK_H call.
 #endif
 
-#define MAVLINK_MINIMAL_XML_HASH -5449141206782675932
+#define MAVLINK_MINIMAL_XML_HASH -2198124344579686731
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,7 +91,7 @@ typedef enum MAV_TYPE
    MAV_TYPE_VTOL_TAILSITTER_QUADROTOR=20, /* Quad-rotor Tailsitter VTOL using a V-shaped quad config in vertical operation. Note: value previously named MAV_TYPE_VTOL_QUADROTOR. | */
    MAV_TYPE_VTOL_TILTROTOR=21, /* Tiltrotor VTOL. Fuselage and wings stay (nominally) horizontal in all flight phases. It able to tilt (some) rotors to provide thrust in cruise flight. | */
    MAV_TYPE_VTOL_FIXEDROTOR=22, /* VTOL with separate fixed rotors for hover and cruise flight. Fuselage and wings stay (nominally) horizontal in all flight phases. | */
-   MAV_TYPE_VTOL_TAILSITTER=23, /* Tailsitter VTOL. Fuselage and wings orientation changes depending on flight phase: vertical for hover, horizontal for cruise. Use more specific VTOL MAV_TYPE_VTOL_DUOROTOR or MAV_TYPE_VTOL_QUADROTOR if appropriate. | */
+   MAV_TYPE_VTOL_TAILSITTER=23, /* Tailsitter VTOL. Fuselage and wings orientation changes depending on flight phase: vertical for hover, horizontal for cruise. Use more specific VTOL MAV_TYPE_VTOL_TAILSITTER_DUOROTOR or MAV_TYPE_VTOL_TAILSITTER_QUADROTOR if appropriate. | */
    MAV_TYPE_VTOL_TILTWING=24, /* Tiltwing VTOL. Fuselage stays horizontal in all flight phases. The whole wing, along with any attached engine, can tilt between vertical and horizontal mode. | */
    MAV_TYPE_VTOL_RESERVED5=25, /* VTOL reserved 5 | */
    MAV_TYPE_GIMBAL=26, /* Gimbal | */
@@ -112,7 +112,8 @@ typedef enum MAV_TYPE
    MAV_TYPE_GPS=41, /* GPS | */
    MAV_TYPE_WINCH=42, /* Winch | */
    MAV_TYPE_GENERIC_MULTIROTOR=43, /* Generic multirotor that does not fit into a specific type or whose type is unknown | */
-   MAV_TYPE_ENUM_END=44, /*  | */
+   MAV_TYPE_ILLUMINATOR=44, /* Illuminator. An illuminator is a light source that is used for lighting up dark areas external to the sytstem: e.g. a torch or searchlight (as opposed to a light source for illuminating the system itself, e.g. an indicator light). | */
+   MAV_TYPE_ENUM_END=45, /*  | */
 } MAV_TYPE;
 #endif
 
@@ -160,10 +161,10 @@ typedef enum MAV_STATE
    MAV_STATE_CALIBRATING=2, /* System is calibrating and not flight-ready. | */
    MAV_STATE_STANDBY=3, /* System is grounded and on standby. It can be launched any time. | */
    MAV_STATE_ACTIVE=4, /* System is active and might be already airborne. Motors are engaged. | */
-   MAV_STATE_CRITICAL=5, /* System is in a non-normal flight mode. It can however still navigate. | */
-   MAV_STATE_EMERGENCY=6, /* System is in a non-normal flight mode. It lost control over parts or over the whole airframe. It is in mayday and going down. | */
+   MAV_STATE_CRITICAL=5, /* System is in a non-normal flight mode (failsafe). It can however still navigate. | */
+   MAV_STATE_EMERGENCY=6, /* System is in a non-normal flight mode (failsafe). It lost control over parts or over the whole airframe. It is in mayday and going down. | */
    MAV_STATE_POWEROFF=7, /* System just initialized its power-down sequence, will shut down now. | */
-   MAV_STATE_FLIGHT_TERMINATION=8, /* System is terminating itself. | */
+   MAV_STATE_FLIGHT_TERMINATION=8, /* System is terminating itself (failsafe or commanded). | */
    MAV_STATE_ENUM_END=9, /*  | */
 } MAV_STATE;
 #endif
@@ -309,6 +310,7 @@ typedef enum MAV_COMPONENT
    MAV_COMP_ID_UDP_BRIDGE=240, /* Component to bridge MAVLink to UDP (i.e. from a UART). | */
    MAV_COMP_ID_UART_BRIDGE=241, /* Component to bridge to UART (i.e. from UDP). | */
    MAV_COMP_ID_TUNNEL_NODE=242, /* Component handling TUNNEL messages (e.g. vendor specific GUI of a component). | */
+   MAV_COMP_ID_ILLUMINATOR=243, /* Illuminator | */
    MAV_COMP_ID_SYSTEM_CONTROL=250, /* Deprecated, don't use. Component for handling system messages (e.g. to ARM, takeoff, etc.). | */
    MAV_COMPONENT_ENUM_END=251, /*  | */
 } MAV_COMPONENT;

@@ -45,3 +45,20 @@ QString mavlink_enums::get_QString(mavlink_component_id compid)
 {
     return get_QString__<mavlink_component_id>(compid);
 }
+
+bool mavlink_enums::get_compid(mavlink_component_id &id_out, QString comp_id_string_in)
+{
+    QVector<mavlink_enums::mavlink_component_id> comp_id_allkeys_ = mavlink_enums::get_keys_all_mavlink_component_id();
+    QVector<QString> comp_id_allstrings_ = mavlink_enums::get_QString_all_mavlink_component_id();
+    for (int i = 0; i < comp_id_allstrings_.length(); i++)
+    {
+        if (comp_id_allstrings_[i] == comp_id_string_in)
+        {
+            id_out = comp_id_allkeys_[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+

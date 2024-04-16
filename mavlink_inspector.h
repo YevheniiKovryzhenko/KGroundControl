@@ -7,7 +7,8 @@
 #include <QListWidget>
 #include <QQueue>
 
-#include "common/mavlink.h"
+#define MAVLINK_USE_MESSAGE_INFO
+#include "all/mavlink.h"
 #include "mavlink_enum_types.h"
 #include "threads.h"
 #include "signal_filters.h"
@@ -43,6 +44,8 @@ public:
 
     void update_msg(mav_type_in &new_msg, qint64 msg_time_stamp);
     // CQueue<qint64> timestamps = CQueue<qint64>(5);
+    bool get_msg(mav_type_in &msg_out, qint64 &msg_time_stamp);
+    bool get_msg(mav_type_in &msg_out);
     qint64 timestamp_ms;
     bool exists(void);
 private:
@@ -57,7 +60,12 @@ mavlink_processor<mavlink_##name##_t> name;
 
 #ifndef MAVHEADER_SIGDEF_MACRO
 #define MAVHEADER_SIGDEF_MACRO(name)\
-void updated_##name##_msg(mavlink_##name##_t);
+void updated_##name##_msg(mavlink_##name##_t msg_in);
+#endif
+#ifndef MAVHEADER_SLOTDEF_MACRO
+#define MAVHEADER_SLOTDEF_MACRO(name)\
+bool get_##name##_msg(mavlink_##name##_t &msg_out);\
+bool get_##name##_msg(mavlink_##name##_t &msg_out, qint64 &msg_time_stamp);
 #endif
 
 class mavlink_data_aggregator : public QObject
@@ -68,44 +76,14 @@ public:
     mavlink_data_aggregator(QObject* parent = nullptr);
     ~mavlink_data_aggregator();
 
-    MAVHEADER_DEF_MACRO(heartbeat)
-    MAVHEADER_DEF_MACRO(sys_status)
-    MAVHEADER_DEF_MACRO(system_time)
-    MAVHEADER_DEF_MACRO(battery_status)
-    MAVHEADER_DEF_MACRO(radio_status)
-    MAVHEADER_DEF_MACRO(local_position_ned)
-    MAVHEADER_DEF_MACRO(global_position_int)
-    MAVHEADER_DEF_MACRO(position_target_local_ned)
-    MAVHEADER_DEF_MACRO(position_target_global_int)
-    MAVHEADER_DEF_MACRO(highres_imu)
-    MAVHEADER_DEF_MACRO(attitude)
-    MAVHEADER_DEF_MACRO(vision_position_estimate)
-    MAVHEADER_DEF_MACRO(odometry)
-    MAVHEADER_DEF_MACRO(altitude)
-    MAVHEADER_DEF_MACRO(estimator_status)
-    MAVHEADER_DEF_MACRO(command_int)
-    MAVHEADER_DEF_MACRO(command_long)
-    MAVHEADER_DEF_MACRO(command_ack)
-    MAVHEADER_DEF_MACRO(debug_float_array)
-    MAVHEADER_DEF_MACRO(debug_vect)
-    MAVHEADER_DEF_MACRO(debug)
-    MAVHEADER_DEF_MACRO(distance_sensor)
-    MAVHEADER_DEF_MACRO(servo_output_raw)
-    MAVHEADER_DEF_MACRO(vfr_hud)
-    MAVHEADER_DEF_MACRO(attitude_quaternion)
-    MAVHEADER_DEF_MACRO(scaled_imu)
-    MAVHEADER_DEF_MACRO(scaled_imu2)
-    MAVHEADER_DEF_MACRO(scaled_imu3)
-    MAVHEADER_DEF_MACRO(timesync)
-    MAVHEADER_DEF_MACRO(attitude_target)
-    MAVHEADER_DEF_MACRO(ping)
-    MAVHEADER_DEF_MACRO(vibration)
-    MAVHEADER_DEF_MACRO(home_position)
-    MAVHEADER_DEF_MACRO(extended_sys_state)
-    MAVHEADER_DEF_MACRO(adsb_vehicle)
-    MAVHEADER_DEF_MACRO(link_node_status)
+
 
     bool decode_msg(mavlink_message_t* new_msg, QString& msg_name_out, qint64 msg_time_stamp);
+
+    static std::string print_one_field(mavlink_message_t* msg, const mavlink_field_info_t* f, int idx);
+    static std::string print_field(mavlink_message_t* msg, const mavlink_field_info_t* f);
+    static bool print_name(QString &txt, mavlink_message_t* msg);
+    static std::string print_message(mavlink_message_t* msg);
 
 signals:
     MAVHEADER_SIGDEF_MACRO(heartbeat)
@@ -144,6 +122,82 @@ signals:
     MAVHEADER_SIGDEF_MACRO(extended_sys_state)
     MAVHEADER_SIGDEF_MACRO(adsb_vehicle)
     MAVHEADER_SIGDEF_MACRO(link_node_status)
+
+public slots:
+    MAVHEADER_SLOTDEF_MACRO(heartbeat)
+    MAVHEADER_SLOTDEF_MACRO(sys_status)
+    MAVHEADER_SLOTDEF_MACRO(system_time)
+    MAVHEADER_SLOTDEF_MACRO(battery_status)
+    MAVHEADER_SLOTDEF_MACRO(radio_status)
+    MAVHEADER_SLOTDEF_MACRO(local_position_ned)
+    MAVHEADER_SLOTDEF_MACRO(global_position_int)
+    MAVHEADER_SLOTDEF_MACRO(position_target_local_ned)
+    MAVHEADER_SLOTDEF_MACRO(position_target_global_int)
+    MAVHEADER_SLOTDEF_MACRO(highres_imu)
+    MAVHEADER_SLOTDEF_MACRO(attitude)
+    MAVHEADER_SLOTDEF_MACRO(vision_position_estimate)
+    MAVHEADER_SLOTDEF_MACRO(odometry)
+    MAVHEADER_SLOTDEF_MACRO(altitude)
+    MAVHEADER_SLOTDEF_MACRO(estimator_status)
+    MAVHEADER_SLOTDEF_MACRO(command_int)
+    MAVHEADER_SLOTDEF_MACRO(command_long)
+    MAVHEADER_SLOTDEF_MACRO(command_ack)
+    MAVHEADER_SLOTDEF_MACRO(debug_float_array)
+    MAVHEADER_SLOTDEF_MACRO(debug_vect)
+    MAVHEADER_SLOTDEF_MACRO(debug)
+    MAVHEADER_SLOTDEF_MACRO(distance_sensor)
+    MAVHEADER_SLOTDEF_MACRO(servo_output_raw)
+    MAVHEADER_SLOTDEF_MACRO(vfr_hud)
+    MAVHEADER_SLOTDEF_MACRO(attitude_quaternion)
+    MAVHEADER_SLOTDEF_MACRO(scaled_imu)
+    MAVHEADER_SLOTDEF_MACRO(scaled_imu2)
+    MAVHEADER_SLOTDEF_MACRO(scaled_imu3)
+    MAVHEADER_SLOTDEF_MACRO(timesync)
+    MAVHEADER_SLOTDEF_MACRO(attitude_target)
+    MAVHEADER_SLOTDEF_MACRO(ping)
+    MAVHEADER_SLOTDEF_MACRO(vibration)
+    MAVHEADER_SLOTDEF_MACRO(home_position)
+    MAVHEADER_SLOTDEF_MACRO(extended_sys_state)
+    MAVHEADER_SLOTDEF_MACRO(adsb_vehicle)
+    MAVHEADER_SLOTDEF_MACRO(link_node_status)
+
+private:
+    MAVHEADER_DEF_MACRO(heartbeat)
+    MAVHEADER_DEF_MACRO(sys_status)
+    MAVHEADER_DEF_MACRO(system_time)
+    MAVHEADER_DEF_MACRO(battery_status)
+    MAVHEADER_DEF_MACRO(radio_status)
+    MAVHEADER_DEF_MACRO(local_position_ned)
+    MAVHEADER_DEF_MACRO(global_position_int)
+    MAVHEADER_DEF_MACRO(position_target_local_ned)
+    MAVHEADER_DEF_MACRO(position_target_global_int)
+    MAVHEADER_DEF_MACRO(highres_imu)
+    MAVHEADER_DEF_MACRO(attitude)
+    MAVHEADER_DEF_MACRO(vision_position_estimate)
+    MAVHEADER_DEF_MACRO(odometry)
+    MAVHEADER_DEF_MACRO(altitude)
+    MAVHEADER_DEF_MACRO(estimator_status)
+    MAVHEADER_DEF_MACRO(command_int)
+    MAVHEADER_DEF_MACRO(command_long)
+    MAVHEADER_DEF_MACRO(command_ack)
+    MAVHEADER_DEF_MACRO(debug_float_array)
+    MAVHEADER_DEF_MACRO(debug_vect)
+    MAVHEADER_DEF_MACRO(debug)
+    MAVHEADER_DEF_MACRO(distance_sensor)
+    MAVHEADER_DEF_MACRO(servo_output_raw)
+    MAVHEADER_DEF_MACRO(vfr_hud)
+    MAVHEADER_DEF_MACRO(attitude_quaternion)
+    MAVHEADER_DEF_MACRO(scaled_imu)
+    MAVHEADER_DEF_MACRO(scaled_imu2)
+    MAVHEADER_DEF_MACRO(scaled_imu3)
+    MAVHEADER_DEF_MACRO(timesync)
+    MAVHEADER_DEF_MACRO(attitude_target)
+    MAVHEADER_DEF_MACRO(ping)
+    MAVHEADER_DEF_MACRO(vibration)
+    MAVHEADER_DEF_MACRO(home_position)
+    MAVHEADER_DEF_MACRO(extended_sys_state)
+    MAVHEADER_DEF_MACRO(adsb_vehicle)
+    MAVHEADER_DEF_MACRO(link_node_status)
 };
 
 
@@ -155,19 +209,27 @@ public:
     mavlink_manager(QObject* parent = nullptr);
     ~mavlink_manager();
 
+
+
 public slots:
     unsigned int get_n(void);
     void parse(void* new_msg, qint64 msg_time_stamp);
+    bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
+    bool get_heartbeat(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, mavlink_heartbeat_t &msg);
 
+    void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
     void clear(void);
 
 signals:
-
+    int write_message(QString port_name, void* message);
     void updated(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, qint64 msg_time_stamp);
+
+    void get_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
 
 private:
     bool is_new(mavlink_message_t* new_msg);
     bool is_new(mavlink_message_t* new_msg, unsigned int& i);
+    bool get_ind(unsigned int& i, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_);
 
     unsigned int n_systems = 0;
 
@@ -175,6 +237,8 @@ private:
     QVector<uint8_t> system_ids;
     QVector<mavlink_enums::mavlink_component_id> mav_components;
     QVector<mavlink_data_aggregator*> msgs;
+
+    kgroundcontrol_settings kground_control_settings_;
 };
 
 
@@ -209,7 +273,7 @@ public:
 
 public slots:
     void create_new_slot_btn_display(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, qint64 msg_time_stamp);
-
+    void on_btn_refresh_port_names_clicked();
 
 private slots:
 
@@ -222,13 +286,29 @@ private slots:
     void clear_sysid_list(void);
     void clear_compid_list(void);
 
-    void update_msg_list_visuals(void);
+    void update_all_visuals(void);
+
+    void on_btn_arm_clicked();
+    void on_btn_disarm_clicked();
+
+
 
 signals:
     void clear_mav_manager();
 
+    QVector<QString> get_port_names(void);
+    bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
+
+    bool get_heartbeat(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, mavlink_heartbeat_t &msg);
+    void update_visuals_end(void);
+
 private:
-    void addbutton(QString text_);
+    bool update_msg_list_visuals(void);
+    void process_heartbeat(void);
+    mavlink_heartbeat_t old_heartbeat;
+
+    bool buttons_present = false;
+    void addbutton(QString text_);    
 
     Ui::MavlinkInspector *ui;
     QWidget* main_container = nullptr;

@@ -24,7 +24,7 @@ public:
 
 
 signals:
-    void settings_updated(kgroundcontrol_settings* new_settings);
+    void settings_updated(kgroundcontrol_settings* new_settings);    
 
     bool switch_emit_heartbeat(QString port_name_, bool on_off_val);
     bool is_heartbeat_emited(QString port_name_);
@@ -41,6 +41,10 @@ signals:
 
     bool remove_port(QString port_name);
     void port_removed(QString port_name);
+
+
+public slots:
+    void get_settings(kgroundcontrol_settings* settings_out);
 
 private slots:
 
@@ -86,6 +90,7 @@ private slots:
 
 private:
     Ui::KGroundControl *ui;
+    QMutex *settings_mutex_ = nullptr;
     kgroundcontrol_settings settings;
     mocap_manager* mocap_manager_ = nullptr;
     connection_manager* connection_manager_ = nullptr;

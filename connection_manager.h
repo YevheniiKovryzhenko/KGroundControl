@@ -63,10 +63,14 @@ signals:
     QString port_settings_QString_request(void);
     QString port_read_thread_settings_QString_request(void);
 
+    void port_names_updated(void);
+
+    int write_message(void* message);
+
 public slots:
     bool is_unique(QString &in);
 
-    QVector<QString> get_names(void);
+    QVector<QString> get_names(void);    
     // void add(QListWidget* widget_, QString &new_port_name, Generic_Port* new_port, port_read_thread* new_port_thread);
     bool add(QString new_port_name, \
              connection_type port_type, void* port_settings_, size_t settings_size,\
@@ -79,6 +83,7 @@ public slots:
 
     bool switch_emit_heartbeat(QString port_name_, bool on_off_val);
     bool is_heartbeat_emited(QString port_name_);
+    bool write_mavlink_msg_2port(QString port_name_, void* msg_);
 
 
     QString get_port_settings_QString(QString port_name_);

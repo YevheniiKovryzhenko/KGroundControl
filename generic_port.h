@@ -3,7 +3,7 @@
 
 #include <QObject>
 
-#include "mavlink_types.h"
+//#include "mavlink_types.h"
 #include "settings.h"
 
 /*

@@ -170,6 +170,7 @@ bool connection_manager::add(QString new_port_name, \
     heartbeat_emited.append(false);
     n_connections++;
     mutex->unlock();
+    emit port_names_updated();
     return true;
 }
 
@@ -224,6 +225,7 @@ bool connection_manager::remove(QString port_name_)
             n_connections--;
 
             mutex->unlock();
+            emit port_names_updated();
             return true;
         }
     }    
@@ -270,6 +272,23 @@ bool connection_manager::is_heartbeat_emited(QString port_name_)
             bool out = heartbeat_emited[i];
             mutex->unlock();
             return out;
+        }
+    }
+    mutex->unlock();
+    return false;
+}
+
+bool connection_manager::write_mavlink_msg_2port(QString port_name_, void* msg_)
+{
+    mutex->lock();
+    for (int i = 0; i < n_connections; i++)
+    {
+        if (port_names[i] == port_name_)
+        {
+            connect(this, &connection_manager::write_message, Ports[i], &Generic_Port::write_message, static_cast<Qt::ConnectionType>(Qt::DirectConnection | Qt::SingleShotConnection));
+            emit write_message(msg_);
+            mutex->unlock();
+            return true;
         }
     }
     mutex->unlock();

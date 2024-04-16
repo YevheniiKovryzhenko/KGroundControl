@@ -20,6 +20,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->setupUi(this);
     ui->stackedWidget_main->setCurrentIndex(0);
 
+    settings_mutex_ = new QMutex;
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
 
@@ -156,6 +157,7 @@ KGroundControl::KGroundControl(QWidget *parent)
 KGroundControl::~KGroundControl()
 {
     delete ui;
+    delete settings_mutex_;
 }
 
 void KGroundControl::closeEvent(QCloseEvent *event)
@@ -406,30 +408,46 @@ void KGroundControl::on_btn_remove_comm_clicked()
 
 void KGroundControl::on_btn_mavlink_inspector_clicked()
 {
-    // generic_thread_settings thread_settings_;
-    // thread_settings_.priority = QThread::Priority::LowPriority;
-    // thread_settings_.update_rate_hz = 30;
-    // new mavlink_inspector_thread(this, &thread_settings_, mavlink_manager_);
 
     MavlinkInspector* mavlink_inpector_ = new MavlinkInspector(this);
     mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     mavlink_inpector_->setWindowIconText("Mavlink Inspector");
     mavlink_inpector_->show();
     connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display, Qt::QueuedConnection);
+    connect(mavlink_manager_, &mavlink_manager::write_message, connection_manager_, &connection_manager::write_mavlink_msg_2port, Qt::DirectConnection);
+
     connect(mavlink_inpector_, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
+    connect(mavlink_inpector_, &MavlinkInspector::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+    connect(mavlink_inpector_, &MavlinkInspector::toggle_arm_state, mavlink_manager_, &mavlink_manager::toggle_arm_state);
+    connect(mavlink_inpector_, &MavlinkInspector::get_heartbeat, mavlink_manager_, &mavlink_manager::get_heartbeat, Qt::DirectConnection);
+
+    connect(connection_manager_, &connection_manager::port_names_updated, mavlink_inpector_, &MavlinkInspector::on_btn_refresh_port_names_clicked, Qt::QueuedConnection);
+
+    connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
+    connect(mavlink_manager_, &mavlink_manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);
 }
 
 
 void KGroundControl::on_btn_settings_confirm_clicked()
 {
+    settings_mutex_->lock();
     settings.sysid = ui->txt_sysid->text().toUInt();
     int index_ = ui->cmbx_compid->currentIndex();
     QVector<mavlink_enums::mavlink_component_id> comp_id_list_ = mavlink_enums::get_keys_all_mavlink_component_id();
     settings.compid = comp_id_list_[index_];
+    settings_mutex_->unlock();
+
     emit settings_updated(&settings);
 
     on_btn_settings_go_back_clicked();
     update_port_status_txt();
+}
+
+void KGroundControl::get_settings(kgroundcontrol_settings* settings_out)
+{
+    settings_mutex_->lock();
+    memcpy(settings_out, &settings, sizeof(settings));
+    settings_mutex_->unlock();
 }
 
 

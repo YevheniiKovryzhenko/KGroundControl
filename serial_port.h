@@ -5,7 +5,8 @@
 
 #include "generic_port.h"
 #include "settings.h"
-#include "libs/Mavlink/mavlink2/common/mavlink.h"
+//#include "libs/Mavlink/mavlink2/all/mavlink.h"
+#include "all/mavlink.h"
 
 // ----------------------------------------------------------------------------------
 //   Serial Port Manager Class

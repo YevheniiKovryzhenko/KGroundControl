@@ -151,6 +151,7 @@ public:
     static QVector<mavlink_component_id> get_keys_all_mavlink_component_id(void);
 
     static QString get_QString(mavlink_component_id value);
+    static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in);
 };
 
 #endif // MAVLINK_ENUM_TYPES_H
