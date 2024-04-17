@@ -17,17 +17,18 @@ void port_read_thread::run()
 
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
-        mavlink_message_t message;
-        void* ptr = static_cast<mavlink_message_t*>(&message);
+        mavlink_message_t* message = new mavlink_message_t;
+        //mavlink_message_t message;
+        void* ptr = static_cast<mavlink_message_t*>(message);
         // if (static_cast<bool>(port_->read_message(message, MAVLINK_COMM_0)))
         if (emit read_message(ptr, static_cast<int>(MAVLINK_COMM_0)))
         {
 
             // mavlink_manager_->parse(&message);
-            emit parse(ptr, QDateTime::currentMSecsSinceEpoch());
+            emit message_received(ptr, QDateTime::currentMSecsSinceEpoch());
             emit write_message(ptr);
             // message = mavlink_message_t();
-        }
+        } else delete message;
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
@@ -145,7 +146,7 @@ bool connection_manager::add(QString new_port_name, \
         port_->setParent(new_port_thread);
 
         connect(new_port_thread, &port_read_thread::read_message, port_, &Generic_Port::read_message, Qt::DirectConnection);
-        connect(new_port_thread, &port_read_thread::parse, mavlink_manager_, &mavlink_manager::parse, Qt::DirectConnection);
+        connect(new_port_thread, &port_read_thread::message_received, mavlink_manager_, &mavlink_manager::update);
 
         QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
         if (!new_port_thread->isRunning())

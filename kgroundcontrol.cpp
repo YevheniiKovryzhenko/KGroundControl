@@ -413,15 +413,18 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     mavlink_inpector_->setWindowIconText("Mavlink Inspector");
     mavlink_inpector_->show();
-    connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display, Qt::QueuedConnection);
+
+    connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::process_new_msg, Qt::DirectConnection);
+    //connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display, Qt::QueuedConnection);
     connect(mavlink_manager_, &mavlink_manager::write_message, connection_manager_, &connection_manager::write_mavlink_msg_2port, Qt::DirectConnection);
 
+    connect(mavlink_inpector_, &MavlinkInspector::request_get_msg, mavlink_manager_, &mavlink_manager::get_msg, Qt::DirectConnection);
     connect(mavlink_inpector_, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
     connect(mavlink_inpector_, &MavlinkInspector::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
     connect(mavlink_inpector_, &MavlinkInspector::toggle_arm_state, mavlink_manager_, &mavlink_manager::toggle_arm_state);
-    connect(mavlink_inpector_, &MavlinkInspector::get_heartbeat, mavlink_manager_, &mavlink_manager::get_heartbeat, Qt::DirectConnection);
+    //connect(mavlink_inpector_, &MavlinkInspector::get_heartbeat, mavlink_manager_, &mavlink_manager::get_heartbeat, Qt::DirectConnection);
 
-    connect(connection_manager_, &connection_manager::port_names_updated, mavlink_inpector_, &MavlinkInspector::on_btn_refresh_port_names_clicked, Qt::QueuedConnection);
+    //connect(connection_manager_, &connection_manager::port_names_updated, mavlink_inpector_, &MavlinkInspector::on_btn_refresh_port_names_clicked, Qt::QueuedConnection);
 
     connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
     connect(mavlink_manager_, &mavlink_manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);

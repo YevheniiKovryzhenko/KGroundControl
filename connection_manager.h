@@ -20,7 +20,7 @@ public:
 
 signals:
     bool read_message(void* message, int mavlink_channel_);
-    void parse(void* message, qint64 msg_time_stamp);
+    bool message_received(void* message, qint64 msg_time_stamp);
     int write_message(void* message);
 
 private:

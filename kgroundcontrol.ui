@@ -24,7 +24,7 @@
     <item>
      <widget class="QStackedWidget" name="stackedWidget_main">
       <property name="currentIndex">
-       <number>3</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="page_main_menu">
        <layout class="QVBoxLayout" name="verticalLayout_2">

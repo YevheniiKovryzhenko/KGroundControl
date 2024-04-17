@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>799</width>
-    <height>752</height>
+    <width>499</width>
+    <height>502</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -31,11 +31,17 @@
   <property name="windowTitle">
    <string>Form</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout_7">
+  <layout class="QVBoxLayout" name="verticalLayout_8">
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
+     <property name="spacing">
+      <number>3</number>
+     </property>
      <item>
       <layout class="QVBoxLayout" name="verticalLayout">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QTextBrowser" name="textBrowser_2">
          <property name="sizePolicy">
@@ -139,6 +145,9 @@ li.checked::marker { content: &quot;\2612&quot;; }
      </item>
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QTextBrowser" name="textBrowser_3">
          <property name="sizePolicy">
@@ -267,8 +276,14 @@ li.checked::marker { content: &quot;\2612&quot;; }
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_2">
+     <property name="spacing">
+      <number>0</number>
+     </property>
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_3">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QScrollArea" name="scrollArea">
          <property name="sizePolicy">
@@ -291,8 +306,8 @@ li.checked::marker { content: &quot;\2612&quot;; }
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>514</width>
-            <height>658</height>
+            <width>220</width>
+            <height>260</height>
            </rect>
           </property>
          </widget>
@@ -323,14 +338,32 @@ li.checked::marker { content: &quot;\2612&quot;; }
           <x>0</x>
           <y>0</y>
           <width>253</width>
-          <height>660</height>
+          <height>262</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="verticalLayout_6">
+         <property name="leftMargin">
+          <number>3</number>
+         </property>
+         <property name="topMargin">
+          <number>3</number>
+         </property>
+         <property name="rightMargin">
+          <number>3</number>
+         </property>
+         <property name="bottomMargin">
+          <number>3</number>
+         </property>
          <item>
           <layout class="QVBoxLayout" name="verticalLayout_4">
+           <property name="spacing">
+            <number>3</number>
+           </property>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_8">
+             <property name="spacing">
+              <number>3</number>
+             </property>
              <item>
               <widget class="QTextBrowser" name="textBrowser_5">
                <property name="sizePolicy">
@@ -427,7 +460,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
+               <width>16777215</width>
                <height>16777215</height>
               </size>
              </property>
@@ -453,8 +486,29 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <string>Vehicle Commands:</string>
            </property>
            <layout class="QVBoxLayout" name="verticalLayout_5">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_3">
+              <property name="spacing">
+               <number>0</number>
+              </property>
+              <property name="leftMargin">
+               <number>3</number>
+              </property>
+              <property name="rightMargin">
+               <number>3</number>
+              </property>
               <item>
                <widget class="QTextBrowser" name="textBrowser_4">
                 <property name="sizePolicy">
@@ -542,7 +596,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </property>
                 <property name="maximumSize">
                  <size>
-                  <width>90</width>
+                  <width>16777215</width>
                   <height>30</height>
                  </size>
                 </property>
@@ -601,12 +655,30 @@ li.checked::marker { content: &quot;\2612&quot;; }
             </item>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_6">
+              <property name="spacing">
+               <number>3</number>
+              </property>
               <item>
                <widget class="QGroupBox" name="groupBox_arm">
                 <property name="title">
                  <string/>
                 </property>
                 <layout class="QHBoxLayout" name="horizontalLayout_4">
+                 <property name="spacing">
+                  <number>3</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
                  <item>
                   <widget class="QPushButton" name="btn_arm">
                    <property name="text">
@@ -640,6 +712,21 @@ li.checked::marker { content: &quot;\2612&quot;; }
                  <string/>
                 </property>
                 <layout class="QHBoxLayout" name="horizontalLayout_5">
+                 <property name="spacing">
+                  <number>3</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
                  <item>
                   <widget class="QPushButton" name="btn_disarm">
                    <property name="minimumSize">
@@ -692,6 +779,52 @@ li.checked::marker { content: &quot;\2612&quot;; }
       </widget>
      </item>
     </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_msg_browser">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="font">
+      <font>
+       <bold>false</bold>
+       <kerning>true</kerning>
+      </font>
+     </property>
+     <property name="contextMenuPolicy">
+      <enum>Qt::DefaultContextMenu</enum>
+     </property>
+     <property name="title">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_7">
+      <property name="spacing">
+       <number>3</number>
+      </property>
+      <property name="leftMargin">
+       <number>3</number>
+      </property>
+      <property name="topMargin">
+       <number>3</number>
+      </property>
+      <property name="rightMargin">
+       <number>3</number>
+      </property>
+      <property name="bottomMargin">
+       <number>3</number>
+      </property>
+      <item>
+       <widget class="QTextBrowser" name="txt_msg_browser">
+        <property name="frameShape">
+         <enum>QFrame::NoFrame</enum>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
   </layout>
  </widget>
