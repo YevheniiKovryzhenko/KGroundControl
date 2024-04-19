@@ -889,7 +889,7 @@ void MavlinkInspector::update_arm_state(void)
 
 void MavlinkInspector::update_msg_browser(QString txt_in)
 {
-    ui->txt_msg_browser->clear();
+    //ui->txt_msg_browser->clear();
     ui->txt_msg_browser->setText(txt_in);
 }
 
