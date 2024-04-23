@@ -684,7 +684,7 @@ bool MavlinkInspector::process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_co
             // first, we need to make sure the sysid list is updated:
             if (ui->cmbx_sysid->findText(QString::number(sysid_), Qt::MatchExactly) == -1)
             {
-                ui->cmbx_sysid->addItem(QString::number(sysid_)); //update list, but don't select new item
+                //ui->cmbx_sysid->addItem(QString::number(sysid_)); //update list, but don't select new item
                 //don't add anything, we can skip the rest for now (we sected some other sysid)
                 mutex->unlock();
                 return false;
@@ -844,7 +844,6 @@ bool MavlinkInspector::update_msg_list_visuals(void)
             switch (msg_.msgid)
             {
             case MAVLINK_MSG_ID_HEARTBEAT:
-            {
                 if (ui->scrollArea_cmds->isVisible())
                 {
                     mavlink_heartbeat_t heartbeat;
@@ -852,6 +851,20 @@ bool MavlinkInspector::update_msg_list_visuals(void)
                     old_heartbeat = heartbeat;
                     emit heartbeat_updated();
                 }
+                break;
+            case MAVLINK_MSG_ID_COMMAND_ACK:
+            {
+                mavlink_command_ack_t ack;
+                mavlink_msg_command_ack_decode(&msg_, &ack);
+                switch (ack.command)
+                {
+                case MAV_CMD::MAV_CMD_COMPONENT_ARM_DISARM:
+                {
+                    //do something
+                    break;
+                }
+                }
+                break;
             }
             }
         }
