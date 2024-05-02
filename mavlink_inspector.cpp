@@ -131,7 +131,7 @@ QString mavlink_data_aggregator::print_field(mavlink_message_t* msg, const mavli
             std::string txt_(300, '\0');
             std::sprintf(txt_.data(), "'%.*s'", f->array_length,
                          f->wire_offset + (const char*)_MAV_PAYLOAD(msg));
-            txt += txt_;
+            txt += std::string(txt_.c_str());
 
         }
         else {
@@ -684,7 +684,7 @@ bool MavlinkInspector::process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_co
             // first, we need to make sure the sysid list is updated:
             if (ui->cmbx_sysid->findText(QString::number(sysid_), Qt::MatchExactly) == -1)
             {
-                //ui->cmbx_sysid->addItem(QString::number(sysid_)); //update list, but don't select new item
+                ui->cmbx_sysid->addItem(QString::number(sysid_)); //update list, but don't select new item
                 //don't add anything, we can skip the rest for now (we sected some other sysid)
                 mutex->unlock();
                 return false;
