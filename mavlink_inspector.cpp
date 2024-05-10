@@ -2,10 +2,12 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QErrorMessage>
+#include <QShortcut>
 
 #include "mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
 #include "ui_mavlink_inspector_msg.h"
+#include "keybinddialog.h"
 
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()
@@ -616,6 +618,7 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowFlags(Qt::Window);
+    setWindowTitle("Mavlink Inspector");
     main_container = new QWidget();
     ui->scrollArea->setWidget(main_container);
     main_layout = new QVBoxLayout(main_container);
@@ -632,6 +635,16 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
     on_btn_refresh_port_names_clicked();
     connect(this, &MavlinkInspector::heartbeat_updated, this, &MavlinkInspector::update_arm_state);
     connect(this, &MavlinkInspector::request_update_msg_browser, this, &MavlinkInspector::update_msg_browser);
+
+    //test key binds:
+    // QShortcut *shortcut = new QShortcut(QKeySequence("Ctrl+O"), this);
+    // QObject::connect(shortcut, &QShortcut::activated, this, &MavlinkInspector::on_btn_arm_clicked);
+
+    // KeyBindDialog* key_bind_dialog_ = new KeyBindDialog(this);
+    // key_bind_dialog_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    // // connect(this, &KGroundControl::about2close, mavlink_inpector_, &MavlinkInspector::close);
+    // key_bind_dialog_->show();
+
 }
 
 MavlinkInspector::~MavlinkInspector()

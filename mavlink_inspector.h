@@ -217,7 +217,7 @@ class MavlinkInspector : public QWidget
     Q_OBJECT
 
 public:
-    explicit MavlinkInspector(QWidget *parent);
+    explicit MavlinkInspector(QWidget *parent = nullptr);
     ~MavlinkInspector();
 
 public slots:

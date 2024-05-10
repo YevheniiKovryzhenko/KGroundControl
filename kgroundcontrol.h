@@ -42,6 +42,8 @@ signals:
     bool remove_port(QString port_name);
     void port_removed(QString port_name);
 
+    void about2close(void);
+
 
 public slots:
     void get_settings(kgroundcontrol_settings* settings_out);

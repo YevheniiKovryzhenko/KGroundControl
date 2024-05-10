@@ -38,8 +38,6 @@ public slots:
 
     virtual QString get_settings_QString(void)=0;
     virtual void get_settings(void* current_settings)=0;
-
-
 };
 
 #endif // GENERIC_PORT_H

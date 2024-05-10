@@ -6,9 +6,11 @@
 #include <QSerialPortInfo>
 #include <QUdpSocket>
 #include <QThread>
+#include <array>
 
 #include "optitrack.hpp"
 #include "mavlink_enum_types.h"
+
 enum connection_type
 {
     Serial,
@@ -22,13 +24,44 @@ enum mocap_rotation
     ZUP2NED
 };
 
+class ip_address
+{
+public:
+    std::array<uint8_t, 4> triplet{};
+
+    ip_address(){};
+    ip_address(ip_address const &in){memcpy(this, &in, sizeof(in));};
+    ip_address(uint8_t in0, uint8_t in1, uint8_t in2, uint8_t in3)
+    {
+        triplet[0] = in0;
+        triplet[1] = in1;
+        triplet[2] = in2;
+        triplet[3] = in3;
+    }
+    ip_address(std::array<uint8_t, 4> const &in)
+    {
+        triplet = std::array<uint8_t, 4>(in);
+    }
+    ~ip_address(){};
+
+    QString get_QString(void)
+    {
+        return QString::number(triplet[0]) + "." + QString::number(triplet[1]) + "." + QString::number(triplet[2]) + "." + QString::number(triplet[3]);
+    }
+
+    ip_address& operator=(ip_address other)
+    {
+        using std::swap;
+        swap(triplet, other.triplet);
+        return *this;
+    }
+};
+
+
 
 class generic_port_settings
 {
 public:
-    // generic_port_settings(){};
-    // ~generic_port_settings(){};
-
     connection_type type;
     bool emit_heartbeat = false;
 };
@@ -37,9 +70,6 @@ class serial_settings : public generic_port_settings
 {
 
 public:
-    // serial_settings(){};
-    // ~serial_settings(){};
-
     QString uart_name;
     unsigned int baudrate = QSerialPort::BaudRate::Baud9600;
     QSerialPort::DataBits DataBits = QSerialPort::DataBits::Data8;
@@ -55,8 +85,8 @@ class udp_settings : public generic_port_settings
 {
 
 public:
-    QString host_address = "127.0.0.1";
-    QString local_address = "0.0.0.0";
+    ip_address host_address = ip_address(127,0,0,1);
+    ip_address local_address = ip_address(0,0,0,0);
 
     uint16_t local_port = 14551; //also bind port (reading from here)
     uint16_t host_port = 14550; //writing here

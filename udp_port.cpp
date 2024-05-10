@@ -233,14 +233,14 @@ char UDP_Port::start(void)
     // --------------------------------------------------------------------------
 
     Port = new QUdpSocket(this);
-    if (!Port->bind(QHostAddress(settings.local_address), settings.local_port))
+    if (!Port->bind(QHostAddress(settings.local_address.get_QString()), settings.local_port))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
         return -1;
     }
     else
     {
-        Port->connectToHost(QHostAddress(settings.host_address), settings.host_port);
+        Port->connectToHost(QHostAddress(settings.host_address.get_QString()), settings.host_port);
         if (!Port->waitForConnected())
         {
             (new QErrorMessage)->showMessage(Port->errorString());
@@ -295,7 +295,7 @@ QString UDP_Port::get_settings_QString(void)
 }
 void UDP_Port::get_settings(void* input_settings)
 {
-    memcpy((udp_settings*)input_settings, &settings, sizeof(udp_settings));
+    memcpy((udp_settings*)input_settings, &settings, sizeof(settings));
     return;
 }
 connection_type UDP_Port::get_type(void)

@@ -325,6 +325,7 @@ mocap_manager::mocap_manager(QWidget *parent, mocap_thread** mocap_thread_ptr)
 {
     ui->setupUi(this);
     setWindowFlags(Qt::Window);
+    setWindowTitle("Motion Capture Manager");
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 
     mutex = new QMutex;

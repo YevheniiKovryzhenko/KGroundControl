@@ -162,6 +162,7 @@ KGroundControl::~KGroundControl()
 
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
+    emit about2close();
     // save current state of the app:
     // if (maybeSave()) {
     //     writeSettings();
@@ -284,9 +285,12 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
     {
         udp_settings udp_settings_;
         udp_settings_.type = type_;
-        udp_settings_.host_address = ui->cmbx_host_address->currentText();
+        QStringList pieces = ui->cmbx_host_address->currentText().split(".");
+        udp_settings_.host_address = ip_address(pieces.value(0).toInt(), pieces.value(1).toInt(), pieces.value(2).toInt(), pieces.value(3).toInt());
         udp_settings_.host_port = ui->txt_host_port->text().toUInt();
-        udp_settings_.local_address = ui->cmbx_local_address->currentText();
+        pieces.clear();
+        pieces = ui->cmbx_local_address->currentText().split(".");
+        udp_settings_.local_address = ip_address(pieces.value(0).toInt(), pieces.value(1).toInt(), pieces.value(2).toInt(), pieces.value(3).toInt());
         udp_settings_.local_port = ui->txt_local_port->text().toUInt();
 
         if (emit add_port(new_port_name, UDP, static_cast<void*>(&udp_settings_), sizeof(udp_settings_), &thread_settings_, mavlink_manager_))
@@ -409,9 +413,9 @@ void KGroundControl::on_btn_remove_comm_clicked()
 void KGroundControl::on_btn_mavlink_inspector_clicked()
 {
 
-    MavlinkInspector* mavlink_inpector_ = new MavlinkInspector(this);
+    MavlinkInspector* mavlink_inpector_ = new MavlinkInspector(); //don't set parent so the window can be below the main one
     mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
-    mavlink_inpector_->setWindowIconText("Mavlink Inspector");
+    connect(this, &KGroundControl::about2close, mavlink_inpector_, &MavlinkInspector::close);
     mavlink_inpector_->show();
 
     connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::process_new_msg, Qt::DirectConnection);
@@ -527,9 +531,9 @@ void KGroundControl::update_port_status_txt(void)
 void KGroundControl::on_btn_mocap_clicked()
 {
     //open mocap ui window, it will handle the rest:
-    mocap_manager_ = new mocap_manager(this, &mocap_thread_);
+    mocap_manager_ = new mocap_manager(nullptr, &mocap_thread_);
     mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
-    mocap_manager_->setWindowIconText("Motion Capture Manager");
+    connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
     mocap_manager_->show();
 }
 
