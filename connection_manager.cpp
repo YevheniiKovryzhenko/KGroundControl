@@ -28,6 +28,7 @@ void port_read_thread::run()
             emit message_received(ptr, QDateTime::currentMSecsSinceEpoch());
             emit write_message(ptr);
             // message = mavlink_message_t();
+            continue; //there might be more messages, so don't wait
         } else delete message;
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }

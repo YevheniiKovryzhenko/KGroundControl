@@ -6,12 +6,13 @@
 #include <QMutex>
 #include <QListWidget>
 #include <QQueue>
+#include <QShortcut>
 
 #define MAVLINK_USE_MESSAGE_INFO
 #include "all/mavlink.h"
 #include "mavlink_enum_types.h"
 #include "threads.h"
-#include "signal_filters.h"
+// #include "signal_filters.h"
 
 
 //Кольцевой буфер на основе стандартной очереди
@@ -72,7 +73,7 @@ public:
 
     const uint8_t sysid;
     const mavlink_enums::mavlink_component_id compid;
-    static const size_t time_buffer_size = 2;
+    static const size_t time_buffer_size = 50;
 
     static QString print_one_field(mavlink_message_t* msg, const mavlink_field_info_t* f, int idx);
     static QString print_field(mavlink_message_t* msg, const mavlink_field_info_t* f);
@@ -192,6 +193,7 @@ signals:
 public slots:
     bool update(void* mavlink_msg_in, double update_rate_hz);
     void get_msg(void* mavlink_msg_out);
+    double get_last_hz(void);
 
     bool is_button_checked(void);
     bool is_update_scheduled(void);
@@ -205,6 +207,7 @@ private:
     Ui::MavlinkInspectorMSG *ui;
 
     bool update_scheduled = false;
+    double update_rate_hz_last = 0.0;
 };
 
 
@@ -246,6 +249,9 @@ private slots:
 
     void addbutton(uint8_t sysid_, mavlink_enums::mavlink_component_id compid_, QString msg_name);
 
+    void on_checkBox_arm_bind_clicked(bool checked);
+    void on_checkBox_disarm_bind_clicked(bool checked);
+
 signals:
     void clear_mav_manager();
 
@@ -270,10 +276,12 @@ private:
 
     QVector<QString> names;
 
-    static constexpr double sample_rate_hz = 30.0, cutoff_frequency_hz = 1.0;
+    static constexpr double sample_rate_hz = 30.0;//, cutoff_frequency_hz = 1.0;
 
     QMutex* mutex = nullptr;
     mavlink_inspector_thread* mavlink_inspector_thread_ = nullptr;
+
+    QShortcut *arm_key_bind = nullptr, *disarm_key_bind = nullptr;
 };
 
 #endif // MAVLINK_INSPECTOR_H

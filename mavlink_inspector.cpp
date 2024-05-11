@@ -560,6 +560,7 @@ bool MavlinkInspectorMSG::update(void* mavlink_msg_in, double update_rate_hz)
     if (mavlink_data_aggregator::print_name(msg_name, &tmp_msg) && tmp_msg.sysid == sysid && tmp_msg.compid == compid && msg_name == name)
     {        
         memcpy(&msg, &tmp_msg, sizeof(tmp_msg));
+        update_rate_hz_last = update_rate_hz;
         QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(update_rate_hz,-6, 'f', 1, ' ').arg(name, 30, ' '), 30 + 3 + 5, ' ');
         ui->pushButton->setText(tmp_name);
         update_scheduled = false;
@@ -576,6 +577,11 @@ void MavlinkInspectorMSG::get_msg(void* mavlink_msg_out)
     mutex->lock();
     memcpy(static_cast<mavlink_message_t*>(mavlink_msg_out), &msg, sizeof(msg));
     mutex->unlock();
+}
+
+double MavlinkInspectorMSG::get_last_hz(void)
+{
+    return update_rate_hz_last;
 }
 
 bool MavlinkInspectorMSG::is_button_checked(void)
@@ -626,7 +632,7 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
 
 
     generic_thread_settings mavlink_inspector_settings_;
-    mavlink_inspector_settings_.update_rate_hz = 30;
+    mavlink_inspector_settings_.update_rate_hz = static_cast<unsigned int>(sample_rate_hz);
     mavlink_inspector_settings_.priority = QThread::NormalPriority;
     mavlink_inspector_thread_ = new mavlink_inspector_thread(this, &mavlink_inspector_settings_);
 
@@ -635,16 +641,6 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
     on_btn_refresh_port_names_clicked();
     connect(this, &MavlinkInspector::heartbeat_updated, this, &MavlinkInspector::update_arm_state);
     connect(this, &MavlinkInspector::request_update_msg_browser, this, &MavlinkInspector::update_msg_browser);
-
-    //test key binds:
-    // QShortcut *shortcut = new QShortcut(QKeySequence("Ctrl+O"), this);
-    // QObject::connect(shortcut, &QShortcut::activated, this, &MavlinkInspector::on_btn_arm_clicked);
-
-    // KeyBindDialog* key_bind_dialog_ = new KeyBindDialog(this);
-    // key_bind_dialog_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
-    // // connect(this, &KGroundControl::about2close, mavlink_inpector_, &MavlinkInspector::close);
-    // key_bind_dialog_->show();
-
 }
 
 MavlinkInspector::~MavlinkInspector()
@@ -811,44 +807,37 @@ bool MavlinkInspector::update_msg_list_visuals(void)
                 return false;
             }
             //ok, we are done for now, let't finally update visuals:
-            LowPassFilter lowpass = LowPassFilter(sample_rate_hz, cutoff_frequency_hz);
+            // LowPassFilter lowpass = LowPassFilter(sample_rate_hz, cutoff_frequency_hz);
             if (timestamps_.count() > 1) //don't bother updating rate yet, need more samples
             {
+                qint64 current_time_stamp = QDateTime::currentMSecsSinceEpoch();
                 double avg_update_time_s = 0.0;
                 uint num_valid_samples = 0;
-                qint64 last_valid_time_stamp_ms = 0;
+                // qint64 last_valid_time_stamp_ms = 0;
                 for (int ii = 0; ii < timestamps_.count() - 1; ii++)
                 {
-                    double tmp_diff = static_cast<double>(timestamps_.data()[ii+1] - timestamps_.data()[ii])*1.0E-3;
-
-                    if (!isnan(tmp_diff) && !isinf(tmp_diff) && tmp_diff > 0.0)
+                    if ((current_time_stamp - timestamps_.data()[ii]) < 5.0E3)
                     {
-                        avg_update_time_s += tmp_diff;
-                        last_valid_time_stamp_ms = timestamps_.data()[ii+1];
-                        num_valid_samples++;
+                        double tmp_diff = static_cast<double>(timestamps_.data()[ii+1] - timestamps_.data()[ii])*1.0E-3;
+
+                        if (!isnan(tmp_diff) && !isinf(tmp_diff) && tmp_diff > 0.0)
+                        {
+                            avg_update_time_s += tmp_diff;
+                            num_valid_samples++;
+                        }
                     }
                 }
-                double update_rate_hz;
+                // double update_rate_hz = 0.0;
                 if (num_valid_samples > 0)
                 {
                     avg_update_time_s /= static_cast<double>(num_valid_samples);
-                    double time_since_last_msg_s = static_cast<double>(QDateTime::currentMSecsSinceEpoch() - last_valid_time_stamp_ms)*1.0E-3;
-                    update_rate_hz = lowpass.update(1.0 / avg_update_time_s);
-
-                    if (time_since_last_msg_s > 0.3 && update_rate_hz > 30) update_rate_hz = 0.0;
-                    else if (update_rate_hz < 30 && time_since_last_msg_s > 10*avg_update_time_s) update_rate_hz = 0.0;
-                    else if (update_rate_hz < 15 && time_since_last_msg_s > 5*avg_update_time_s) update_rate_hz = 0.0;
-                    else if (update_rate_hz < 10 && time_since_last_msg_s > 3*avg_update_time_s) update_rate_hz = 0.0;
-                    else if (update_rate_hz < 5 && time_since_last_msg_s > 1.0) update_rate_hz = 0.0;
-                    else if (update_rate_hz < 1 && time_since_last_msg_s > 3) update_rate_hz = 0.0;
-
+                    item->update(static_cast<void*>(&msg_), 1.0 / avg_update_time_s);
                 }
                 else
                 {
-                    update_rate_hz = lowpass.update(0.0);
+                    // update_rate_hz = lowpass.update(0.0);
+                    if (item->get_last_hz() > 0.0) item->update(static_cast<void*>(&msg_), 0.0);
                 }
-
-                item->update(static_cast<void*>(&msg_), update_rate_hz);
                 res = true;
             }
 
@@ -1026,5 +1015,57 @@ void MavlinkInspector::on_btn_refresh_port_names_clicked()
         ui->groupBox_vehicle_commands->setVisible(true);
     }
     mutex->unlock();
+}
+
+
+void MavlinkInspector::on_checkBox_arm_bind_clicked(bool checked)
+{
+    if (checked)
+    {
+        KeyBindDialog* key_bind_dialog_ = new KeyBindDialog(this);
+        key_bind_dialog_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+        connect(key_bind_dialog_, &KeyBindDialog::pass_key_string, this, [this](QString key_)
+            {
+                if (arm_key_bind == NULL) delete arm_key_bind;
+                arm_key_bind = new QShortcut(QKeySequence(key_), this);
+                connect(arm_key_bind, &QShortcut::activated, this, &MavlinkInspector::on_btn_arm_clicked);
+                ui->checkBox_arm_bind->setChecked(true);
+            }, Qt::SingleShotConnection);
+        ui->checkBox_arm_bind->setChecked(false);
+        key_bind_dialog_->show();
+
+    }
+    else if (arm_key_bind != NULL)
+    {
+        disconnect(arm_key_bind, &QShortcut::activated, this, &MavlinkInspector::on_btn_arm_clicked);
+        delete arm_key_bind;
+        arm_key_bind = nullptr;
+    }
+}
+
+
+void MavlinkInspector::on_checkBox_disarm_bind_clicked(bool checked)
+{
+    if (checked)
+    {
+        KeyBindDialog* key_bind_dialog_ = new KeyBindDialog(this);
+        key_bind_dialog_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+        connect(key_bind_dialog_, &KeyBindDialog::pass_key_string, this, [this](QString key_)
+            {
+                if (disarm_key_bind == NULL) delete disarm_key_bind;
+                disarm_key_bind = new QShortcut(QKeySequence(key_), this);
+                connect(disarm_key_bind, &QShortcut::activated, this, &MavlinkInspector::on_btn_disarm_clicked);
+                ui->checkBox_disarm_bind->setChecked(true);
+            }, Qt::SingleShotConnection);
+        ui->checkBox_disarm_bind->setChecked(false);
+        key_bind_dialog_->show();
+
+    }
+    else if (disarm_key_bind != NULL)
+    {
+        disconnect(disarm_key_bind, &QShortcut::activated, this, &MavlinkInspector::on_btn_disarm_clicked);
+        delete disarm_key_bind;
+        disarm_key_bind = nullptr;
+    }
 }
 

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>499</width>
-    <height>502</height>
+    <width>445</width>
+    <height>415</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -309,8 +309,8 @@ li.checked::marker { content: &quot;\2612&quot;; }
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>220</width>
-            <height>260</height>
+            <width>166</width>
+            <height>235</height>
            </rect>
           </property>
          </widget>
@@ -341,7 +341,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
           <x>0</x>
           <y>0</y>
           <width>253</width>
-          <height>262</height>
+          <height>237</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="verticalLayout_6">
@@ -662,34 +662,22 @@ li.checked::marker { content: &quot;\2612&quot;; }
                <number>3</number>
               </property>
               <item>
-               <widget class="QGroupBox" name="groupBox_arm">
-                <property name="title">
-                 <string/>
+               <widget class="QPushButton" name="btn_arm">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
-                <layout class="QHBoxLayout" name="horizontalLayout_4">
-                 <property name="spacing">
-                  <number>3</number>
-                 </property>
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>0</number>
-                 </property>
-                 <item>
-                  <widget class="QPushButton" name="btn_arm">
-                   <property name="text">
-                    <string>ARM</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
+                <property name="minimumSize">
+                 <size>
+                  <width>50</width>
+                  <height>0</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>ARM</string>
+                </property>
                </widget>
               </item>
               <item>
@@ -705,45 +693,46 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QCheckBox" name="checkBox_arm_bind">
+                <property name="maximumSize">
+                 <size>
+                  <width>60</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>Bind</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
              </layout>
             </item>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_7">
+              <property name="spacing">
+               <number>3</number>
+              </property>
               <item>
-               <widget class="QGroupBox" name="groupBox_disarm">
-                <property name="title">
-                 <string/>
+               <widget class="QPushButton" name="btn_disarm">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
-                <layout class="QHBoxLayout" name="horizontalLayout_5">
-                 <property name="spacing">
-                  <number>3</number>
-                 </property>
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>0</number>
-                 </property>
-                 <item>
-                  <widget class="QPushButton" name="btn_disarm">
-                   <property name="minimumSize">
-                    <size>
-                     <width>50</width>
-                     <height>0</height>
-                    </size>
-                   </property>
-                   <property name="text">
-                    <string>DISARM</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
+                <property name="minimumSize">
+                 <size>
+                  <width>50</width>
+                  <height>0</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>DISARM</string>
+                </property>
                </widget>
               </item>
               <item>
@@ -756,6 +745,22 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </property>
                 <property name="text">
                  <string>Force</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkBox_disarm_bind">
+                <property name="maximumSize">
+                 <size>
+                  <width>60</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>Bind</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>

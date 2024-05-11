@@ -1,0 +1,6 @@
+mingw_64 - WIN64:
+Compile the executable in release mode and copy .exe file to a new directory, then run:
+C:\Qt\6.7.0\mingw_64\bin\windeployqt6.exe D:\Qt\Deployment\KGroundControl\KGroundControl.exe --release
+
+or use this to also create an installer:
+'C:\Program Files\CQtDeployer\1.6\CQtDeployer.exe' -bin D:\Qt\Deployment\KGroundControl_v1.01\KGroundControl.exe -qmake C:\Qt\6.7.0\mingw_64\bin\qmake.exe qif

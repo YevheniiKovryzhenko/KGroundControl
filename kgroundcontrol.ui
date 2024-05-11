@@ -27,7 +27,7 @@
     <item>
      <widget class="QStackedWidget" name="stackedWidget_main">
       <property name="currentIndex">
-       <number>2</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="page_main_menu">
        <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -73,6 +73,9 @@
           </item>
           <item>
            <widget class="QPushButton" name="btn_mocap">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -1502,7 +1505,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                <string notr="true"/>
               </property>
               <property name="text">
-               <string notr="true">100</string>
+               <string notr="true">10000</string>
               </property>
               <property name="maxLength">
                <number>10</number>
@@ -2025,7 +2028,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
   <buttongroup name="buttonGroup_2"/>
+  <buttongroup name="buttonGroup"/>
  </buttongroups>
 </ui>
