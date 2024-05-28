@@ -66,14 +66,22 @@ public:
         settings.setValue("triplet_3", triplet[3]);
         settings.endGroup();
     }
-    void load(QSettings &settings)
+    bool load(QSettings &settings)
     {
         settings.beginGroup("ip_address");
-        triplet[0] = settings.value("triplet_0", triplet[0]).toUInt();
-        triplet[1] = settings.value("triplet_1", triplet[1]).toUInt();
-        triplet[2] = settings.value("triplet_2", triplet[2]).toUInt();
-        triplet[3] = settings.value("triplet_3", triplet[3]).toUInt();
+        if (!(settings.contains("triplet_0") && settings.contains("triplet_1") && settings.contains("triplet_2") && settings.contains("triplet_3")))
+        {
+            settings.endGroup();
+            return false;
+        }
+
+        triplet[0] = settings.value("triplet_0").toUInt();
+        triplet[1] = settings.value("triplet_1").toUInt();
+        triplet[2] = settings.value("triplet_2").toUInt();
+        triplet[3] = settings.value("triplet_3").toUInt();
+
         settings.endGroup();
+        return true;
     }
 };
 
@@ -89,7 +97,7 @@ public:
     void printf(void);
 
     void save(QSettings &settings);
-    void load(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 class serial_settings : public generic_port_settings
@@ -107,7 +115,7 @@ public:
     void printf(void);
 
     void save(QSettings &settings);
-    void load(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 class udp_settings : public generic_port_settings
@@ -124,7 +132,7 @@ public:
     void printf(void);
 
     void save(QSettings &settings);
-    void load(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 class generic_thread_settings
@@ -140,7 +148,7 @@ public:
     void printf(void);
 
     void save(QSettings &settings);
-    void load(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 class kgroundcontrol_settings
@@ -157,7 +165,7 @@ public:
     QString get_QString(void);
     void printf(void);
     void save(QSettings &settings);
-    void load(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 class mocap_settings

@@ -36,6 +36,8 @@ KGroundControl::KGroundControl(QWidget *parent)
     connect(this, &KGroundControl::get_port_settings_QString, connection_manager_, &connection_manager::get_port_settings_QString, Qt::DirectConnection);
     connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
 
+    connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
+
     // Start of Commns Pannel configuration:
 
     // End of Commns Pannel configuration //
@@ -159,54 +161,9 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     //autostart previously opened ports:
     QSettings qsettings;
-    QStringList groups = qsettings.childGroups();
-    if (!groups.isEmpty() && groups.contains("connection_manager"))
+    if (connection_manager_->load_saved_connections(qsettings, mavlink_manager_))
     {
-        qsettings.beginGroup("connection_manager");
-        groups.clear();
-        groups = qsettings.childGroups();
-        foreach (QString port_name_, groups)
-        {
-            qsettings.beginGroup(port_name_);
-
-            bool sucessfully_opened_port = false;
-            generic_thread_settings thread_settings_;
-            generic_port_settings gen_port_settings_;
-
-            thread_settings_.load(qsettings);
-            gen_port_settings_.load(qsettings);
-            switch (gen_port_settings_.type) {
-            case Serial:
-            {
-                serial_settings serial_settings_;
-                serial_settings_.load(qsettings);
-
-                sucessfully_opened_port = emit add_port(port_name_, Serial, static_cast<void*>(&serial_settings_), sizeof(serial_settings_), &thread_settings_, mavlink_manager_);
-                break;
-            }
-            case UDP:
-            {
-                udp_settings udp_settings_;
-                udp_settings_.load(qsettings);
-                sucessfully_opened_port = emit add_port(port_name_, UDP, static_cast<void*>(&udp_settings_), sizeof(udp_settings_), &thread_settings_, mavlink_manager_);
-                break;
-            }
-            }
-
-            if (!sucessfully_opened_port)
-            {
-                qsettings.remove("");
-                qsettings.endGroup();
-                qsettings.remove(port_name_);
-            }
-            else
-            {
-                qsettings.endGroup();
-                ui->list_connections->addItem(port_name_);
-                emit port_added(port_name_);
-            }
-        }
-        qsettings.endGroup();
+        connection_manager_->load_routing(qsettings);
     }
 }
 
@@ -216,11 +173,19 @@ KGroundControl::~KGroundControl()
     delete settings_mutex_;
 }
 
+void KGroundControl::port_added_externally(QString port_name)
+{
+    ui->list_connections->addItem(port_name);
+}
+
 void KGroundControl::load_settings(void)
 {
     QCoreApplication::setOrganizationName("YevheniiKovryzhenko");
     QCoreApplication::setOrganizationDomain("https://github.com/YevheniiKovryzhenko/KGroundControl");
     QCoreApplication::setApplicationName("KGroundControl");
+
+    // QSettings::setDefaultFormat(QSettings::IniFormat);
+    // QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, a.applicationDirPath());
 
     QSettings qsettings;
     qsettings.beginGroup("MainWindow");

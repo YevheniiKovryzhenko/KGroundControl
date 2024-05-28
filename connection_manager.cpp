@@ -90,6 +90,92 @@ connection_manager::~connection_manager()
     delete mutex;
 }
 
+bool connection_manager::load_saved_connections(QSettings &qsettings, mavlink_manager* mavlink_manager_)
+{
+    bool anything_loaded = false;
+    //autostart previously opened ports:
+    QStringList groups = qsettings.childGroups();
+    if (!groups.isEmpty() && groups.contains("connection_manager"))
+    {
+        qsettings.beginGroup("connection_manager");
+        groups.clear();
+        groups = qsettings.childGroups();
+        foreach (QString port_name_, groups)
+        {
+            qsettings.beginGroup(port_name_);
+
+            bool sucessfully_opened_port = false;
+            generic_thread_settings thread_settings_;
+            generic_port_settings gen_port_settings_;
+
+            if (thread_settings_.load(qsettings) && gen_port_settings_.load(qsettings))
+            {
+                switch (gen_port_settings_.type) {
+                case Serial:
+                {
+                    serial_settings serial_settings_;
+                    if (serial_settings_.load(qsettings))
+                    {
+                        sucessfully_opened_port = add(port_name_, Serial, static_cast<void*>(&serial_settings_), sizeof(serial_settings_), &thread_settings_, mavlink_manager_);
+                    }
+                    break;
+                }
+                case UDP:
+                {
+                    udp_settings udp_settings_;
+                    if (udp_settings_.load(qsettings))
+                    {
+                        sucessfully_opened_port = add(port_name_, UDP, static_cast<void*>(&udp_settings_), sizeof(udp_settings_), &thread_settings_, mavlink_manager_);
+                    }
+                    break;
+                }
+                }
+
+                if (!sucessfully_opened_port)
+                {
+                    qsettings.remove("");
+                    qsettings.endGroup();
+                    qsettings.remove(port_name_);
+                }
+                else
+                {
+                    qsettings.endGroup();
+                    emit port_added(port_name_);
+                    anything_loaded = true;
+                }
+            }
+
+        }
+        qsettings.endGroup();
+    }
+
+    return anything_loaded;
+}
+
+bool connection_manager::load_routing(QSettings &qsettings)
+{
+    bool anything_loaded = false;
+    if (n_connections > 0)
+    {
+        qsettings.beginGroup("connection_manager");
+
+        foreach (QString src_port_name_, port_names)
+        {
+            qsettings.beginGroup(src_port_name_);
+            qsettings.beginGroup("routing_targets");
+            QVector<QString> target_port_names = qsettings.allKeys().toVector();
+            if (target_port_names.size() > 0) anything_loaded = update_routing(src_port_name_, target_port_names);
+            target_port_names.clear();
+
+            qsettings.endGroup();
+            qsettings.endGroup();
+        }
+
+        qsettings.endGroup();
+    }
+    return anything_loaded;
+}
+
 unsigned int connection_manager::get_n()
 {
     mutex->lock();
@@ -224,7 +310,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
             }
 
             //update routing table:
-            remove_routing(port_name_);
+            remove_routing(port_name_, remove_settings);
             routing_table.remove(i); //remove current column
 
             //check the status of the thread:
@@ -503,9 +589,17 @@ bool connection_manager::add_routing(QString src_port_name_, QString target_port
             {
                 if (port_names[ii] == target_port_name_)
                 {
-                    // connect(PortThreads[i], &port_read_thread::write_message, Ports[ii], &Generic_Port::write_message, Qt::DirectConnection);
                     connect(Ports[i], &Generic_Port::ready_to_forward_new_data, Ports[ii], &Generic_Port::write_to_port, Qt::DirectConnection);
                     routing_table[i].append(target_port_name_);
+
+                    QSettings qsettings;
+                    qsettings.beginGroup("connection_manager");
+                    qsettings.beginGroup(src_port_name_);
+                    qsettings.beginGroup("routing_targets");
+                    qsettings.setValue(target_port_name_, false);
+                    qsettings.endGroup();
+                    qsettings.endGroup();
+                    qsettings.endGroup();
                     return true;
                 }
             }
@@ -514,7 +608,7 @@ bool connection_manager::add_routing(QString src_port_name_, QString target_port
     }
     return false;
 }
-bool connection_manager::remove_routing(QString src_port_name_, QString target_port_name_)
+bool connection_manager::remove_routing(QString src_port_name_, QString target_port_name_, bool clear_settings)
 {
     for (int i = 0; i < n_connections; i++)
     {
@@ -531,6 +625,17 @@ bool connection_manager::remove_routing(QString src_port_name_, QString target_p
                         if (routing_table[i][j] == target_port_name_)
                         {
                             routing_table[i].remove(j);
+                            if (clear_settings)
+                            {
+                                QSettings qsettings;
+                                qsettings.beginGroup("connection_manager");
+                                qsettings.beginGroup(src_port_name_);
+                                qsettings.beginGroup("routing_targets");
+                                qsettings.remove(target_port_name_);
+                                qsettings.endGroup();
+                                qsettings.endGroup();
+                                qsettings.endGroup();
+                            }
                             break;
                         }
                     }
@@ -542,17 +647,17 @@ bool connection_manager::remove_routing(QString src_port_name_, QString target_p
     }
     return false;
 }
-void connection_manager::remove_routing(QString target_port_name_)
+void connection_manager::remove_routing(QString target_port_name_, bool clear_settings)
 {
     for (int i = 0; i < n_connections; i++)
     {
         if (port_names[i] == target_port_name_) //this is our port we want to remove entirely
         {
-            while (routing_table[i].size() > 0) remove_routing(target_port_name_, routing_table[i][0]); //remove all connections from this port
+            while (routing_table[i].size() > 0) remove_routing(target_port_name_, routing_table[i][0], clear_settings); //remove all connections from this port
         }
         else //this is some other port
         {
-            remove_routing(port_names[i], target_port_name_); //search and remove our port if present
+            remove_routing(port_names[i], target_port_name_, clear_settings); //search and remove our port if present
         }
 
     }
@@ -589,7 +694,7 @@ bool connection_manager::update_routing(QString src_port_name_, QVector<QString>
                     is_a_match_ = old_target == new_target;
                     if (is_a_match_) break;
                 }
-                if (!is_a_match_) remove_routing(src_port_name_, old_target);//disabled connection, remove it now!
+                if (!is_a_match_) remove_routing(src_port_name_, old_target, true);//disabled connection, remove it now!
                 is_a_match_ = false;//we will start again for a new target
             }
             // routing_table[i].clear();

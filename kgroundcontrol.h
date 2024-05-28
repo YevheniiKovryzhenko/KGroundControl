@@ -48,6 +48,8 @@ signals:
 public slots:
     void get_settings(kgroundcontrol_settings* settings_out);
 
+    void port_added_externally(QString port_name);
+
 private slots:
 
     void on_btn_goto_comms_clicked();
@@ -103,6 +105,6 @@ private:
 
     void update_port_status_txt(void);
     void save_settings(void);
-    void load_settings(void);
+    void load_settings(void);    
 };
 #endif // KGROUNDCONTROL_H

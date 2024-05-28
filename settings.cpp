@@ -28,13 +28,19 @@ void generic_port_settings::save(QSettings &settings)
     settings.setValue("emit_heartbeat", emit_heartbeat);
     settings.endGroup();
 }
-void generic_port_settings::load(QSettings &settings)
+bool generic_port_settings::load(QSettings &settings)
 {
 
     settings.beginGroup("generic_port_settings");
-    type = static_cast<connection_type>(settings.value("priority", static_cast<int32_t>(UDP)).toInt());
-    emit_heartbeat = settings.value("emit_heartbeat", false).toBool();
+    if (!(settings.contains("type") && settings.contains("emit_heartbeat")))
+    {
+        settings.endGroup();
+        return false;
+    }
+    type = static_cast<connection_type>(settings.value("type").toInt());
+    emit_heartbeat = settings.value("emit_heartbeat").toBool();
     settings.endGroup();
+    return true;
 }
 
 
@@ -110,17 +116,23 @@ void serial_settings::save(QSettings &settings)
     settings.setValue("FlowControl", static_cast<int32_t>(FlowControl));
     settings.endGroup();
 }
-void serial_settings::load(QSettings &settings)
+bool serial_settings::load(QSettings &settings)
 {
-    generic_port_settings::load(settings);
+    if (!generic_port_settings::load(settings)) return false;
 
     settings.beginGroup("serial_settings");
+    if (!(settings.contains("uart_name") && settings.contains("baudrate") && settings.contains("DataBits") && settings.contains("Parity") && settings.contains("FlowControl")))
+    {
+        settings.endGroup();
+        return false;
+    }
     uart_name = settings.value("uart_name", uart_name).toString();
     baudrate = settings.value("baudrate", baudrate).toInt();
-    DataBits = static_cast<QSerialPort::DataBits>(settings.value("DataBits", static_cast<int32_t>(DataBits)).toInt());
-    Parity = static_cast<QSerialPort::Parity>(settings.value("Parity", static_cast<int32_t>(Parity)).toInt());
-    FlowControl = static_cast<QSerialPort::FlowControl>(settings.value("FlowControl", static_cast<int32_t>(FlowControl)).toInt());
+    DataBits = static_cast<QSerialPort::DataBits>(settings.value("DataBits").toInt());
+    Parity = static_cast<QSerialPort::Parity>(settings.value("Parity").toInt());
+    FlowControl = static_cast<QSerialPort::FlowControl>(settings.value("FlowControl").toInt());
     settings.endGroup();
+    return true;
 }
 
 
@@ -152,19 +164,38 @@ void udp_settings::save(QSettings &settings)
     settings.setValue("port", local_port);
     settings.endGroup();
 }
-void udp_settings::load(QSettings &settings)
+bool udp_settings::load(QSettings &settings)
 {
     generic_port_settings::load(settings);
 
     settings.beginGroup("host");
-    host_address.load(settings);
-    host_port = settings.value("port", host_port).toUInt();
+    if (!settings.contains("port"))
+    {
+        settings.endGroup();
+        return false;
+    }
+    if (!host_address.load(settings))
+    {
+        settings.endGroup();
+        return false;
+    }
+    host_port = settings.value("port").toUInt();
     settings.endGroup();
 
     settings.beginGroup("local");
-    local_address.load(settings);
-    local_port = settings.value("port", local_port).toUInt();
+    if (!settings.contains("port"))
+    {
+        settings.endGroup();
+        return false;
+    }
+    if (!local_address.load(settings))
+    {
+        settings.endGroup();
+        return false;
+    }
+    local_port = settings.value("port").toUInt();
     settings.endGroup();
+    return true;
 }
 
 
@@ -209,12 +240,18 @@ void generic_thread_settings::save(QSettings &settings)
     settings.setValue("priority", static_cast<int32_t>(priority));
     settings.endGroup();
 }
-void generic_thread_settings::load(QSettings &settings)
+bool generic_thread_settings::load(QSettings &settings)
 {
     settings.beginGroup("generic_thread_settings");
-    update_rate_hz = settings.value("update_rate_hz", update_rate_hz).toInt();
-    priority = static_cast<QThread::Priority>(settings.value("priority", static_cast<int32_t>(priority)).toInt());
+    if (!(settings.contains("update_rate_hz") && settings.contains("priority")))
+    {
+        settings.endGroup();
+        return false;
+    }
+    update_rate_hz = settings.value("update_rate_hz").toInt();
+    priority = static_cast<QThread::Priority>(settings.value("priority").toInt());
     settings.endGroup();
+    return true;
 }
 
 
@@ -238,12 +275,18 @@ void kgroundcontrol_settings::save(QSettings &settings)
     settings.setValue("compid", static_cast<int32_t>(compid));
     settings.endGroup();
 }
-void kgroundcontrol_settings::load(QSettings &settings)
+bool kgroundcontrol_settings::load(QSettings &settings)
 {
     settings.beginGroup("kgroundcontrol");
-    sysid = settings.value("sysid", sysid).toInt();
-    compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid", static_cast<int32_t>(compid)).toInt());
+    if (!(settings.contains("sysid") && settings.contains("compid")))
+    {
+        settings.endGroup();
+        return false;
+    }
+    sysid = settings.value("sysid").toUInt();
+    compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid").toUInt());
     settings.endGroup();
+    return true;
 }
 
 
