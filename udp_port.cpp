@@ -30,6 +30,15 @@ UDP_Port::~UDP_Port()
     delete Port;
 }
 
+void UDP_Port::save_settings(QSettings &qsettings)
+{
+    settings.save(qsettings);
+}
+void UDP_Port::load_settings(QSettings &qsettings)
+{
+    settings.load(qsettings);
+}
+
 bool UDP_Port::is_heartbeat_emited(void)
 {
     mutex->lock();

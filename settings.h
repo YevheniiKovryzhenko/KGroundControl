@@ -7,6 +7,7 @@
 #include <QUdpSocket>
 #include <QThread>
 #include <array>
+#include <QSettings>
 
 #include "optitrack.hpp"
 #include "mavlink_enum_types.h"
@@ -55,6 +56,25 @@ public:
         swap(triplet, other.triplet);
         return *this;
     }
+
+    void save(QSettings &settings)
+    {
+        settings.beginGroup("ip_address");
+        settings.setValue("triplet_0", triplet[0]);
+        settings.setValue("triplet_1", triplet[1]);
+        settings.setValue("triplet_2", triplet[2]);
+        settings.setValue("triplet_3", triplet[3]);
+        settings.endGroup();
+    }
+    void load(QSettings &settings)
+    {
+        settings.beginGroup("ip_address");
+        triplet[0] = settings.value("triplet_0", triplet[0]).toUInt();
+        triplet[1] = settings.value("triplet_1", triplet[1]).toUInt();
+        triplet[2] = settings.value("triplet_2", triplet[2]).toUInt();
+        triplet[3] = settings.value("triplet_3", triplet[3]).toUInt();
+        settings.endGroup();
+    }
 };
 
 
@@ -64,6 +84,12 @@ class generic_port_settings
 public:
     connection_type type;
     bool emit_heartbeat = false;
+
+    QString get_QString(void);
+    void printf(void);
+
+    void save(QSettings &settings);
+    void load(QSettings &settings);
 };
 
 class serial_settings : public generic_port_settings
@@ -79,6 +105,9 @@ public:
 
     QString get_QString(void);
     void printf(void);
+
+    void save(QSettings &settings);
+    void load(QSettings &settings);
 };
 
 class udp_settings : public generic_port_settings
@@ -93,6 +122,9 @@ public:
 
     QString get_QString(void);
     void printf(void);
+
+    void save(QSettings &settings);
+    void load(QSettings &settings);
 };
 
 class generic_thread_settings
@@ -106,6 +138,9 @@ public:
 
     QString get_QString(void);
     void printf(void);
+
+    void save(QSettings &settings);
+    void load(QSettings &settings);
 };
 
 class kgroundcontrol_settings
@@ -121,6 +156,8 @@ public:
 
     QString get_QString(void);
     void printf(void);
+    void save(QSettings &settings);
+    void load(QSettings &settings);
 };
 
 class mocap_settings

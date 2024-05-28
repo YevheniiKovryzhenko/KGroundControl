@@ -76,7 +76,8 @@ public slots:
              connection_type port_type, void* port_settings_, size_t settings_size,\
              generic_thread_settings* thread_settings_,\
              mavlink_manager* mavlink_manager_);
-    bool remove(QString port_name_);
+    bool remove_clear_settings(QString port_name_);
+    bool remove(QString port_name_, bool remove_settings);
 
 
     unsigned int get_n(void);
@@ -91,7 +92,7 @@ public slots:
     bool get_port_type(QString port_name_, connection_type &type);
 
 
-    void remove_all(void);
+    void remove_all(bool remove_settings = true);
     // void relay_parsed_hearbeat(void* parsed_heartbeat_msg_);
 
     bool update_routing(QString src_port_name_, QVector<QString> &routing_port_names);    

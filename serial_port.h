@@ -33,6 +33,9 @@ public:
 
     connection_type get_type(void);
 
+    void save_settings(QSettings &qsettings);
+    void load_settings(QSettings &qsettings);
+
     // void cleanup(void);
 public slots:
     bool read_message(void* message, int mavlink_channel_);

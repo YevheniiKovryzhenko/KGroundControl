@@ -18,6 +18,8 @@ KGroundControl::KGroundControl(QWidget *parent)
     , ui(new Ui::KGroundControl)
 {
     ui->setupUi(this);
+
+    load_settings();
     ui->stackedWidget_main->setCurrentIndex(0);
 
     settings_mutex_ = new QMutex;
@@ -28,7 +30,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     connect(this, &KGroundControl::is_heartbeat_emited, connection_manager_, &connection_manager::is_heartbeat_emited, Qt::DirectConnection);
     connect(this, &KGroundControl::get_port_settings, connection_manager_, &connection_manager::get_port_settings, Qt::DirectConnection);
     connect(this, &KGroundControl::get_port_type, connection_manager_, &connection_manager::get_port_type, Qt::DirectConnection);
-    connect(this, &KGroundControl::remove_port, connection_manager_, &connection_manager::remove, Qt::DirectConnection);
+    connect(this, &KGroundControl::remove_port, connection_manager_, &connection_manager::remove_clear_settings, Qt::DirectConnection);
     connect(this, &KGroundControl::check_if_port_name_is_unique, connection_manager_, &connection_manager::is_unique, Qt::DirectConnection);
     connect(this, &KGroundControl::add_port, connection_manager_, &connection_manager::add);
     connect(this, &KGroundControl::get_port_settings_QString, connection_manager_, &connection_manager::get_port_settings_QString, Qt::DirectConnection);
@@ -152,6 +154,60 @@ KGroundControl::KGroundControl(QWidget *parent)
     // emit settings_updated(&settings);
 
     ui->stackedWidget_c2t->setCurrentIndex(0);
+
+
+
+    //autostart previously opened ports:
+    QSettings qsettings;
+    QStringList groups = qsettings.childGroups();
+    if (!groups.isEmpty() && groups.contains("connection_manager"))
+    {
+        qsettings.beginGroup("connection_manager");
+        groups.clear();
+        groups = qsettings.childGroups();
+        foreach (QString port_name_, groups)
+        {
+            qsettings.beginGroup(port_name_);
+
+            bool sucessfully_opened_port = false;
+            generic_thread_settings thread_settings_;
+            generic_port_settings gen_port_settings_;
+
+            thread_settings_.load(qsettings);
+            gen_port_settings_.load(qsettings);
+            switch (gen_port_settings_.type) {
+            case Serial:
+            {
+                serial_settings serial_settings_;
+                serial_settings_.load(qsettings);
+
+                sucessfully_opened_port = emit add_port(port_name_, Serial, static_cast<void*>(&serial_settings_), sizeof(serial_settings_), &thread_settings_, mavlink_manager_);
+                break;
+            }
+            case UDP:
+            {
+                udp_settings udp_settings_;
+                udp_settings_.load(qsettings);
+                sucessfully_opened_port = emit add_port(port_name_, UDP, static_cast<void*>(&udp_settings_), sizeof(udp_settings_), &thread_settings_, mavlink_manager_);
+                break;
+            }
+            }
+
+            if (!sucessfully_opened_port)
+            {
+                qsettings.remove("");
+                qsettings.endGroup();
+                qsettings.remove(port_name_);
+            }
+            else
+            {
+                qsettings.endGroup();
+                ui->list_connections->addItem(port_name_);
+                emit port_added(port_name_);
+            }
+        }
+        qsettings.endGroup();
+    }
 }
 
 KGroundControl::~KGroundControl()
@@ -160,16 +216,50 @@ KGroundControl::~KGroundControl()
     delete settings_mutex_;
 }
 
+void KGroundControl::load_settings(void)
+{
+    QCoreApplication::setOrganizationName("YevheniiKovryzhenko");
+    QCoreApplication::setOrganizationDomain("https://github.com/YevheniiKovryzhenko/KGroundControl");
+    QCoreApplication::setApplicationName("KGroundControl");
+
+    QSettings qsettings;
+    qsettings.beginGroup("MainWindow");
+    const auto geometry = qsettings.value("geometry", QByteArray()).toByteArray();
+    if (geometry.isEmpty()) setGeometry(200, 200, 550, 580);
+    else restoreGeometry(geometry);
+    qsettings.endGroup();
+
+    settings.load(qsettings);
+}
+
+void KGroundControl::save_settings(void)
+{
+    QSettings qsettings;
+
+    if (ui->settings_hard_reset_on_exit->isChecked())
+    {
+        qsettings.clear();
+    }
+    else
+    {
+        qsettings.beginGroup("MainWindow");
+        qsettings.setValue("geometry", saveGeometry());
+        qsettings.endGroup();
+
+        qsettings.beginGroup("MainWindow");
+        qsettings.setValue("geometry", saveGeometry());
+        qsettings.endGroup();
+
+        settings.save(qsettings);
+        qsettings.sync();
+    }
+}
+
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
     emit about2close();
     // save current state of the app:
-    // if (maybeSave()) {
-    //     writeSettings();
-    //     event->accept();
-    // } else {
-    //     event->ignore();
-    // }
+    save_settings();
 
     //stop all threads if running:
 
@@ -197,7 +287,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     }    
 
     //close all other active ports:
-    connection_manager_->remove_all();
+    connection_manager_->remove_all(false);
     event->accept();
 }
 
@@ -470,7 +560,6 @@ void KGroundControl::on_btn_settings_clicked()
     ui->txt_sysid->setText(QString::number(settings.sysid));
     QString current_comp_id_ = mavlink_enums::get_QString(settings.compid);
     QVector<QString> comp_id_list_ = mavlink_enums::get_QString_all_mavlink_component_id();
-    int i = 0;
     for (int i = 0; i < comp_id_list_.size(); i++)
     {
         if (current_comp_id_ == comp_id_list_[i])
@@ -478,7 +567,6 @@ void KGroundControl::on_btn_settings_clicked()
             ui->cmbx_compid->setCurrentIndex(i);
             break;
         }
-        i++;
     }
 
 }

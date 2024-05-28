@@ -10,6 +10,14 @@ generic_thread::~generic_thread(void)
 {
     delete mutex;
 }
+void generic_thread::save_settings(QSettings &qsettings)
+{
+    generic_thread_settings_.save(qsettings);
+}
+void generic_thread::load_settings(QSettings &qsettings)
+{
+    generic_thread_settings_.load(qsettings);
+}
 void generic_thread::update_settings(generic_thread_settings* settings_in_)
 {
     mutex->lock();

@@ -130,14 +130,23 @@ bool connection_manager::add(QString new_port_name, \
 {    
     Generic_Port* port_;
     port_read_thread* new_port_thread;
+    bool emit_heartbeat_ = false;
     switch (port_type) {
     case Serial:
-        port_ = new Serial_Port(this, static_cast<serial_settings*>(port_settings_), settings_size);
+    {
+        serial_settings* settings_ = static_cast<serial_settings*>(port_settings_);
+        port_ = new Serial_Port(this, settings_, settings_size);
+        emit_heartbeat_ = settings_->emit_heartbeat;
         break;
+    }
 
     case UDP:
-        port_ = new UDP_Port(this, static_cast<udp_settings*>(port_settings_), settings_size);
+    {
+        udp_settings* settings_ = static_cast<udp_settings*>(port_settings_);
+        port_ = new UDP_Port(this, settings_, settings_size);
+        emit_heartbeat_ = settings_->emit_heartbeat;
         break;
+    }
     }
 
 
@@ -169,14 +178,30 @@ bool connection_manager::add(QString new_port_name, \
     Ports.append(port_);
     PortThreads.append(new_port_thread);
     routing_table.append(QVector<QString>());
-    heartbeat_emited.append(false);
+    heartbeat_emited.append(emit_heartbeat_);
     n_connections++;
     mutex->unlock();
+
+    if (emit_heartbeat_) connect(systhread_, &system_status_thread::send_parsed_hearbeat, port_, &Generic_Port::write_message);
+
+    QSettings qsettings;
+    qsettings.beginGroup("connection_manager");
+    qsettings.beginGroup(new_port_name);
+    port_->save_settings(qsettings);
+    new_port_thread->save_settings(qsettings);
+    qsettings.endGroup();
+    qsettings.endGroup();
     emit port_names_updated();
+    if (emit_heartbeat_) emit heartbeat_swiched(true);
     return true;
 }
 
-bool connection_manager::remove(QString port_name_)
+bool connection_manager::remove_clear_settings(QString port_name_)
+{
+    return remove(port_name_, true);
+}
+
+bool connection_manager::remove(QString port_name_, bool remove_settings)
 {
     mutex->lock();
     for(unsigned int i = 0; i < n_connections; i++)
@@ -185,6 +210,18 @@ bool connection_manager::remove(QString port_name_)
         {
             //tell thread it has to quit:
             PortThreads[i]->requestInterruption();
+
+            if (remove_settings)
+            {
+                // clear settings:
+                QSettings qsettings;
+                qsettings.beginGroup("connection_manager");
+                qsettings.beginGroup(port_name_);
+                qsettings.remove("");
+                qsettings.endGroup();
+                qsettings.remove(port_name_);
+                qsettings.endGroup();
+            }
 
             //update routing table:
             remove_routing(port_name_);
@@ -244,6 +281,12 @@ bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_v
         {
             if (heartbeat_emited[i] != on_off_val)
             {
+                QSettings qsettings;
+                qsettings.beginGroup("connection_manager");
+                qsettings.beginGroup(port_name_);
+                Ports[i]->load_settings(qsettings);
+
+
                 if (on_off_val) connect(systhread_, &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);//, Qt::DirectConnection);
                 else disconnect(systhread_, &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);
                 heartbeat_emited[i] = on_off_val;
@@ -251,6 +294,10 @@ bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_v
                 connect(this, &connection_manager::heartbeat_swiched, Ports[i], &Generic_Port::toggle_heartbeat_emited, static_cast<Qt::ConnectionType>(Qt::DirectConnection | Qt::SingleShotConnection));
                 emit heartbeat_swiched(on_off_val);
                 mutex->unlock();
+
+                Ports[i]->save_settings(qsettings);
+                qsettings.endGroup();
+                qsettings.endGroup();
                 return true;
             }
             else
@@ -271,6 +318,12 @@ bool connection_manager::is_heartbeat_emited(QString port_name_)
     {
         if (port_names[i] == port_name_)
         {
+            QSettings qsettings;
+            qsettings.beginGroup("connection_manager");
+            qsettings.beginGroup(port_name_);
+            Ports[i]->load_settings(qsettings);
+            qsettings.endGroup();
+            qsettings.endGroup();
             bool out = heartbeat_emited[i];
             mutex->unlock();
             return out;
@@ -310,7 +363,7 @@ bool connection_manager::write_mavlink_msg_2port(QString port_name_, void* msg_)
 //     mutex->unlock();
 // }
 
-void connection_manager::remove_all(void)
+void connection_manager::remove_all(bool remove_settings)
 {
     //stop system thread if running:
     if (systhread_ != NULL) systhread_->requestInterruption();
@@ -318,7 +371,7 @@ void connection_manager::remove_all(void)
     //meanwhile terminate everything else:
     while (port_names.size() > 0)
     {
-        remove(port_names[0]);
+        remove(port_names[0], remove_settings);
     }
 
     //check back with the system thread:
@@ -389,6 +442,13 @@ QString connection_manager::get_port_settings_QString(QString port_name_)
     {
         if (port_names[i] == port_name_)
         {
+            QSettings qsettings;
+            qsettings.beginGroup("connection_manager");
+            qsettings.beginGroup(port_name_);
+            Ports[i]->load_settings(qsettings);
+            PortThreads[i]->load_settings(qsettings);
+            qsettings.endGroup();
+            qsettings.endGroup();
             connect(this, &connection_manager::port_settings_QString_request, Ports[i], &Generic_Port::get_settings_QString, static_cast<Qt::ConnectionType>(Qt::DirectConnection | Qt::SingleShotConnection));
             connect(this, &connection_manager::port_read_thread_settings_QString_request, PortThreads[i], &port_read_thread::get_settings_QString, static_cast<Qt::ConnectionType>(Qt::DirectConnection | Qt::SingleShotConnection));
             out = "Port Settings:\n";
@@ -407,7 +467,7 @@ QString connection_manager::get_port_settings_QString(QString port_name_)
             }
             else out += " NONE";
             out += "\n";
-            // out = Ports[i]->get_settings_QString();
+            // out = Ports[i]->get_settings_QString();            
             mutex->unlock();
             // qDebug() << out;
             return out;

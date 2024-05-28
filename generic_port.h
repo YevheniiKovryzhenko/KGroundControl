@@ -24,6 +24,9 @@ public:
 
     virtual connection_type get_type(void)=0;
 
+    virtual void save_settings(QSettings &qsettings)=0;
+    virtual void load_settings(QSettings &qsettings)=0;
+
     // virtual void cleanup(void);
 signals:
     int ready_to_forward_new_data(QByteArray &new_data);

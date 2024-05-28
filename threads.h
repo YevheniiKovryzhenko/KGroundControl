@@ -16,6 +16,9 @@ public:
     generic_thread(QObject* parent, generic_thread_settings* settings_in_);
     ~generic_thread();
 
+    void save_settings(QSettings &qsettings);
+    void load_settings(QSettings &qsettings);
+
 public slots:
     void update_settings(generic_thread_settings* settings_in_);
 

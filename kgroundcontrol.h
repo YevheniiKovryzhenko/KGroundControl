@@ -102,5 +102,7 @@ private:
     mocap_thread* mocap_thread_ = nullptr;
 
     void update_port_status_txt(void);
+    void save_settings(void);
+    void load_settings(void);
 };
 #endif // KGROUNDCONTROL_H

@@ -59,6 +59,15 @@ Serial_Port::~Serial_Port()
     delete Port;
 }
 
+void Serial_Port::save_settings(QSettings &qsettings)
+{
+    settings.save(qsettings);
+}
+void Serial_Port::load_settings(QSettings &qsettings)
+{
+    settings.load(qsettings);
+}
+
 bool Serial_Port::is_heartbeat_emited(void)
 {
     mutex->lock();
