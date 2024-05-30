@@ -43,7 +43,7 @@ public slots:
 
     bool get_data(mocap_data_t& buff, int ID);
     std::vector<int> get_current_ids(void);
-    std::vector<int> get_current_ids(std::vector<int> current_ids);
+    bool check_if_there_are_new_ids(std::vector<int> &ids_out, std::vector<int> current_ids);
 
 
 private:
@@ -69,7 +69,7 @@ public slots:
 
 signals:
 
-    std::vector<int> get_most_recent_ids(std::vector<int> current_ids);
+    bool check_if_there_are_new_ids(std::vector<int> &ids_out, std::vector<int> current_ids);
     void ready_to_update_frame_ids(std::vector<int> &frame_ids_out);
     void ready_to_update_data(void);
 
@@ -126,6 +126,10 @@ private slots:
     void terminate_mocap_processing_thread(void);
 
     void on_btn_refesh_clear_clicked();
+
+    void on_btn_configure_data_bridge_clicked();
+
+    void on_btn_relay_go_back_clicked();
 
 private:
     QMutex* mutex;

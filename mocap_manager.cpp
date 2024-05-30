@@ -259,52 +259,55 @@ std::vector<int> mocap_thread::get_current_ids(void)
     return ids_out;
 }
 
-std::vector<int> mocap_thread::get_current_ids(std::vector<int> current_ids)
+bool mocap_thread::check_if_there_are_new_ids(std::vector<int> &new_ids_out, std::vector<int> current_ids)
 {
     if (current_ids.size() > 0)
     {
-        std::vector<int> ids_out;
         // Lock
         mutex->lock();
 
-        size_t tmp = incomingMessages.size();
-        if (tmp < 1)
+        if (incomingMessages.size() < 1)
         {
             // Unlock
             mutex->unlock();
-            return ids_out;
+            return false;
         }
-        for (auto& msg : incomingMessages)
+        bool res = false;
+        for (auto& msg : incomingMessages) //run though all received
         {
-            if (ids_out.size() > 0)
+            if (new_ids_out.size() > 0) //first check if msg is already present in the out list
             {
-                for (int i = 0; i < ids_out.size(); i++)
+                bool is_already_in_out = false;
+                for (int i = 0; i < new_ids_out.size(); i++)
                 {
-                    if (ids_out[i] == msg.id) break;
-                    else if (i == ids_out.size() - 1)
+                    if (new_ids_out[i] == msg.id) //this is probably not supposed to happen at all (unless there multiple rigid bodies with the same id)
                     {
-                        for (int ii = 0; ii < current_ids.size(); ii++)
-                        {
-                            if (current_ids[ii] == msg.id) break;
-                            else if (ii == current_ids.size() - 1) ids_out.push_back(msg.id);
-                        }
+                        is_already_in_out = true;
+                        break;
                     }
+
                 }
+
+                if (is_already_in_out) continue;
             }
-            else
+
+            //chek of any of the new ids are actually new (based on the current list)
+            for (int ii = 0; ii < current_ids.size(); ii++)
             {
-                for (int ii = 0; ii < current_ids.size(); ii++)
+                if (current_ids[ii] == msg.id) break;
+                else if (ii == current_ids.size() - 1)
                 {
-                    if (current_ids[ii] == msg.id) break;
-                    else if (ii == current_ids.size() - 1) ids_out.push_back(msg.id);
+                    new_ids_out.push_back(msg.id);
+                    res = true;
                 }
             }
         }
         // Unlock
         mutex->unlock();
-        return ids_out;
+        return res;
     }
-    else return get_current_ids();
+    new_ids_out = get_current_ids();
+    return true;
 }
 
 
@@ -639,13 +642,14 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
 
     //now, we can connect the processing thread with the inspector thread:
     connect((mocap_thread_), &mocap_thread::new_data_available, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
+    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::check_if_there_are_new_ids, (mocap_thread_), &mocap_thread::check_if_there_are_new_ids, Qt::DirectConnection);
 
     //connect ui data updates with the mocap processing thread:
     connect(this, &mocap_manager::get_data, (mocap_thread_), &mocap_thread::get_data, Qt::DirectConnection);
 
     //linking all updates from the inspector thread to this UI:
     connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_frame_ids, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::DirectConnection);
-    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_data, this, &mocap_manager::update_visuals_mocap_data, Qt::DirectConnection);
+    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_data, this, &mocap_manager::update_visuals_mocap_data, Qt::QueuedConnection);
     connect(this, &mocap_manager::update_visuals_settings, mocap_data_inspector_thread_, &mocap_data_inspector_thread::update_settings, Qt::DirectConnection);
     connect(this, &mocap_manager::reset_visuals, mocap_data_inspector_thread_, &mocap_data_inspector_thread::reset, Qt::DirectConnection);
 
@@ -742,14 +746,21 @@ void mocap_data_inspector_thread::run()
         if (new_data_available_)
         {
             //first, update frame ids:
-            std::vector<int> ids_new = emit get_most_recent_ids(frame_ids);
-            if (frame_ids.size() > 0)
+            std::vector<int> ids_new;
+            if (emit check_if_there_are_new_ids(ids_new, frame_ids))
             {
                 frame_ids.insert(frame_ids.end(), ids_new.begin(), ids_new.end());
-                emit ready_to_update_frame_ids(frame_ids); //this should pdate all visuals related to frame ids
+                emit ready_to_update_frame_ids(frame_ids); //this should update all visuals related to frame ids
+
+
             }
-            // now, let's update data as well:
-            emit ready_to_update_data();
+
+            if (frame_ids.size() > 0)
+            {
+                // now, let's update data as well:
+                emit ready_to_update_data();
+            }
+
         }
         new_data_available_ = false;
         mutex->unlock();
@@ -764,5 +775,17 @@ void mocap_manager::on_btn_refesh_clear_clicked()
     ui->txt_mocap_data_view->clear();
     mutex->unlock();
     emit reset_visuals();
+}
+
+
+void mocap_manager::on_btn_configure_data_bridge_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(3);
+}
+
+
+void mocap_manager::on_btn_relay_go_back_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 }
 
