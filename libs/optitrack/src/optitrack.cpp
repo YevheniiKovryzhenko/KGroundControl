@@ -42,6 +42,7 @@
 #include <QByteArray>
 #include <QNetworkDatagram>
 #include <QNetworkInterface>
+#include <QHostInfo>
 // #include <QMutex>
 
 // Linux socket headers
@@ -76,13 +77,6 @@
 mocap_optitrack::mocap_optitrack(QObject *parent) : QObject(parent)
 {
     mutex = new QMutex();
-    port_open = false;
-
-    mutex_ipv6 = new QMutex();
-    port_ipv6_open = false;
-
-    buff_index = 0;
-    buff_ipv6_index = 0;
 }
 
 mocap_optitrack::~mocap_optitrack()
@@ -95,86 +89,44 @@ mocap_optitrack::~mocap_optitrack()
             delete iface;
             iface = nullptr;
         }
+        Port->close();
         delete Port;
         Port = nullptr;
     }
     delete mutex;
-    port_open = false;
-
-
-    if (Port_ipv6 != NULL)
-    {
-        if (iface_ipv6 != NULL)
-        {
-            Port_ipv6->leaveMulticastGroup(QHostAddress(multicast_address_ipv6_), *iface_ipv6);
-            delete iface_ipv6;
-            iface_ipv6 = nullptr;
-        }
-        delete Port_ipv6;
-        Port_ipv6 = nullptr;
-    }
-    delete mutex_ipv6;
-    port_ipv6_open = false;
 }
 
-bool mocap_optitrack::read(std::vector<optitrack_message_t> &msg_out)
+void mocap_optitrack::read_port(void)
 {
-    if (!port_open) return false;
-    bool res = false;
+    mutex->lock();
+    QNetworkDatagram datagram = Port->receiveDatagram();
+    QByteArray new_data = datagram.data();
+    bytearray.append(new_data);
+    mutex->unlock();
+}
+
+bool mocap_optitrack::read_message(std::vector<optitrack_message_t> &msg_out)
+{
+    bool msgReceived = false;
 
     mutex->lock();
-    if (Port->hasPendingDatagrams())
+    if (is_ready_to_parse())
     {
-        QNetworkDatagram datagram;
-        datagram = Port->receiveDatagram();
-        QByteArray data = datagram.data();
-        foreach (auto byte, data)
+        std::vector<optitrack_message_t> parsed_data;
+        int nbytes = parse_optitrack_packet_into_messages(parsed_data);
+
+        if (parsed_data.size() > 0)
         {
-            buff[buff_index] = static_cast<char>(byte);
-            buff_index++;
-
-            if (buff_index > BUFF_LEN)
-            {
-                std::vector<optitrack_message_t> parsed_data = parse_optitrack_packet_into_messages(buff);
-                msg_out.insert(std::end(msg_out), std::begin(parsed_data), std::end(parsed_data));
-                res = true;
-
-                buff_index = 0;
-            }
+            msg_out.insert(std::end(msg_out), std::begin(parsed_data), std::end(parsed_data));
+            msgReceived = true;
         }
+        if (nbytes < bytearray.size()) bytearray.remove(0, nbytes); //keep data for next parsing run
+        else bytearray.clear(); //start fresh next time
     }
     mutex->unlock();
-    return res;
-}
 
-bool mocap_optitrack::read_ipv6(std::vector<optitrack_message_t> &msg_out)
-{
-    if (!port_ipv6_open) return false;
-    bool res = false;
-
-    mutex_ipv6->lock();
-    if (Port_ipv6->hasPendingDatagrams())
-    {
-        QNetworkDatagram datagram;
-        datagram = Port_ipv6->receiveDatagram();
-        QByteArray data = datagram.data();
-        foreach (auto byte, data)
-        {
-            buff_ipv6[buff_ipv6_index] = static_cast<char>(byte);
-            buff_ipv6_index++;
-
-            if (buff_ipv6_index > BUFF_LEN)
-            {
-                std::vector<optitrack_message_t> parsed_data = parse_optitrack_packet_into_messages(buff_ipv6);
-                msg_out.insert(std::end(msg_out), std::begin(parsed_data), std::end(parsed_data));
-                res = true;
-
-                buff_ipv6_index = 0;
-            }
-        }
-    }
-    mutex_ipv6->unlock();
-    return res;
+    // Done!
+    return msgReceived;
 }
 
 bool mocap_optitrack::guess_optitrack_network_interface(QNetworkInterface &interface)
@@ -256,14 +208,19 @@ bool mocap_optitrack::guess_optitrack_network_interface_ipv6(QNetworkInterface &
 bool mocap_optitrack::get_network_interface(QNetworkInterface &interface, QString address)
 {
     //get a list of all network interfaces and ip addresses
+    auto tmp0 = QNetworkInterface::allInterfaces();
     foreach (const QNetworkInterface &interface_, QNetworkInterface::allInterfaces())
     {
-        foreach(const QHostAddress &address_, interface_.allAddresses())
+        if (interface_.flags().testFlag(QNetworkInterface::IsUp))
         {
-            if (address_.toString() == address)
+            auto tmp1 = interface_.allAddresses();
+            foreach(const QHostAddress &address_, interface_.allAddresses())
             {
-                interface = interface_;
-                return true;
+                if (address_.toString() == address)
+                {
+                    interface = interface_;
+                    return true;
+                }
             }
         }
     }
@@ -284,6 +241,7 @@ bool mocap_optitrack::create_optitrack_data_socket(\
             delete iface;
             iface = nullptr;
         }
+        Port->close();
         delete Port;
         Port = nullptr;
     }
@@ -292,22 +250,22 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     if (!Port->bind(QHostAddress(local_address), local_port, QUdpSocket::ShareAddress))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
-        port_open = false;
         mutex->unlock();
-        return port_open;
+        return false;
     }
-
-
     if (Port->joinMulticastGroup(QHostAddress(multicast_address), interface))
     {
         qDebug() << "[create_optitrack_data_socket] joined multicast group at address " << QString(MULTICAST_ADDRESS);
+        iface = new QNetworkInterface(interface);
     }
     else
     {
         (new QErrorMessage)->showMessage("[create_optitrack_data_socket] join failed.\n");
-        port_open = false;
+        Port->close();
+        delete Port;
+        Port = nullptr;
         mutex->unlock();
-        return port_open;
+        return false;
     }
     multicast_address_ = multicast_address;
     // create a 1MB buffer
@@ -318,79 +276,67 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     if (optval != 0x100000) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
     else qDebug() << "[create_optitrack_data_socket] Increased receive buffer size to " << QString::number(optval);
 
-    port_open = true;
-    buff_index = 0;
     mutex->unlock();
-    return port_open;
+
+    connect(Port, &QUdpSocket::readyRead, this, &mocap_optitrack::read_port, Qt::DirectConnection);
+    return true;
 }
 
-bool mocap_optitrack::create_optitrack_data_socket_ipv6(\
-            QNetworkInterface &interface, \
-            QString local_address, unsigned short local_port,\
-            QString multicast_address)
+bool mocap_optitrack::is_ready_to_parse(void)
 {
-    mutex_ipv6->lock();
-    if (Port_ipv6 != NULL)
-    {
-        if (iface_ipv6 != NULL)
-        {
-            Port_ipv6->leaveMulticastGroup(QHostAddress(multicast_address_ipv6_), *iface_ipv6);
-            delete iface_ipv6;
-            iface_ipv6 = nullptr;
-        }
-        delete Port_ipv6;
-        Port_ipv6 = nullptr;
-    }
-    Port_ipv6 = new QUdpSocket();
 
-    if (!Port_ipv6->bind(QHostAddress(local_address), local_port, QUdpSocket::ShareAddress))
-    {
-        (new QErrorMessage)->showMessage(Port_ipv6->errorString());
-        port_ipv6_open = false;
-        mutex_ipv6->unlock();
-        return port_ipv6_open;
-    }
-
-
-    if (Port_ipv6->joinMulticastGroup(QHostAddress(multicast_address), interface))
-    {
-        qDebug() << "[create_optitrack_data_socket_ipv6] joined multicast group at address " << QString(MULTICAST_ADDRESS);
-    }
+    if (bytearray.size() < 5) return false;
     else
     {
-        (new QErrorMessage)->showMessage("[create_optitrack_data_socket_ipv6] join failed.\n");
-        port_ipv6_open = false;
-        mutex_ipv6->unlock();
-        return port_ipv6_open;
+        int MessageID;
+        int nBytes = 0;
+        while (bytearray.size() > 4) {
+            char* ptr = bytearray.begin();
+
+            // message ID
+            MessageID = 0;
+            memcpy(&MessageID, ptr, 2);
+            if (MessageID != NAT_FRAMEOFDATA)
+            {
+                bytearray.remove(0, 2);
+                continue;
+            }
+
+            if (bytearray.size() < 5) return false;
+            ptr += 2;
+
+            //size
+            nBytes = 0;
+            memcpy(&nBytes, ptr, 2);
+            if (nBytes < 1) bytearray.remove(0, 4);
+            else break;
+        }
+
+        return (nBytes > 0 && bytearray.size() >= nBytes);
     }
-    multicast_address_ipv6_ = multicast_address;
-    // create a 1MB buffer
-    int optval = 0x100000;
-
-    Port_ipv6->setReadBufferSize(optval);
-    optval = Port_ipv6->readBufferSize();
-    if (optval != 0x100000) qDebug() << "[create_optitrack_data_socket_ipv6] ReceiveBuffer size = " << QString::number(optval);
-    else qDebug() << "[create_optitrack_data_socket_ipv6] Increased receive buffer size to " << QString::number(optval);
-
-    port_ipv6_open = true;
-    buff_ipv6_index = 0;
-
-    mutex_ipv6->unlock();
-    return port_ipv6_open;
 }
 
-std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_messages(
-    const char* packet)
+bool check_size(int max, int requested)
+{
+    if (max < requested)
+    {
+        qDebug() << "[mocap_optitrack] Requesting more data than received, pausing data parsing...";
+        return true;
+    }
+    return false;
+}
+int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_message_t> &messages)
 {
 
-  std::vector<optitrack_message_t> messages;
+  // std::vector<optitrack_message_t> messages;
 
   int major = 3;
-  int minor = 0;
+  int minor = 0;  
 
-  const char* ptr = packet;
+  char* ptr = bytearray.begin();
+  int n_bytes_read = 0;
   if (VERBOSE) {
-    printf("Begin Packet\n-------\n");
+      qDebug() << "Begin Packet\n-------\n";
   }
 
   // message ID
@@ -398,7 +344,7 @@ std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_me
   memcpy(&MessageID, ptr, 2);
   ptr += 2;
   if (VERBOSE) {
-    printf("Message ID : %d\n", MessageID);
+    qDebug() << "Message ID : " << MessageID;
   }
 
   // size
@@ -406,47 +352,69 @@ std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_me
   memcpy(&nBytes, ptr, 2);
   ptr += 2;
   if (VERBOSE) {
-    printf("Byte count : %d\n", nBytes);
+    qDebug() << "Byte count : " << nBytes;
+  }
+  n_bytes_read = 4;
+  if (nBytes < 5) return n_bytes_read;
+  if (nBytes > bytearray.size())
+  {
+      qDebug() << "[mocap_optitrack] Need to wait for more data before parsing..."; //should not occur
+      return 0;
   }
   if (MessageID == NAT_FRAMEOFDATA) {  // FRAME OF MOCAP DATA packet
     // frame number
     int frameNumber = 0;
+    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+    n_bytes_read += 4;
     memcpy(&frameNumber, ptr, 4);
-    ptr += 4;
+    ptr += 4; //8
     if (VERBOSE) {
-      printf("Frame # : %d\n", frameNumber);
+      qDebug() << "Frame # : " << frameNumber;
     }
 
     // number of data sets (markersets, rigidbodies, etc)
     int nMarkerSets = 0;
+    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+    n_bytes_read += 4;
     memcpy(&nMarkerSets, ptr, 4);
-    ptr += 4;
+    ptr += 4; //12
     if (VERBOSE) {
-      printf("Marker Set Count : %d\n", nMarkerSets);
+      qDebug() << "Marker Set Count : " << nMarkerSets;
     }
-
     for (int i = 0; i < nMarkerSets; i++) {
       // Markerset name
       char szName[256];
       strcpy(szName, ptr);
       int nDataBytes = (int)strlen(szName) + 1;
+      if (check_size(nBytes, n_bytes_read + nDataBytes)) return n_bytes_read;
+      n_bytes_read += nDataBytes;
       ptr += nDataBytes;
       // printf("Model Name: %s\n", szName);
 
       // marker data
       int nMarkers = 0;
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&nMarkers, ptr, 4);
       ptr += 4;
       // printf("Marker Count : %d\n", nMarkers);
 
       for (int j = 0; j < nMarkers; j++) {
         float x = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
         memcpy(&x, ptr, 4);
         ptr += 4;
+
         float y = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
         memcpy(&y, ptr, 4);
         ptr += 4;
+
         float z = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
         memcpy(&z, ptr, 4);
         ptr += 4;
         // printf("\tMarker %d : [x=%3.2f,y=%3.2f,z=%3.2f]\n",j,x,y,z);
@@ -455,64 +423,101 @@ std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_me
 
     // unidentified markers
     int nOtherMarkers = 0;
+    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+    n_bytes_read += 4;
     memcpy(&nOtherMarkers, ptr, 4);
     ptr += 4;
     if (VERBOSE) {
-      printf("Unidentified Marker Count : %d\n", nOtherMarkers);
+      qDebug() << "Unidentified Marker Count : " << nOtherMarkers;
     }
     for (int j = 0; j < nOtherMarkers; j++) {
       float x = 0.0f;
-      memcpy(&x, ptr, 4);
-      ptr += 4;
-      float y = 0.0f;
-      memcpy(&y, ptr, 4);
-      ptr += 4;
-      float z = 0.0f;
-      memcpy(&z, ptr, 4);
-      ptr += 4;
-      if (VERBOSE) {
-        printf("\tMarker %d : pos = [%3.2f,%3.2f,%3.2f]\n", j, x, y, z);
-      }
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
+        memcpy(&x, ptr, 4);
+        ptr += 4;
+
+        float y = 0.0f;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
+        memcpy(&y, ptr, 4);
+        ptr += 4;
+
+        float z = 0.0f;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
+        memcpy(&z, ptr, 4);
+        ptr += 4;
+        if (VERBOSE) {
+          qDebug() << "\tMarker " << j <<" : pos = [" << x << y << z << "]";
+        }
     }
 
     // rigid bodies
     int nRigidBodies = 0;
+    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+    n_bytes_read += 4;
     memcpy(&nRigidBodies, ptr, 4);
     ptr += 4;
     if (VERBOSE) {
-      printf("Rigid Body Count : %d\n", nRigidBodies);
+      qDebug() << "Rigid Body Count : " << nRigidBodies;
     }
+
     for (int j = 0; j < nRigidBodies; j++) {
       optitrack_message_t msg;
       // rigid body position/orientation
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.id), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.x), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.y), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.z), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.qx), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.qy), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.qz), ptr, 4);
       ptr += 4;
+
+      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+      n_bytes_read += 4;
       memcpy(&(msg.qw), ptr, 4);
       ptr += 4;
 
       if (VERBOSE) {
-        printf("ID : %d\n", msg.id);
-        printf("pos: [%3.2f,%3.2f,%3.2f]\n", msg.x, msg.y, msg.z);
-        printf("ori: [%3.2f,%3.2f,%3.2f,%3.2f]\n", msg.qx, msg.qy, msg.qz,
-               msg.qw);
+            qDebug() << "ID : " << msg.id;
+            qDebug() << "pos: [" << msg.x << msg.y << msg.z << "]";
+            qDebug() << "ori: [" << msg.qx << msg.qy << msg.qz << msg.qw << "]\n";
       }
 
       // NatNet version 2.0 and later
       if (major >= 2) {
         // Mean marker error
         float fError = 0.0f;
+        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        n_bytes_read += 4;
         memcpy(&fError, ptr, 4);
         ptr += 4;
       }
@@ -521,6 +526,8 @@ std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_me
       if (((major == 2) && (minor >= 6)) || (major > 2) || (major == 0)) {
         // params
         short params = 0;
+        if (check_size(nBytes, n_bytes_read + 2)) return n_bytes_read;
+        n_bytes_read += 2;
         memcpy(&params, ptr, 2);
         ptr += 2;
         bool bTrackingValid =
@@ -533,10 +540,10 @@ std::vector<optitrack_message_t> mocap_optitrack::parse_optitrack_packet_into_me
     }  // Go to next rigid body
 
   } else {
-    printf("Unrecognized Packet Type: %d\n", MessageID);
+    qDebug() << "Unrecognized Packet Type: " << MessageID;
   }
 
-  return messages;
+  return n_bytes_read;
 }
 
 void mocap_optitrack::toEulerAngle(const optitrack_message_t& msg, double& roll, double& pitch,

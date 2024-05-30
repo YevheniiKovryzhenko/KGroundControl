@@ -58,10 +58,7 @@ public:
     explicit mocap_optitrack(QObject *parent = nullptr);
     ~mocap_optitrack();
 
-    bool read(std::vector<optitrack_message_t> &msg_out);
-    bool read_ipv6(std::vector<optitrack_message_t> &msg_out);
-
-
+    bool read_message(std::vector<optitrack_message_t> &msg_out);
 
     /**
     * create_optitrack_data_socket creates a socket for receiving Optitrack data from the Optitrack server.
@@ -89,17 +86,18 @@ public:
     * \param    port                Port to which optitrack data is being sent
     * \return   SOCKET handle to use for receiving data from the Optitrack server.
     */
-    bool create_optitrack_data_socket_ipv6(\
-                                           QNetworkInterface &interface, \
-                                           QString local_address, unsigned short local_port,\
-                                           QString multicast_address);
+    // bool create_optitrack_data_socket_ipv6(\
+    //                                        QNetworkInterface &interface, \
+    //                                        QString local_address, unsigned short local_port,\
+    //                                        QString multicast_address);
 
 
     /**
     * parse_optitrack_packet_into_messages parses the contents of a datagram received from the Optitrack server
     * into a vector containing the 3D position + quaternion for every rigid body
     */
-    static std::vector<optitrack_message_t> parse_optitrack_packet_into_messages(const char* packet);
+    int parse_optitrack_packet_into_messages(std::vector<optitrack_message_t> &messages);
+    bool is_ready_to_parse(void);
 
     /**
     * guess_optitrack_network_interface tries to find the IP address of the interface to use for receiving Optitrack data.
@@ -129,24 +127,13 @@ public:
     static void toEulerAngle(const optitrack_message_t& msg, double& roll, double& pitch, double& yaw);
 
 private:
-    bool port_open = false;
     QUdpSocket *Port = nullptr;
     QNetworkInterface* iface = nullptr;
     QMutex* mutex = nullptr;
     QString multicast_address_;
 
-    bool port_ipv6_open = false;
-    QUdpSocket *Port_ipv6 = nullptr;
-    QNetworkInterface* iface_ipv6 = nullptr;
-    QMutex* mutex_ipv6 = nullptr;
-    QString multicast_address_ipv6_;
-
-    const static int BUFF_LEN = 20000;
-    char buff[BUFF_LEN];
-    int buff_index = 0;
-    char buff_ipv6[BUFF_LEN];
-    int buff_ipv6_index = 0;
-    // QString* iface_address = nullptr;
+    void read_port(void);
+    QByteArray bytearray;
 };
 
 

@@ -33,7 +33,6 @@ public:
     void update_settings(mocap_settings* settings_in_);
 
     bool start(mocap_settings* mocap_new_settings);
-    bool stop(void);
 
     void run();
 
@@ -88,13 +87,15 @@ class mocap_manager : public QWidget
     Q_OBJECT
 
 public:
-    explicit mocap_manager(QWidget *parent = nullptr, mocap_thread** mocap_thread_ptr = nullptr);
+    explicit mocap_manager(QWidget *parent = nullptr);
     ~mocap_manager();
 
 public slots:
 
     void update_visuals_mocap_frame_ids(std::vector<int> &frame_ids_out);
     void update_visuals_mocap_data(void);
+
+    // void close_all(bool delete_settings = false);
 
 signals:
     void update_visuals_settings(generic_thread_settings *new_settings);
@@ -130,7 +131,7 @@ private:
     QMutex* mutex;
     Ui::mocap_manager *ui;
 
-    mocap_thread** mocap_thread_ = nullptr;
+    mocap_thread* mocap_thread_ = nullptr;
     mocap_data_inspector_thread* mocap_data_inspector_thread_ = nullptr;
 };
 

@@ -24,7 +24,6 @@ UDP_Port::UDP_Port(QObject* parent, udp_settings* new_settings, size_t settings_
 
 UDP_Port::~UDP_Port()
 {
-    exiting = true;
     if (Port != NULL && Port->isOpen()) Port->close();
     delete mutex;
     delete Port;
@@ -55,95 +54,6 @@ bool UDP_Port::toggle_heartbeat_emited(bool val)
     mutex->unlock();
     return res;
 }
-
-
-// // ------------------------------------------------------------------------------
-// //   Read from UDP
-// // ------------------------------------------------------------------------------
-// bool UDP_Port::read_message(void* message, int mavlink_channel_)
-// {
-//     bool msgReceived = false;
-
-//     // check if old data has not been parsed yet
-//     if (datagram.data().size() > 0)
-//     {
-//         mavlink_status_t status;
-//         QByteArray data = datagram.data();
-
-//         // --------------------------------------------------------------------------
-//         //   PARSE MESSAGE
-//         // --------------------------------------------------------------------------
-//         int i;
-//         for (i = 0; i < data.size(); i++)
-//         {
-//             // the parsing
-//             msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status));
-
-
-//             // check for dropped packets
-//             if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
-//             {
-//                 // (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
-//                 qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
-//             }
-//             lastStatus = status;
-
-//             if (msgReceived)
-//             {
-//                 i++;
-//                 break;
-//             }
-//         }
-//         if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
-//         else datagram.clear(); //start fresh next time
-
-//         if (msgReceived) return true;
-//     }
-
-//     // --------------------------------------------------------------------------
-//     //   READ FROM PORT
-//     // --------------------------------------------------------------------------
-
-//     // this function locks the port during read
-//     while (!exiting && !msgReceived && Port->hasPendingDatagrams() && Port->pendingDatagramSize() > 0)
-//     {
-//         mutex->lock();
-//         datagram = Port->receiveDatagram();
-//         mutex->unlock();
-
-//         mavlink_status_t status;
-//         QByteArray data = datagram.data();
-
-//         // --------------------------------------------------------------------------
-//         //   PARSE MESSAGE
-//         // --------------------------------------------------------------------------
-//         int i;
-//         for (i = 0; i < data.size(); i++)
-//         {
-//             // the parsing
-//             msgReceived = mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), data[i], static_cast<mavlink_message_t*>(message), &status);
-
-
-//             // check for dropped packets
-//             if ((lastStatus.packet_rx_drop_count != status.packet_rx_drop_count))
-//             {
-//                 // (new QErrorMessage)->showMessage("ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n");
-//                 qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
-//             }
-//             lastStatus = status;
-
-//             if (msgReceived)
-//             {
-//                 i++;
-//                 break;
-//             }
-//         }
-//         if (i < data.size()) datagram.setData(&data[i++]); //keep data for next parsing run
-//         else datagram.clear(); //start fresh next time
-//     }
-//     // Done!
-//     return msgReceived;
-// }
 
 // ------------------------------------------------------------------------------
 //   Read from Port
@@ -273,7 +183,6 @@ char UDP_Port::start(void)
 // ------------------------------------------------------------------------------
 void UDP_Port::stop()
 {
-    exiting = true;
     if (Port->isOpen()) Port->close();
 }
 

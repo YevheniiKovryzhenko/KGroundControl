@@ -26,7 +26,7 @@
       </size>
      </property>
      <property name="currentIndex">
-      <number>1</number>
+      <number>0</number>
      </property>
      <widget class="QWidget" name="page_4">
       <layout class="QVBoxLayout" name="verticalLayout_6">
@@ -138,6 +138,9 @@
           </item>
           <item>
            <widget class="QPushButton" name="btn_terminate_all">
+            <property name="enabled">
+             <bool>true</bool>
+            </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -883,7 +886,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <string notr="true"/>
              </property>
              <property name="text">
-              <string notr="true">100</string>
+              <string notr="true">10000</string>
              </property>
              <property name="maxLength">
               <number>10</number>

@@ -229,29 +229,30 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     //stop all threads if running:
 
     //stop mocap thread if running:
-    if (mocap_thread_ != NULL)
-    {
-        mocap_thread_->requestInterruption();
-        for (int ii = 0; ii < 300; ii++)
-        {
-            if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
-            {
-                break;
-            }
-            else if (ii == 299)
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
-                mocap_thread_->terminate();
-            }
+    // if (mocap_thread_ != NULL)
+    // {
+    //     mocap_thread_->requestInterruption();
+    //     for (int ii = 0; ii < 300; ii++)
+    //     {
+    //         if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
+    //         {
+    //             break;
+    //         }
+    //         else if (ii == 299)
+    //         {
+    //             (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
+    //             mocap_thread_->terminate();
+    //         }
 
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-        }
+    //         QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+    //     }
 
-        delete mocap_thread_;
-        mocap_thread_ = nullptr;
-    }    
+    //     delete mocap_thread_;
+    //     mocap_thread_ = nullptr;
+    // }
 
     //close all other active ports:
+    // mocap_manager_->close_all(false);
     connection_manager_->remove_all(false);
     event->accept();
 }
@@ -584,7 +585,7 @@ void KGroundControl::update_port_status_txt(void)
 void KGroundControl::on_btn_mocap_clicked()
 {
     //open mocap ui window, it will handle the rest:
-    mocap_manager_ = new mocap_manager(nullptr, &mocap_thread_);
+    mocap_manager_ = new mocap_manager();
     mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
     mocap_manager_->show();

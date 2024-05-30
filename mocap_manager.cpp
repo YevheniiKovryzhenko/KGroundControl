@@ -129,6 +129,8 @@ mocap_thread::~mocap_thread()
     if (optitrack != NULL)
     {
         delete optitrack;
+        // optitrack->terminate();
+        // optitrack->deleteLater();
         optitrack = nullptr;
     }
 }
@@ -136,7 +138,7 @@ mocap_thread::~mocap_thread()
 void mocap_thread::update_settings(mocap_settings* mocap_new_settings)
 {
     mutex->lock();
-    memcpy(&mocap_settings_, mocap_new_settings, sizeof(mocap_settings));
+    memcpy(&mocap_settings_, mocap_new_settings, sizeof(mocap_settings_));
     mutex->unlock();
 }
 
@@ -155,24 +157,10 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
     {
         if (!optitrack->guess_optitrack_network_interface(interface)) return false;
     }
-    if (mocap_new_settings->use_ipv6)
-    {
-        if (!optitrack->create_optitrack_data_socket_ipv6(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
-    }
-    else
-    {
-        if (!optitrack->create_optitrack_data_socket(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
-    }
+    if (!optitrack->create_optitrack_data_socket(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
 
-    update_settings(mocap_new_settings);
+    update_settings(mocap_new_settings);    
     generic_thread::start(generic_thread_settings_.priority);
-    return true;
-}
-
-bool mocap_thread::stop(void)
-{
-
-
     return true;
 }
 
@@ -181,7 +169,7 @@ void mocap_thread::run()
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         std::vector<optitrack_message_t> msgs_;
-        if (optitrack->read(msgs_))
+        if (optitrack->read_message(msgs_))
         {
             // transfer new data
             mutex->lock();
@@ -195,6 +183,9 @@ void mocap_thread::run()
         }
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
+
+    optitrack->deleteLater();
+    optitrack = nullptr;
 }
 
 bool mocap_thread::get_data(mocap_data_t& buff, int ID)
@@ -319,7 +310,7 @@ std::vector<int> mocap_thread::get_current_ids(std::vector<int> current_ids)
 
 
 
-mocap_manager::mocap_manager(QWidget *parent, mocap_thread** mocap_thread_ptr)
+mocap_manager::mocap_manager(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::mocap_manager)
 {
@@ -331,16 +322,17 @@ mocap_manager::mocap_manager(QWidget *parent, mocap_thread** mocap_thread_ptr)
     mutex = new QMutex;
 
     //check thread status (might be already active)
-    mocap_thread_ = mocap_thread_ptr;
-    if (*mocap_thread_ != NULL)
-    {
-        if (!(*mocap_thread_)->isRunning())
-        {
-            (*mocap_thread_)->terminate();
-            delete (*mocap_thread_);
-            (*mocap_thread_) = NULL;
-        }
-    }
+    // mocap_thread_ = mocap_thread_ptr;
+    // if (*mocap_thread_ != NULL)
+    // {
+    //     if (!(*mocap_thread_)->isRunning())
+    //     {
+    //         (*mocap_thread_)->terminate();
+    //         // delete (*mocap_thread_);
+    //         (*mocap_thread_)->deleteLater();
+    //         (*mocap_thread_) = NULL;
+    //     }
+    // }
 
     // Start of Open Data Socket Pannel //
     ui->cmbx_host_address->setEditable(true);
@@ -384,15 +376,44 @@ mocap_manager::mocap_manager(QWidget *parent, mocap_thread** mocap_thread_ptr)
     ui->cmbx_refresh_priority->addItems(def_priority);
     ui->cmbx_refresh_priority->setCurrentIndex(6);
     ui->txt_refresh_rate->setValidator( new QIntValidator(1, 120, this) );
+
+    ui->groupBox_not_active->setEnabled(true);
+    ui->groupBox_active->setEnabled(false);
     // End of MOCAP Data Inspector Pannel //
 }
 
 mocap_manager::~mocap_manager()
 {
-    on_btn_terminate_all_clicked();
+    terminate_visuals_thread();
+    terminate_mocap_processing_thread();
     delete ui;
     delete mutex;
 }
+
+// void mocap_manager::close_all(bool delete_settings)
+// {
+//     //stop system thread if running:
+//     if (mocap_thread_ != NULL) mocap_thread_->requestInterruption();
+
+//     if (mocap_thread_ != NULL)
+//     {
+
+//         for (int ii = 0; ii < 300; ii++)
+//         {
+//             if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
+//             {
+//                 break;
+//             }
+//             else if (ii == 299)
+//             {
+//                 (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
+//                 mocap_thread_->terminate();
+//             }
+
+//             QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+//         }
+//     }
+// }
 
 
 void mocap_manager::on_btn_open_data_socket_clicked()
@@ -490,14 +511,15 @@ void mocap_manager::on_btn_connection_confirm_clicked()
 
     on_btn_terminate_all_clicked();
 
-    (*mocap_thread_) = new mocap_thread(this, &thread_settings_, &udp_settings_);
+    mocap_thread_ = new mocap_thread(nullptr, &thread_settings_, &udp_settings_);
+
     QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
-    if (!(*mocap_thread_)->isRunning())
+    if (!mocap_thread_->isRunning())
     {
         (new QErrorMessage)->showMessage("Error: mocap processing thread is not responding\n");
-        (*mocap_thread_)->terminate();
-        delete (*mocap_thread_);
-        (*mocap_thread_) = NULL;
+        mocap_thread_->terminate();
+        delete mocap_thread_;
+        mocap_thread_ = NULL;
     }
     else
     {
@@ -505,8 +527,10 @@ void mocap_manager::on_btn_connection_confirm_clicked()
         msgBox.setText("Successfully Started MOCAP UDP Communication!");
         msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
         msgBox.exec();
+        ui->groupBox_not_active->setEnabled(false);
         ui->groupBox_active->setEnabled(true);
     }
+    // *mocap_thread_ = mocap_thread__;
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 }
 
@@ -532,48 +556,53 @@ void mocap_manager::terminate_visuals_thread(void)
 {
     if (mocap_data_inspector_thread_ != NULL)
     {
-        mocap_data_inspector_thread_->requestInterruption();
-        for (int ii = 0; ii < 300; ii++)
+        if (!mocap_data_inspector_thread_->isFinished())
         {
-            if (!mocap_data_inspector_thread_->isRunning() && mocap_data_inspector_thread_->isFinished())
+            mocap_data_inspector_thread_->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
             {
-                break;
-            }
-            else if (ii == 299)
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap data inspector thread, manually terminating...\n");
-                mocap_data_inspector_thread_->terminate();
-            }
+                if (!mocap_data_inspector_thread_->isRunning() && mocap_data_inspector_thread_->isFinished())
+                {
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap data inspector thread, manually terminating...\n");
+                    mocap_data_inspector_thread_->terminate();
+                }
 
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
         }
-
         delete mocap_data_inspector_thread_;
         mocap_data_inspector_thread_ = nullptr;
     }
 }
 void mocap_manager::terminate_mocap_processing_thread(void)
 {
-    if (*mocap_thread_ != NULL)
+    if (mocap_thread_ != NULL)
     {
-        (*mocap_thread_)->requestInterruption();
-        for (int ii = 0; ii < 300; ii++)
+        if (!(mocap_thread_)->isFinished())
         {
-            if (!(*mocap_thread_)->isRunning() && (*mocap_thread_)->isFinished())
+            (mocap_thread_)->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
             {
-                break;
-            }
-            else if (ii == 299)
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap processing thread, manually terminating...\n");
-                (*mocap_thread_)->terminate();
-            }
+                if (!(mocap_thread_)->isRunning() && (mocap_thread_)->isFinished())
+                {
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap processing thread, manually terminating...\n");
+                    (mocap_thread_)->terminate();
+                }
 
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
         }
 
-        delete (*mocap_thread_);
-        (*mocap_thread_) = nullptr;
+        // delete (mocap_thread_);
+        (mocap_thread_) = nullptr;
     }
 }
 
@@ -582,6 +611,7 @@ void mocap_manager::on_btn_terminate_all_clicked()
     terminate_visuals_thread();
     terminate_mocap_processing_thread();
 
+    ui->groupBox_not_active->setEnabled(true);
     ui->groupBox_active->setEnabled(false);
 }
 
@@ -608,10 +638,10 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
     }
 
     //now, we can connect the processing thread with the inspector thread:
-    connect((*mocap_thread_), &mocap_thread::new_data_available, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
+    connect((mocap_thread_), &mocap_thread::new_data_available, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
 
     //connect ui data updates with the mocap processing thread:
-    connect(this, &mocap_manager::get_data, (*mocap_thread_), &mocap_thread::get_data, Qt::DirectConnection);
+    connect(this, &mocap_manager::get_data, (mocap_thread_), &mocap_thread::get_data, Qt::DirectConnection);
 
     //linking all updates from the inspector thread to this UI:
     connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_frame_ids, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::DirectConnection);

@@ -101,7 +101,7 @@ private:
 
     mavlink_manager* mavlink_manager_ = nullptr;
     // system_status_thread* systhread_ = nullptr;
-    mocap_thread* mocap_thread_ = nullptr;
+    // mocap_thread* mocap_thread_ = nullptr;
 
     void update_port_status_txt(void);
     void save_settings(void);
