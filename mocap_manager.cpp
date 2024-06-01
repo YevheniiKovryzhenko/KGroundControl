@@ -376,15 +376,24 @@ void mocap_relay_thread::run()
 QByteArray mocap_relay_thread::pack_most_recent_msg(void)
 {
     QByteArray data_out;
+    mocap_data_t data;
+    (*mocap_data)
     switch (relay_settings.msg_option) {
     case mocap_relay_settings::mavlink_odometry:
     {
-
+        mavlink_odometry_t odo;
         break;
     }
     case mocap_relay_settings::mavlink_vision_position_estimate:
     {
-        mavlink_vision_position_estimate_t
+        mavlink_vision_position_estimate_t vpe;
+        vpe.usec = tmp_2.usec;
+        vpe.x = tmp_2.x;
+        vpe.y = tmp_2.y;
+        vpe.z = tmp_2.z;
+        vpe.roll = tmp_2.roll;
+        vpe.pitch = tmp_2.pitch;
+        vpe.yaw = tmp_2.yaw;
         break;
     }
     }
