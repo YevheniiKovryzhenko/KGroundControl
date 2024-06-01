@@ -11,7 +11,7 @@
 #include <QCloseEvent>
 #include <QStringList>
 #include <QDialog>
-
+#include "default_ui_config.h"
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -35,6 +35,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     connect(this, &KGroundControl::add_port, connection_manager_, &connection_manager::add);
     connect(this, &KGroundControl::get_port_settings_QString, connection_manager_, &connection_manager::get_port_settings_QString, Qt::DirectConnection);
     connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
+
 
     connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
 
@@ -120,18 +121,8 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     ui->txt_read_rate->setValidator( new QIntValidator(1, 10000000, this) );
 
-    QStringList def_priority = {\
-                            "Highest Priority",\
-                            "High Priority",\
-                            "Idle Priority",\
-                            "Inherit Priority",\
-                            "Low Priority",\
-                            "Lowest Priority",\
-                            "Normal Priority",\
-                            "Time Critical Priority"\
-    };
-    ui->cmbx_priority->addItems(def_priority);
-    ui->cmbx_priority->setCurrentIndex(7);
+    ui->cmbx_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
     // End of Add New Connection Pannel //
 
     // Start of Settings Pannel //
@@ -139,7 +130,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->txt_sysid->setValidator(new QIntValidator(0, 255));
     ui->txt_sysid->setText(QString::number(settings.sysid));
 
-    QVector<QString> tmp = mavlink_enums::get_QString_all_mavlink_component_id();
+    QVector<QString> tmp = enum_helpers::get_all_keys_vec<mavlink_enums::mavlink_component_id>();//mavlink_enums::get_QString_all_mavlink_component_id();
     ui->cmbx_compid->addItems(tmp);
     // End of Settings Pannel //
 
@@ -226,33 +217,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     // save current state of the app:
     save_settings();
 
-    //stop all threads if running:
-
-    //stop mocap thread if running:
-    // if (mocap_thread_ != NULL)
-    // {
-    //     mocap_thread_->requestInterruption();
-    //     for (int ii = 0; ii < 300; ii++)
-    //     {
-    //         if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
-    //         {
-    //             break;
-    //         }
-    //         else if (ii == 299)
-    //         {
-    //             (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
-    //             mocap_thread_->terminate();
-    //         }
-
-    //         QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-    //     }
-
-    //     delete mocap_thread_;
-    //     mocap_thread_ = nullptr;
-    // }
-
     //close all other active ports:
-    // mocap_manager_->close_all(false);
     connection_manager_->remove_all(false);
     event->accept();
 }
@@ -274,17 +239,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
 {
     generic_thread_settings thread_settings_;
     thread_settings_.update_rate_hz = ui->txt_read_rate->text().toUInt();
-    QString priority = ui->cmbx_priority->currentText();
-    if (priority.compare("Highest Priority") == 0) thread_settings_.priority =  QThread::Priority::HighestPriority;
-    else if (priority.compare("High Priority") == 0) thread_settings_.priority =  QThread::Priority::HighPriority;
-    else if (priority.compare("Idle Priority") == 0) thread_settings_.priority =  QThread::Priority::IdlePriority;
-    else if (priority.compare("Inherit Priority") == 0) thread_settings_.priority =  QThread::Priority::InheritPriority;
-    else if (priority.compare("Low Priority") == 0) thread_settings_.priority =  QThread::Priority::LowPriority;
-    else if (priority.compare("Lowest Priority") == 0) thread_settings_.priority =  QThread::Priority::LowestPriority;
-    else if (priority.compare("Normal Priority") == 0) thread_settings_.priority =  QThread::Priority::NormalPriority;
-    else if (priority.compare("Time Critical Priority") == 0) thread_settings_.priority =  QThread::Priority::TimeCriticalPriority;
-
-
+    default_ui_config::Priority::key2value(ui->cmbx_priority->currentText(),thread_settings_.priority);
 
     connection_type type_;
     QString new_port_name = ui->txt_port_name->text();
@@ -496,7 +451,7 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     settings_mutex_->lock();
     settings.sysid = ui->txt_sysid->text().toUInt();
     int index_ = ui->cmbx_compid->currentIndex();
-    QVector<mavlink_enums::mavlink_component_id> comp_id_list_ = mavlink_enums::get_keys_all_mavlink_component_id();
+    QVector<mavlink_enums::mavlink_component_id> comp_id_list_ = enum_helpers::get_all_vals_vec<mavlink_enums::mavlink_component_id>();
     settings.compid = comp_id_list_[index_];
     settings_mutex_->unlock();
 
@@ -524,8 +479,8 @@ void KGroundControl::on_btn_settings_clicked()
 {
     ui->stackedWidget_main->setCurrentIndex(3);
     ui->txt_sysid->setText(QString::number(settings.sysid));
-    QString current_comp_id_ = mavlink_enums::get_QString(settings.compid);
-    QVector<QString> comp_id_list_ = mavlink_enums::get_QString_all_mavlink_component_id();
+    QString current_comp_id_ = enum_helpers::value2key(settings.compid);
+    QVector<QString> comp_id_list_ = enum_helpers::get_all_keys_vec<mavlink_enums::mavlink_component_id>();
     for (int i = 0; i < comp_id_list_.size(); i++)
     {
         if (current_comp_id_ == comp_id_list_[i])
@@ -588,6 +543,16 @@ void KGroundControl::on_btn_mocap_clicked()
     mocap_manager_ = new mocap_manager();
     mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
+
+    connect(connection_manager_, &connection_manager::port_names_updated, mocap_manager_, &mocap_manager::update_relay_port_list, Qt::QueuedConnection);
+    connect(mocap_manager_, &mocap_manager::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+
+    connect(mavlink_manager_, &mavlink_manager::sysid_list_changed, mocap_manager_, &mocap_manager::update_relay_sysid_list, Qt::QueuedConnection);
+    connect(mocap_manager_, &mocap_manager::get_sysids, mavlink_manager_, &mavlink_manager::get_sysids, Qt::DirectConnection);
+
+    connect(mavlink_manager_, &mavlink_manager::compid_list_changed, mocap_manager_, &mocap_manager::update_relay_compids, Qt::QueuedConnection);
+    connect(mocap_manager_, &mocap_manager::get_compids, mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
+
     mocap_manager_->show();
 }
 

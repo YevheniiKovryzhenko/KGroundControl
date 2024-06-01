@@ -14,6 +14,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
+find_package(Qt6 REQUIRED COMPONENTS Location)
 
 set(PROJECT_HEADERS
     connection_manager.h
@@ -21,32 +22,43 @@ set(PROJECT_HEADERS
     kgroundcontrol.h
     mavlink_enum_types.h
     mavlink_inspector.h
-
     serial_port.h
     settings.h
     threads.h
     udp_port.h
     mocap_manager.h
+    relaydialog.h
+    signal_filters.h
+    keybinddialog.h
+    # cartography.h
+    default_ui_config.h
 )
 
 set(PROJECT_SOURCES
     connection_manager.cpp
     kgroundcontrol.cpp
     main.cpp
-    mavlink_enum_types.cpp
     mavlink_inspector.cpp
-
     serial_port.cpp
     settings.cpp
     threads.cpp
     udp_port.cpp
     mocap_manager.cpp
+    relaydialog.cpp
+    signal_filters.cpp
+    keybinddialog.cpp
+    # cartography.cpp
+    default_ui_config.cpp
 )
 
 set(PROJECT_UI
     kgroundcontrol.ui
     mavlink_inspector.ui
     mocap_manager.ui
+    relaydialog.ui
+    mavlink_inspector_msg.ui
+    keybinddialog.ui
+    # cartography.ui
 )
 
 
@@ -59,10 +71,6 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_HEADERS}
         ${PROJECT_SOURCES}
         ${PROJECT_UI}
-        relaydialog.h relaydialog.cpp relaydialog.ui
-        signal_filters.h signal_filters.cpp
-        mavlink_inspector_msg.ui
-        keybinddialog.h keybinddialog.cpp keybinddialog.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET KGroundControl APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -93,10 +101,14 @@ endif()
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
+# target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Location)
 
 # Link all the outside libraries used in this project (from libs folder):
 target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
+
+# Inlude pluggins:
+qt_import_plugins(KGroundControl INCLUDE Qt::osm)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an

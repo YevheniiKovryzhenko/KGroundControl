@@ -132,9 +132,14 @@ public slots:
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
     void clear(void);
 
+    QVector<uint8_t> get_sysids(void);
+    QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
+
 signals:
     int write_message(QString port_name, void* message);
     bool updated(uint8_t sysid_out, mavlink_enums::mavlink_component_id compid_out, QString msg_name);
+    void sysid_list_changed(QVector<uint8_t> sysid_list_new);
+    void compid_list_changed(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compid_list_new);
 
     void get_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
 

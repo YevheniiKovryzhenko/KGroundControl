@@ -3,6 +3,7 @@
 
 #include "mocap_manager.h"
 #include "ui_mocap_manager.h"
+#include "all/mavlink.h"
 
 //IPv4 RegEx
 QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
@@ -101,7 +102,7 @@ void __rotate_ZUP2NED(optitrack_message_t& buff_in)
 
 QString mocap_data_t::get_QString(void)
 {
-    QString detailed_text_ = "Time Stamp: " + QString::number(time_s) + " (s)\n";
+    QString detailed_text_ = "Time Stamp: " + QString::number(time_ms) + " (ms)\n";
     detailed_text_ += "Frame ID: " + QString::number(id) + "\n";
     if (trackingValid) detailed_text_ += "Tracking is valid: YES\n";
     else detailed_text_ += "Tracking is valid: NO\n";
@@ -118,6 +119,128 @@ QString mocap_data_t::get_QString(void)
     return detailed_text_;
 }
 
+
+
+mocap_data_aggegator::mocap_data_aggegator(QObject* parent)
+: QObject(parent)
+{
+    mutex = new QMutex;
+}
+
+mocap_data_aggegator::~mocap_data_aggegator()
+{
+    delete mutex;
+}
+
+void mocap_data_aggegator::clear(void)
+{
+    mutex->lock();
+    if (frame_ids_.size() > 0)
+    {
+        frame_ids_.clear();
+        frames_.clear();
+    }
+    mutex->unlock();
+}
+
+void mocap_data_aggegator::update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation)
+{
+    mutex->lock();
+    bool frame_ids_updated_ = false;
+    QVector<mocap_data_t> updated_frames;
+    uint64_t timestamp = QDateTime::currentMSecsSinceEpoch();
+    foreach(auto msg, incoming_data)
+    {
+        optitrack_message_t msg_NED = msg;
+        switch (rotation) {
+        case YUP2NED:
+            __rotate_YUP2NED(msg_NED);
+            break;
+        case ZUP2NED:
+            __rotate_ZUP2NED(msg_NED);
+            break;
+        default:
+            break;
+        }
+        int new_frame_ind = -1;
+        for (int i = 0; i < frame_ids_.size(); i++)
+        {
+            if (frame_ids_[i] == msg.id)
+            {
+                new_frame_ind = i;
+                break;
+            }
+        }
+
+        mocap_data_t frame;
+        if (new_frame_ind < 0) //frame is actually brand new
+        {
+            frame_ids_.push_back(msg_NED.id);
+            frame_ids_updated_ = true;
+
+
+            __copy_data(frame, msg_NED);
+            frame.time_ms = timestamp;
+            frames_.push_back(frame);
+        }
+        else //we have seen this frame id before
+        {
+            __copy_data(frame, msg_NED);
+            frame.time_ms = timestamp;
+            __copy_data(frames_[new_frame_ind], frame);
+        }
+        updated_frames.push_back(frame);
+
+    }
+    mutex->unlock();
+    if (frame_ids_updated_) emit frame_ids_updated(frame_ids_);
+    if (!updated_frames.empty()) emit frames_updated(updated_frames);
+}
+
+bool mocap_data_aggegator::get_frame(int frame_id, mocap_data_t &frame)
+{
+    // Lock
+    mutex->lock();
+    if (frames_.size() > 0)
+    {
+        for (auto& frame_ : frames_)
+        {
+            if (frame_.id == frame_id)
+            {
+                __copy_data(frame, frame_);
+
+                // Unlock
+                mutex->unlock();
+                return true;
+            }
+        }
+    }
+    else
+    {
+        // Unlock
+        mutex->unlock();
+        return false;
+    }
+
+    // Unlock
+    mutex->unlock();
+    qDebug() << "WARNING in get_data: no rigid body matching ID = " << QString::number(frame_id); //this should never happen
+    return false;
+}
+
+QVector<int> mocap_data_aggegator::get_ids(void)
+{
+    QVector<int> ids_out;
+    // Lock
+    mutex->lock();
+    ids_out = QVector<int>(frame_ids_);
+
+    // Unlock
+    mutex->unlock();
+    return ids_out;
+}
+
+
 mocap_thread::mocap_thread(QObject* parent, generic_thread_settings *new_settings, mocap_settings *mocap_new_settings)
     : generic_thread(parent, new_settings)
 {
@@ -129,8 +252,6 @@ mocap_thread::~mocap_thread()
     if (optitrack != NULL)
     {
         delete optitrack;
-        // optitrack->terminate();
-        // optitrack->deleteLater();
         optitrack = nullptr;
     }
 }
@@ -166,21 +287,54 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
 
 void mocap_thread::run()
 {
+#define FAKE_DATA
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
-        std::vector<optitrack_message_t> msgs_;
+        QVector<optitrack_message_t> msgs_;
         if (optitrack->read_message(msgs_))
         {
             // transfer new data
-            mutex->lock();
-            incomingMessages.clear();
-            incomingMessages = msgs_;
-            time_s = QDateTime::currentSecsSinceEpoch();
-            mutex->unlock();
+            // mutex->lock();
+            // incomingMessages.clear();
+            // incomingMessages = msgs_;
+            // time_s = QDateTime::currentSecsSinceEpoch();
+            // mutex->unlock();
 
             // let eveyone else now that new data is available:
-            emit new_data_available();
+            // emit new_data_available();
+            mutex->lock();
+            mocap_rotation data_rotation = mocap_settings_.data_rotation;
+            mutex->unlock();
+            emit update(msgs_, mocap_settings_.data_rotation);
         }
+#ifdef FAKE_DATA
+        {
+            optitrack_message_t fake_msg;
+            fake_msg.id = 100;
+            fake_msg.qw = 1;
+            fake_msg.trackingValid = true;
+            fake_msg.x = 1;
+            fake_msg.y = 2;
+            fake_msg.z = 3;
+
+            msgs_.push_back(fake_msg);
+        }
+        {
+            optitrack_message_t fake_msg;
+            fake_msg.id = 150;
+            fake_msg.qw = 1;
+            fake_msg.trackingValid = true;
+            fake_msg.x = 3;
+            fake_msg.y = 2;
+            fake_msg.z = 1;
+
+            msgs_.push_back(fake_msg);
+        }
+        mutex->lock();
+        mocap_rotation data_rotation = mocap_settings_.data_rotation;
+        mutex->unlock();
+        emit update(msgs_, data_rotation);
+#endif
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 
@@ -188,128 +342,54 @@ void mocap_thread::run()
     optitrack = nullptr;
 }
 
-bool mocap_thread::get_data(mocap_data_t& buff, int ID)
+
+mocap_relay_thread::mocap_relay_thread(QObject *parent, generic_thread_settings *new_settings, mocap_relay_settings *relay_settings_, mocap_data_aggegator** mocap_data_ptr_)
+    : generic_thread(parent, new_settings)
 {
-    // Lock
-    mutex->lock();
-
-    size_t tmp = incomingMessages.size();
-    if (tmp < 1)
+    if (*(mocap_data_ptr_) != NULL)
     {
-        // Unlock
-        mutex->unlock();
-        return false;
+        relay_settings = relay_settings_;
+        generic_thread::start(generic_thread_settings_.priority);
     }
-    for (auto& msg : incomingMessages)
-    {
-        if (msg.id == ID)
-        {
-            optitrack_message_t tmp_msg = msg;
-            switch (mocap_settings_.data_rotation) {
-            case YUP2NED:
-                __rotate_YUP2NED(tmp_msg);
-                break;
-            case ZUP2NED:
-                __rotate_ZUP2NED(tmp_msg);
-                break;
-            default:
-                break;
-            }
-            __copy_data(buff, tmp_msg);
-            buff.time_s = time_s;
 
-            // Unlock
-            mutex->unlock();
-            return true;
-        }
-    }
-    // Unlock
-    mutex->unlock();
-    qDebug() << "WARNING in get_data: no rigid body matching ID = " << QString::number(ID);
-    return false;
 }
 
-std::vector<int> mocap_thread::get_current_ids(void)
+mocap_relay_thread::~mocap_relay_thread()
 {
-    std::vector<int> ids_out;
-    // Lock
-    mutex->lock();
 
-    size_t tmp = incomingMessages.size();
-    if (tmp < 1)
-    {
-        // Unlock
-        mutex->unlock();
-        return ids_out;
-    }
-    for (auto& msg : incomingMessages)
-    {
-        if (ids_out.size() > 0)
-        {
-            for (int i = 0; i < ids_out.size(); i++)
-            {
-                if (ids_out[i] == msg.id) break;
-                else if (i == ids_out.size()-1) ids_out.push_back(msg.id);
-            }
-        }
-        else ids_out.push_back(msg.id);
-    }
-    // Unlock
-    mutex->unlock();
-    return ids_out;
 }
 
-bool mocap_thread::check_if_there_are_new_ids(std::vector<int> &new_ids_out, std::vector<int> current_ids)
+void mocap_relay_thread::run()
 {
-    if (current_ids.size() > 0)
+    emit relay_started(relay_settings.frame_id, relay_settings.Port_Name);
+    while (*(mocap_data_ptr) != NULL && !(QThread::currentThread()->isInterruptionRequested()))
     {
-        // Lock
-        mutex->lock();
-
-        if (incomingMessages.size() < 1)
-        {
-            // Unlock
-            mutex->unlock();
-            return false;
-        }
-        bool res = false;
-        for (auto& msg : incomingMessages) //run though all received
-        {
-            if (new_ids_out.size() > 0) //first check if msg is already present in the out list
-            {
-                bool is_already_in_out = false;
-                for (int i = 0; i < new_ids_out.size(); i++)
-                {
-                    if (new_ids_out[i] == msg.id) //this is probably not supposed to happen at all (unless there multiple rigid bodies with the same id)
-                    {
-                        is_already_in_out = true;
-                        break;
-                    }
-
-                }
-
-                if (is_already_in_out) continue;
-            }
-
-            //chek of any of the new ids are actually new (based on the current list)
-            for (int ii = 0; ii < current_ids.size(); ii++)
-            {
-                if (current_ids[ii] == msg.id) break;
-                else if (ii == current_ids.size() - 1)
-                {
-                    new_ids_out.push_back(msg.id);
-                    res = true;
-                }
-            }
-        }
-        // Unlock
-        mutex->unlock();
-        return res;
+        QByteArray pending_data = pack_most_recent_msg();
+        if (pending_data.isEmpty()) break; //something went wrong, this should not normally happen
+        int bytes_writen = emit write_to_port(pending_data);
+        if (bytes_writen < pending_data.size()) break; //port is closed or there is an error
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
-    new_ids_out = get_current_ids();
-    return true;
+    emit relay_exited(relay_settings.frame_id, relay_settings.Port_Name);
 }
 
+QByteArray mocap_relay_thread::pack_most_recent_msg(void)
+{
+    QByteArray data_out;
+    switch (relay_settings.msg_option) {
+    case mocap_relay_settings::mavlink_odometry:
+    {
+
+        break;
+    }
+    case mocap_relay_settings::mavlink_vision_position_estimate:
+    {
+        mavlink_vision_position_estimate_t
+        break;
+    }
+    }
+    return data_out;
+}
 
 
 
@@ -322,20 +402,8 @@ mocap_manager::mocap_manager(QWidget *parent)
     setWindowTitle("Motion Capture Manager");
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 
-    mutex = new QMutex;
-
-    //check thread status (might be already active)
-    // mocap_thread_ = mocap_thread_ptr;
-    // if (*mocap_thread_ != NULL)
-    // {
-    //     if (!(*mocap_thread_)->isRunning())
-    //     {
-    //         (*mocap_thread_)->terminate();
-    //         // delete (*mocap_thread_);
-    //         (*mocap_thread_)->deleteLater();
-    //         (*mocap_thread_) = NULL;
-    //     }
-    // }
+    // mutex = new QMutex;
+    mocap_data = new mocap_data_aggegator(this);
 
     // Start of Open Data Socket Pannel //
     ui->cmbx_host_address->setEditable(true);
@@ -352,17 +420,8 @@ mocap_manager::mocap_manager(QWidget *parent)
         QString::number(PORT_COMMAND)}));
     ui->cmbx_local_port->setCurrentIndex(0);
 
-    QStringList def_priority = {\
-                                "Highest Priority",\
-                                "High Priority",\
-                                "Idle Priority",\
-                                "Inherit Priority",\
-                                "Low Priority",\
-                                "Lowest Priority",\
-                                "Normal Priority",\
-                                "Time Critical Priority"\
-    };
-    ui->cmbx_connection_priority->addItems(def_priority);
+    ui->cmbx_connection_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_connection_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
     ui->txt_connection_read_rate->setValidator( new QIntValidator(1, 10000000, this) );
 
     QStringList def_rotations = {\
@@ -376,47 +435,30 @@ mocap_manager::mocap_manager(QWidget *parent)
 
 
     // Start of MOCAP Data Inspector Pannel //
-    ui->cmbx_refresh_priority->addItems(def_priority);
-    ui->cmbx_refresh_priority->setCurrentIndex(6);
+    ui->cmbx_refresh_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_refresh_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::NormalPriority));
     ui->txt_refresh_rate->setValidator( new QIntValidator(1, 120, this) );
 
     ui->groupBox_not_active->setEnabled(true);
     ui->groupBox_active->setEnabled(false);
     // End of MOCAP Data Inspector Pannel //
+
+    // Start of MOCAP Relay Pannel //
+    ui->cmbx_relay_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_relay_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
+    ui->txt_relay_update_rate_hz->setValidator( new QIntValidator(1, 120, this) );
+    // End of MOCAP Relay Pannel //
 }
 
 mocap_manager::~mocap_manager()
 {
     terminate_visuals_thread();
-    terminate_mocap_processing_thread();
+    terminate_mocap_processing_thread();    
     delete ui;
-    delete mutex;
+    delete mocap_data;
+    // delete mutex;
+
 }
-
-// void mocap_manager::close_all(bool delete_settings)
-// {
-//     //stop system thread if running:
-//     if (mocap_thread_ != NULL) mocap_thread_->requestInterruption();
-
-//     if (mocap_thread_ != NULL)
-//     {
-
-//         for (int ii = 0; ii < 300; ii++)
-//         {
-//             if (!mocap_thread_->isRunning() && mocap_thread_->isFinished())
-//             {
-//                 break;
-//             }
-//             else if (ii == 299)
-//             {
-//                 (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap thread, manually terminating...\n");
-//                 mocap_thread_->terminate();
-//             }
-
-//             QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-//         }
-//     }
-// }
 
 
 void mocap_manager::on_btn_open_data_socket_clicked()
@@ -489,16 +531,7 @@ void mocap_manager::on_btn_connection_confirm_clicked()
 {
     generic_thread_settings thread_settings_;
     thread_settings_.update_rate_hz = ui->txt_connection_read_rate->text().toUInt();
-    QString priority = ui->cmbx_connection_priority->currentText();
-    if (priority.compare("Highest Priority") == 0) thread_settings_.priority =  QThread::Priority::HighestPriority;
-    else if (priority.compare("High Priority") == 0) thread_settings_.priority =  QThread::Priority::HighPriority;
-    else if (priority.compare("Idle Priority") == 0) thread_settings_.priority =  QThread::Priority::IdlePriority;
-    else if (priority.compare("Inherit Priority") == 0) thread_settings_.priority =  QThread::Priority::InheritPriority;
-    else if (priority.compare("Low Priority") == 0) thread_settings_.priority =  QThread::Priority::LowPriority;
-    else if (priority.compare("Lowest Priority") == 0) thread_settings_.priority =  QThread::Priority::LowestPriority;
-    else if (priority.compare("Normal Priority") == 0) thread_settings_.priority =  QThread::Priority::NormalPriority;
-    else if (priority.compare("Time Critical Priority") == 0) thread_settings_.priority =  QThread::Priority::TimeCriticalPriority;
-
+    default_ui_config::Priority::key2value(ui->cmbx_connection_priority->currentText(),thread_settings_.priority);
 
     mocap_settings udp_settings_;
     QString rotation_type = ui->cmbx_connection_rotation->currentText();
@@ -532,8 +565,8 @@ void mocap_manager::on_btn_connection_confirm_clicked()
         msgBox.exec();
         ui->groupBox_not_active->setEnabled(false);
         ui->groupBox_active->setEnabled(true);
+        connect(mocap_thread_, &mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
     }
-    // *mocap_thread_ = mocap_thread__;
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 }
 
@@ -577,7 +610,6 @@ void mocap_manager::terminate_visuals_thread(void)
                 QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
             }
         }
-        delete mocap_data_inspector_thread_;
         mocap_data_inspector_thread_ = nullptr;
     }
 }
@@ -603,8 +635,6 @@ void mocap_manager::terminate_mocap_processing_thread(void)
                 QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
             }
         }
-
-        // delete (mocap_thread_);
         (mocap_thread_) = nullptr;
     }
 }
@@ -640,16 +670,14 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
         mocap_data_inspector_thread_ = nullptr;
     }
 
-    //now, we can connect the processing thread with the inspector thread:
-    connect((mocap_thread_), &mocap_thread::new_data_available, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
-    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::check_if_there_are_new_ids, (mocap_thread_), &mocap_thread::check_if_there_are_new_ids, Qt::DirectConnection);
+    update_visuals_mocap_frame_ids(mocap_data->get_ids()); //get most recent ids
 
-    //connect ui data updates with the mocap processing thread:
-    connect(this, &mocap_manager::get_data, (mocap_thread_), &mocap_thread::get_data, Qt::DirectConnection);
+    //connect data aggregator updates:
+    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::DirectConnection);
+    connect(mocap_data, &mocap_data_aggegator::frames_updated, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
 
     //linking all updates from the inspector thread to this UI:
-    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_frame_ids, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::DirectConnection);
-    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::ready_to_update_data, this, &mocap_manager::update_visuals_mocap_data, Qt::QueuedConnection);
+    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::time_to_update, this, &mocap_manager::update_visuals_mocap_data, Qt::QueuedConnection);
     connect(this, &mocap_manager::update_visuals_settings, mocap_data_inspector_thread_, &mocap_data_inspector_thread::update_settings, Qt::DirectConnection);
     connect(this, &mocap_manager::reset_visuals, mocap_data_inspector_thread_, &mocap_data_inspector_thread::reset, Qt::DirectConnection);
 
@@ -668,47 +696,168 @@ void mocap_manager::on_btn_refresh_update_settings_clicked()
 {
     generic_thread_settings thread_settings_;
 
-    mutex->lock();
+    // mutex->lock();
     thread_settings_.update_rate_hz = ui->txt_refresh_rate->text().toUInt();
-    QString priority = ui->cmbx_refresh_priority->currentText();
-    mutex->unlock();
-
-    if (priority.compare("Highest Priority") == 0) thread_settings_.priority =  QThread::Priority::HighestPriority;
-    else if (priority.compare("High Priority") == 0) thread_settings_.priority =  QThread::Priority::HighPriority;
-    else if (priority.compare("Idle Priority") == 0) thread_settings_.priority =  QThread::Priority::IdlePriority;
-    else if (priority.compare("Inherit Priority") == 0) thread_settings_.priority =  QThread::Priority::InheritPriority;
-    else if (priority.compare("Low Priority") == 0) thread_settings_.priority =  QThread::Priority::LowPriority;
-    else if (priority.compare("Lowest Priority") == 0) thread_settings_.priority =  QThread::Priority::LowestPriority;
-    else if (priority.compare("Normal Priority") == 0) thread_settings_.priority =  QThread::Priority::NormalPriority;
-    else if (priority.compare("Time Critical Priority") == 0) thread_settings_.priority =  QThread::Priority::TimeCriticalPriority;
+    default_ui_config::Priority::key2value(ui->cmbx_refresh_priority->currentText(), thread_settings_.priority);
+    // mutex->unlock();
 
     emit update_visuals_settings(&thread_settings_);
 }
 
-void mocap_manager::update_visuals_mocap_frame_ids(std::vector<int> &frame_ids_out)
+void mocap_manager::update_visuals_mocap_frame_ids(QVector<int> frame_ids)
 {
     QStringList new_list_;
-    foreach (int id, frame_ids_out) new_list_.append(QString::number(id));
+    int index = -1;
+    QString current_selection = ui->cmbx_frameid->currentText();
+    for (int i = 0; i < frame_ids.size(); i++)
+    {
+        QString tmp = QString::number(frame_ids[i]);
+        new_list_.append(tmp);
+        if (tmp == current_selection) index = i;
+    }
 
-    mutex->lock();
+    // mutex->lock();
     ui->cmbx_frameid->clear();
-    ui->cmbx_frameid->addItems(new_list_);
-    mutex->unlock();
+    if (!new_list_.isEmpty()) ui->cmbx_frameid->addItems(new_list_);
+    if (index > -1) ui->cmbx_frameid->setCurrentIndex(index);
+    // mutex->unlock();
 }
 
 void mocap_manager::update_visuals_mocap_data(void)
 {
     mocap_data_t buff;
     int ID = ui->cmbx_frameid->currentText().toInt();
-
-    if (emit get_data(buff, ID))
+    // mutex->lock();
+    QVector<int> ids = mocap_data->get_ids();
+    // mutex->unlock();
+    if (ids.contains(ID) && mocap_data->get_frame(ID, buff))
     {
-        mutex->lock();
+        // mutex->lock();
         ui->txt_mocap_data_view->clear();
         ui->txt_mocap_data_view->setText(buff.get_QString());
-        mutex->unlock();
+        // mutex->unlock();
     }
 }
+
+void mocap_manager::on_btn_refesh_clear_clicked()
+{
+    // mutex->lock();
+    ui->txt_mocap_data_view->clear();
+    QVector<int> IDs = mocap_data->get_ids();
+    // mutex->unlock();
+    if (!IDs.isEmpty()) update_visuals_mocap_frame_ids(IDs);
+    emit reset_visuals();
+}
+
+
+void mocap_manager::on_btn_configure_data_bridge_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(3);
+    refresh_relay();
+}
+
+
+void mocap_manager::on_btn_relay_go_back_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
+}
+
+void mocap_manager::update_relay_mocap_frame_ids(QVector<int> frame_ids)
+{
+    QStringList new_list_;
+    int index = -1;
+    QString current_selection = ui->cmbx_relay_frameid->currentText();
+    for (int i = 0; i < frame_ids.size(); i++)
+    {
+        QString tmp = QString::number(frame_ids[i]);
+        new_list_.append(tmp);
+        if (tmp == current_selection) index = i;
+    }
+
+    // mutex->lock();
+    ui->cmbx_relay_frameid->clear();
+    if (!new_list_.isEmpty()) ui->cmbx_relay_frameid->addItems(new_list_);
+    if (index > -1) ui->cmbx_relay_frameid->setCurrentIndex(index);
+    // mutex->unlock();
+}
+void mocap_manager::update_relay_port_list(QVector<QString> new_port_list)
+{
+    // mutex->lock();
+    if (new_port_list.length() > 0)
+    {
+        QString current_selection = ui->cmbx_relay_port_name->currentText();
+        ui->cmbx_relay_port_name->clear();
+        ui->cmbx_relay_port_name->addItems(new_port_list);
+        int index = new_port_list.indexOf(current_selection);
+        if (index > -1) ui->cmbx_relay_port_name->setCurrentIndex(index);
+    } else ui->cmbx_relay_port_name->clear();
+    // mutex->unlock();
+}
+void mocap_manager::update_relay_sysid_list(QVector<uint8_t> new_sysids)
+{
+    if (new_sysids.length() > 0)
+    {
+        QString current_selection = ui->cmbx_relay_sysid->currentText();
+        ui->cmbx_relay_sysid->clear();
+        QStringList list;
+        int ind = -1;
+        for (int i = 0; i < new_sysids.length(); i++)
+        {
+            list.push_back(QString::number(new_sysids[i]));
+            if (current_selection == list[i]) ind  = i;
+        }
+        ui->cmbx_relay_sysid->addItems(list);
+        if (ind > -1) ui->cmbx_relay_sysid->setCurrentIndex(ind);
+    }
+    else ui->cmbx_relay_sysid->clear();
+
+}
+void mocap_manager::update_relay_compids(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compids)
+{
+    // mutex->lock();
+    if (sysid == ui->cmbx_relay_sysid->currentText().toInt())
+    {
+
+        if (compids.length() > 0)
+        {
+            QString current_selection = ui->cmbx_relay_compid->currentText();
+            ui->cmbx_relay_compid->clear();
+            QStringList list;
+            int ind = -1;
+            for (int i = 0; i < compids.length(); i++) {
+                list.push_back(enum_helpers::value2key(compids[i]));
+                if (current_selection == list[i]) ind  = i;
+            }
+            ui->cmbx_relay_compid->addItems(list);
+            if (ind > -1) ui->cmbx_relay_compid->setCurrentIndex(ind);
+        } else ui->cmbx_relay_compid->clear();
+    }
+    // mutex->unlock();
+}
+
+void mocap_manager::on_cmbx_relay_sysid_currentTextChanged(const QString &arg1)
+{
+    //update compids:
+    uint8_t current_sysid = ui->cmbx_relay_sysid->currentText().toInt();
+    update_relay_compids(current_sysid, emit get_compids(current_sysid));
+}
+
+void mocap_manager::refresh_relay(void)
+{
+    //update frame_ids:
+    update_relay_mocap_frame_ids(mocap_data->get_ids());
+
+    //update sysids:
+    update_relay_sysid_list(emit get_sysids());
+
+    //update compids:
+    uint8_t current_sysid = ui->cmbx_relay_sysid->currentText().toInt();
+    update_relay_compids(current_sysid, emit get_compids(current_sysid));
+
+    //update port names:
+    update_relay_port_list(emit get_port_names());
+}
+
 
 
 mocap_data_inspector_thread::mocap_data_inspector_thread(QObject* parent, generic_thread_settings *new_settings)
@@ -733,7 +882,6 @@ void mocap_data_inspector_thread::reset(void)
 {
     mutex->lock();
     new_data_available_ = false;
-    frame_ids.clear();
     mutex->unlock();
 }
 
@@ -745,22 +893,22 @@ void mocap_data_inspector_thread::run()
         //check if new data is available (may not be the case if this thread is faster)
         if (new_data_available_)
         {
-            //first, update frame ids:
-            std::vector<int> ids_new;
-            if (emit check_if_there_are_new_ids(ids_new, frame_ids))
-            {
-                frame_ids.insert(frame_ids.end(), ids_new.begin(), ids_new.end());
-                emit ready_to_update_frame_ids(frame_ids); //this should update all visuals related to frame ids
+            // //first, update frame ids:
+            // std::vector<int> ids_new;
+            // if (emit check_if_there_are_new_ids(ids_new, frame_ids))
+            // {
+            //     frame_ids.insert(frame_ids.end(), ids_new.begin(), ids_new.end());
+            //     emit ready_to_update_frame_ids(frame_ids); //this should update all visuals related to frame ids
 
 
-            }
+            // }
 
-            if (frame_ids.size() > 0)
-            {
-                // now, let's update data as well:
-                emit ready_to_update_data();
-            }
-
+            // if (frame_ids.size() > 0)
+            // {
+            //     // now, let's update data as well:
+            //     emit time_to_update();
+            // }
+            emit time_to_update();
         }
         new_data_available_ = false;
         mutex->unlock();
@@ -768,24 +916,8 @@ void mocap_data_inspector_thread::run()
     }
 }
 
-void mocap_manager::on_btn_refesh_clear_clicked()
-{
-    mutex->lock();
-    ui->cmbx_frameid->clear();
-    ui->txt_mocap_data_view->clear();
-    mutex->unlock();
-    emit reset_visuals();
-}
 
 
-void mocap_manager::on_btn_configure_data_bridge_clicked()
-{
-    ui->stackedWidget_main_scroll_window->setCurrentIndex(3);
-}
 
 
-void mocap_manager::on_btn_relay_go_back_clicked()
-{
-    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
-}
 

@@ -63,7 +63,7 @@ signals:
     QString port_settings_QString_request(void);
     QString port_read_thread_settings_QString_request(void);
 
-    void port_names_updated(void);
+    void port_names_updated(QVector<QString> current_port_names);
 
     int write_message(void* message);
 
@@ -104,6 +104,8 @@ public slots:
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
     bool load_saved_connections(QSettings &qsettings, mavlink_manager* mavlink_manager_);
     bool load_routing(QSettings &qsettings);
+
+    bool get_ports(QVector<QString> &port_names_out, QVector<Generic_Port*> &Ports_out);//for external liking
 private:
 
     bool add_routing(QString src_port_name_, QString target_port_name);

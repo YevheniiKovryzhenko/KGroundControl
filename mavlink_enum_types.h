@@ -2,6 +2,7 @@
 #define MAVLINK_ENUM_TYPES_H
 
 #include <QMetaEnum>
+#include "default_ui_config.h"
 
 class mavlink_enums : public QObject
 {
@@ -147,11 +148,12 @@ public:
         MAV_COMPONENT_ENUM_END=251, /*  | */
     };
     Q_ENUM(mavlink_component_id)
-    static QVector<QString> get_QString_all_mavlink_component_id(void);
-    static QVector<mavlink_component_id> get_keys_all_mavlink_component_id(void);
+    // static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in);
 
-    static QString get_QString(mavlink_component_id value);
-    static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in);
+    static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in)
+    {
+        return enum_helpers::key2value(comp_id_string_in, id_out);
+    }
 };
 
 #endif // MAVLINK_ENUM_TYPES_H

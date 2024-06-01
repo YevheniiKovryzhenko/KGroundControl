@@ -277,7 +277,7 @@ bool connection_manager::add(QString new_port_name, \
     new_port_thread->save_settings(qsettings);
     qsettings.endGroup();
     qsettings.endGroup();
-    emit port_names_updated();
+    emit port_names_updated(port_names);
     if (emit_heartbeat_) emit heartbeat_swiched(true);
     return true;
 }
@@ -350,7 +350,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
             n_connections--;
 
             mutex->unlock();
-            emit port_names_updated();
+            emit port_names_updated(port_names);
             return true;
         }
     }    
@@ -710,6 +710,20 @@ bool connection_manager::update_routing(QString src_port_name_, QVector<QString>
 void connection_manager::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
 {
     emit kgroundcontrol_settings_updated(kground_control_settings_in_);
+}
+
+bool connection_manager::get_ports(QVector<QString> &port_names_out, QVector<Generic_Port*> &Ports_out)
+{
+    mutex->lock();
+    if (n_connections > 0)
+    {
+        port_names_out = QVector<QString>(port_names);
+        Ports_out = QVector<Generic_Port*>(Ports);
+        mutex->unlock();
+        return true;
+    }
+    mutex->unlock();
+    return false;
 }
 
 

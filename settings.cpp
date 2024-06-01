@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "default_ui_config.h"
 #include <QDebug>
 
 QString generic_port_settings::get_QString(void)
@@ -203,33 +204,7 @@ bool udp_settings::load(QSettings &settings)
 QString generic_thread_settings::get_QString(void)
 {
     QString detailed_text_ = "Update Rate: " + QString::number(update_rate_hz) + " (Hz)\n";
-    switch (priority) {
-    case QThread::Priority::HighestPriority :
-        detailed_text_ += "Highest Priority\n";
-        break;
-    case QThread::Priority::HighPriority :
-        detailed_text_ += "High Priority\n";
-        break;
-    case QThread::Priority::IdlePriority :
-        detailed_text_ += "Idle Priority\n";
-        break;
-    case QThread::Priority::InheritPriority :
-        detailed_text_ += "Inherit Priority\n";
-        break;
-    case QThread::Priority::LowPriority :
-        detailed_text_ += "Low Priority\n";
-        break;
-    case QThread::Priority::LowestPriority :
-        detailed_text_ += "Lowest Priority\n";
-        break;
-    case QThread::Priority::NormalPriority :
-        detailed_text_ += "Normal Priority\n";
-        break;
-    case QThread::Priority::TimeCriticalPriority :
-        detailed_text_ += "Time Critical Priority\n";
-        break;
-    }
-
+    detailed_text_ += default_ui_config::Priority::value2key(priority) + "\n";
     return detailed_text_;
 }
 void generic_thread_settings::save(QSettings &settings)
@@ -264,7 +239,7 @@ QString kgroundcontrol_settings::get_QString(void)
 {
     QString text_out = "Mavlink Settings:\n";
     text_out += "System ID: " + QString::number(sysid);
-    text_out += "Component ID: " + mavlink_enums::get_QString(compid);
+    text_out += "Component ID: " + enum_helpers::value2key(compid);
 
     return text_out;
 }
@@ -329,4 +304,58 @@ QString mocap_settings::get_QString(void)
     }
 
     return detailed_text_;
+}
+
+
+
+mocap_relay_settings::mocap_relay_settings(QObject *parent)
+    : QObject(parent)
+{
+
+}
+
+mocap_relay_settings::~mocap_relay_settings()
+{
+
+}
+
+void mocap_relay_settings::printf(void)
+{
+    qDebug() << get_QString();
+}
+
+QString mocap_relay_settings::get_QString(void)
+{
+    QString detailed_text_ = "Frame ID: " + QString::number(frame_id) + "\n";
+    detailed_text_ += "Port: " + Port_Name + "\n";
+    detailed_text_ += enum_helpers::value2key(msg_option) + "\n";
+    return detailed_text_;
+}
+void mocap_relay_settings::save(QSettings &settings)
+{
+    if (frame_id > -1 && Port_Name != "N/A" && !Port_Name.isEmpty())
+    {
+        settings.beginGroup("mocap_relay_settings");
+        // settings.beginGroup(Port_Name);
+        settings.setValue("frame_id", frame_id);
+        settings.setValue("Port_Name", Port_Name);
+        settings.setValue("msg_option", static_cast<uint>(msg_option));
+        // settings.endGroup();
+        settings.endGroup();
+    }
+
+}
+bool mocap_relay_settings::load(QSettings &settings)
+{
+    settings.beginGroup("mocap_relay_settings");
+    if (!(settings.contains("frame_id") && settings.contains("Port_Name") && settings.contains("msg_option")))
+    {
+        settings.endGroup();
+        return false;
+    }
+    frame_id = settings.value("frame_id").toUInt();
+    Port_Name = settings.value("Port_Name").toString();
+    msg_option = static_cast<mocap_relay_msg_opt>(settings.value("msg_option").toUInt());
+    settings.endGroup();
+    return true;
 }

@@ -19,6 +19,8 @@ public:
     void save_settings(QSettings &qsettings);
     void load_settings(QSettings &qsettings);
 
+    static QStringList get_all_priorities(void);
+
 public slots:
     void update_settings(generic_thread_settings* settings_in_);
 

@@ -1,59 +1,10 @@
-//================================================================================
-// NOTE: This code is adapted from PacketClient.cpp, which remains in this
-// folder. The license for the code is located in that file and duplicated
-// below:
-//
-//=============================================================================
-// Copyright © 2014 NaturalPoint, Inc. All Rights Reserved.
-//
-// This software is provided by the copyright holders and contributors "as is"
-// and any express or implied warranties, including, but not limited to, the
-// implied warranties of merchantability and fitness for a particular purpose
-// are disclaimed. In no event shall NaturalPoint, Inc. or contributors be
-// liable for any direct, indirect, incidental, special, exemplary, or
-// consequential damages (including, but not limited to, procurement of
-// substitute goods or services; loss of use, data, or profits; or business
-// interruption) however caused and on any theory of liability, whether in
-// contract, strict liability, or tort (including negligence or otherwise)
-// arising in any way out of the use of this software, even if advised of the
-// possibility of such damage.
-//=============================================================================
-
-// #include <float.h>
-#include <cmath>
-// #include <cstdlib>
-#include <cstring>
 #include <optitrack.hpp>
-// #include <iostream>     // std::cout
-// #include <algorithm>    // std::min
-#include <getopt.h>
-#include <string.h>
-
-#include <vector>
-#include <stdio.h>
-#include <unistd.h>  // read / write / sleep
-
-#include <cstdlib>
-#include <cstring>
-
-#include <sys/time.h>
 
 #include <QErrorMessage>
 #include <QByteArray>
 #include <QNetworkDatagram>
 #include <QNetworkInterface>
 #include <QHostInfo>
-// #include <QMutex>
-
-// Linux socket headers
-// #include <arpa/inet.h>
-// #include <ifaddrs.h>
-// #include <netdb.h>
-// #include <netinet/in.h>
-// #include <sys/ioctl.h>
-// #include <sys/socket.h>
-// #include <sys/types.h>
-// #include <unistd.h>
 
 #define MAX_NAMELENGTH 256
 
@@ -73,6 +24,7 @@
 #define MAX_PACKETSIZE \
   100000  // max size of packet (actual packet size is dynamic)
 #define VERBOSE 0
+// #define DEBUG
 
 mocap_optitrack::mocap_optitrack(QObject *parent) : QObject(parent)
 {
@@ -105,7 +57,7 @@ void mocap_optitrack::read_port(void)
     mutex->unlock();
 }
 
-bool mocap_optitrack::read_message(std::vector<optitrack_message_t> &msg_out)
+bool mocap_optitrack::read_message(QVector<optitrack_message_t> &msg_out)
 {
     bool msgReceived = false;
 
@@ -117,7 +69,7 @@ bool mocap_optitrack::read_message(std::vector<optitrack_message_t> &msg_out)
 
         if (parsed_data.size() > 0)
         {
-            msg_out.insert(std::end(msg_out), std::begin(parsed_data), std::end(parsed_data));
+            foreach (auto msg, parsed_data) msg_out.push_back(msg);
             msgReceived = true;
         }
         if (nbytes < bytearray.size()) bytearray.remove(0, nbytes); //keep data for next parsing run
@@ -144,7 +96,9 @@ bool mocap_optitrack::guess_optitrack_network_interface(QNetworkInterface &inter
                 if (interface_name[0] == 'w')
                 {
                     interface = QNetworkInterface(interface_);
+#ifdef DEBUG
                     qDebug() << "[guess_optitrack_network_interface] detected interface address as " << interface_name;
+#endif
                     return true;
                 }
                 // Else if it isn't the loopback device, then it's our best guess
@@ -155,7 +109,9 @@ bool mocap_optitrack::guess_optitrack_network_interface(QNetworkInterface &inter
                     if (QString::compare(interface_name, QString("lo"), Qt::CaseInsensitive) == 0)
                     {
                         interface = QNetworkInterface(interface_);
+#ifdef DEBUG
                         qDebug() << "[guess_optitrack_network_interface] detected interface address as " << interface_name;
+#endif
                         return true;
                     }
                 }
@@ -182,7 +138,9 @@ bool mocap_optitrack::guess_optitrack_network_interface_ipv6(QNetworkInterface &
                 if (interface_name[0] == 'w')
                 {
                     interface = QNetworkInterface(interface_);
+#ifdef DEBUG
                     qDebug() << "[guess_optitrack_network_interface] detected interface address as " << interface_name;
+#endif
                     return true;
                 }
                 // Else if it isn't the loopback device, then it's our best guess
@@ -193,7 +151,9 @@ bool mocap_optitrack::guess_optitrack_network_interface_ipv6(QNetworkInterface &
                     if (QString::compare(interface_name, QString("lo"), Qt::CaseInsensitive) == 0)
                     {
                         interface = QNetworkInterface(interface_);
+#ifdef DEBUG
                         qDebug() << "[guess_optitrack_network_interface] detected interface address as " << interface_name;
+#endif
                         return true;
                     }
                 }
@@ -201,7 +161,9 @@ bool mocap_optitrack::guess_optitrack_network_interface_ipv6(QNetworkInterface &
             }
         }
     }
+#ifdef DEBUG
     qDebug() << "[guess_optitrack_network_interface] failed to detect interface address";
+#endif
     return false;
 }
 
@@ -224,7 +186,9 @@ bool mocap_optitrack::get_network_interface(QNetworkInterface &interface, QStrin
             }
         }
     }
+#ifdef DEBUG
     qDebug() << "[get_network_interface] failed to match interface with address";
+#endif
     return false;
 }
 
@@ -255,7 +219,9 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     }
     if (Port->joinMulticastGroup(QHostAddress(multicast_address), interface))
     {
+#ifdef DEBUG
         qDebug() << "[create_optitrack_data_socket] joined multicast group at address " << QString(MULTICAST_ADDRESS);
+#endif
         iface = new QNetworkInterface(interface);
     }
     else
@@ -272,9 +238,11 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     int optval = 0x100000;
 
     Port->setReadBufferSize(optval);
+#ifdef DEBUG
     optval = Port->readBufferSize();
     if (optval != 0x100000) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
     else qDebug() << "[create_optitrack_data_socket] Increased receive buffer size to " << QString::number(optval);
+#endif
 
     mutex->unlock();
 
@@ -320,7 +288,9 @@ bool check_size(int max, int requested)
 {
     if (max < requested)
     {
+#ifdef DEBUG
         qDebug() << "[mocap_optitrack] Requesting more data than received, pausing data parsing...";
+#endif
         return true;
     }
     return false;
@@ -335,30 +305,38 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
 
   char* ptr = bytearray.begin();
   int n_bytes_read = 0;
+#ifdef DEBUG
   if (VERBOSE) {
       qDebug() << "Begin Packet\n-------\n";
   }
+#endif
 
   // message ID
   int MessageID = 0;
   memcpy(&MessageID, ptr, 2);
   ptr += 2;
+#ifdef DEBUG
   if (VERBOSE) {
     qDebug() << "Message ID : " << MessageID;
   }
+#endif
 
   // size
   int nBytes = 0;
   memcpy(&nBytes, ptr, 2);
   ptr += 2;
+#ifdef DEBUG
   if (VERBOSE) {
     qDebug() << "Byte count : " << nBytes;
   }
+#endif
   n_bytes_read = 4;
   if (nBytes < 5) return n_bytes_read;
   if (nBytes > bytearray.size())
   {
+#ifdef DEBUG
       qDebug() << "[mocap_optitrack] Need to wait for more data before parsing..."; //should not occur
+#endif
       return 0;
   }
   if (MessageID == NAT_FRAMEOFDATA) {  // FRAME OF MOCAP DATA packet
@@ -368,9 +346,11 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
     n_bytes_read += 4;
     memcpy(&frameNumber, ptr, 4);
     ptr += 4; //8
+#ifdef DEBUG
     if (VERBOSE) {
       qDebug() << "Frame # : " << frameNumber;
     }
+#endif
 
     // number of data sets (markersets, rigidbodies, etc)
     int nMarkerSets = 0;
@@ -378,9 +358,11 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
     n_bytes_read += 4;
     memcpy(&nMarkerSets, ptr, 4);
     ptr += 4; //12
+#ifdef DEBUG
     if (VERBOSE) {
       qDebug() << "Marker Set Count : " << nMarkerSets;
     }
+#endif
     for (int i = 0; i < nMarkerSets; i++) {
       // Markerset name
       char szName[256];
@@ -427,9 +409,11 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
     n_bytes_read += 4;
     memcpy(&nOtherMarkers, ptr, 4);
     ptr += 4;
+#ifdef DEBUG
     if (VERBOSE) {
       qDebug() << "Unidentified Marker Count : " << nOtherMarkers;
     }
+#endif
     for (int j = 0; j < nOtherMarkers; j++) {
       float x = 0.0f;
         if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
@@ -448,9 +432,11 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
         n_bytes_read += 4;
         memcpy(&z, ptr, 4);
         ptr += 4;
+#ifdef DEBUG
         if (VERBOSE) {
           qDebug() << "\tMarker " << j <<" : pos = [" << x << y << z << "]";
         }
+#endif
     }
 
     // rigid bodies
@@ -459,9 +445,11 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
     n_bytes_read += 4;
     memcpy(&nRigidBodies, ptr, 4);
     ptr += 4;
+#ifdef DEBUG
     if (VERBOSE) {
       qDebug() << "Rigid Body Count : " << nRigidBodies;
     }
+#endif
 
     for (int j = 0; j < nRigidBodies; j++) {
       optitrack_message_t msg;
@@ -506,11 +494,13 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
       memcpy(&(msg.qw), ptr, 4);
       ptr += 4;
 
+#ifdef DEBUG
       if (VERBOSE) {
             qDebug() << "ID : " << msg.id;
             qDebug() << "pos: [" << msg.x << msg.y << msg.z << "]";
             qDebug() << "ori: [" << msg.qx << msg.qy << msg.qz << msg.qw << "]\n";
       }
+#endif
 
       // NatNet version 2.0 and later
       if (major >= 2) {
@@ -539,8 +529,12 @@ int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_
 
     }  // Go to next rigid body
 
-  } else {
+  }
+  else
+  {
+#ifdef DEBUG
     qDebug() << "Unrecognized Packet Type: " << MessageID;
+#endif
   }
 
   return n_bytes_read;

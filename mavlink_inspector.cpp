@@ -8,6 +8,7 @@
 #include "ui_mavlink_inspector.h"
 #include "ui_mavlink_inspector_msg.h"
 #include "keybinddialog.h"
+#include "default_ui_config.h"
 
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()
@@ -423,6 +424,46 @@ bool mavlink_manager::get_ind(unsigned int& i, uint8_t sys_id_, mavlink_enums::m
     return false;
 }
 
+QVector<uint8_t> mavlink_manager::get_sysids(void)
+{
+    QVector<uint8_t> sysid_list;
+    foreach (mavlink_data_aggregator* msg_aggr, msgs)
+    {
+        bool is_old_ = false;
+        foreach (uint8_t sysid, sysid_list)
+        {
+            if (sysid == msg_aggr->sysid)
+            {
+                is_old_ = true;
+                break;
+            }
+        }
+        if (!is_old_) sysid_list.push_back(msg_aggr->sysid);
+    }
+    return sysid_list;
+}
+QVector<mavlink_enums::mavlink_component_id> mavlink_manager::get_compids(uint8_t sysid)
+{
+    QVector<mavlink_enums::mavlink_component_id> compid_list;
+    foreach (mavlink_data_aggregator* msg_aggr, msgs)
+    {
+        if (msg_aggr->sysid == sysid)
+        {
+            bool is_old_ = false;
+            foreach (mavlink_enums::mavlink_component_id compid, compid_list)
+            {
+                if (compid == msg_aggr->compid)
+                {
+                    is_old_ = true;
+                    break;
+                }
+            }
+            if (!is_old_) compid_list.push_back(msg_aggr->compid);
+        }
+    }
+    return compid_list;
+}
+
 bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
 {
     if (message == NULL) return false;
@@ -431,6 +472,23 @@ bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
 
     if (is_new(msg_cast_, matching_entry))
     {
+        bool sysid_is_old = false, compid_is_old = false;
+        if (msgs.count() > 0)
+        {
+            foreach (mavlink_data_aggregator* msg_aggr, msgs)
+            {
+                if (msg_aggr->sysid == msg_cast_->sysid)
+                {
+                    sysid_is_old = true;
+                    if (msg_aggr->compid == msg_cast_->compid)
+                    {
+                        compid_is_old = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         mavlink_data_aggregator* new_msg_aggregator = new mavlink_data_aggregator(this, msg_cast_->sysid, mavlink_enums::mavlink_component_id(msg_cast_->compid));
         connect(new_msg_aggregator, &mavlink_data_aggregator::updated, this, &mavlink_manager::relay_updated, Qt::DirectConnection);
 
@@ -439,7 +497,12 @@ bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
             mutex->lock();
             msgs.push_back(new_msg_aggregator);            
             mutex->unlock();
+
+            if (!sysid_is_old) emit sysid_list_changed(get_sysids());
+            if (!compid_is_old) emit compid_list_changed(msg_cast_->sysid, get_compids(msg_cast_->sysid));
             delete msg_cast_;
+
+
             return true;
         }
         else delete new_msg_aggregator;
@@ -680,7 +743,7 @@ bool MavlinkInspector::process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_co
         {
             //simply add this as the first message
             ui->cmbx_sysid->addItem(QString::number(sysid_)); //this will trigger a full cleanup
-            ui->cmbx_compid->addItem(mavlink_enums::get_QString(compid_)); //this should not clean anything extra, but just in case
+            ui->cmbx_compid->addItem(enum_helpers::value2key(compid_)); //this should not clean anything extra, but just in case
 
             addbutton(sysid_, compid_, msg_name);
             mutex->unlock();
@@ -703,7 +766,7 @@ bool MavlinkInspector::process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_co
             //next, we want to update list of mavlink packets, but only for current selection of sysid
             if (ui->cmbx_sysid->currentText().toUInt() == sysid_) //sysid matches selection
             {
-                QString mav_compoennt_qstr_ = mavlink_enums::get_QString(compid_);
+                QString mav_compoennt_qstr_ = enum_helpers::value2key(compid_);
                 if (ui->cmbx_compid->findText(mav_compoennt_qstr_,Qt::MatchExactly) == -1) //new compid
                 {
                     ui->cmbx_compid->addItem(mav_compoennt_qstr_);//update list, but don't select new item

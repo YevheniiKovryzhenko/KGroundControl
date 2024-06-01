@@ -21,12 +21,9 @@
 #ifndef OPTITRACK_OPTITRACK_HPP
 #define OPTITRACK_OPTITRACK_HPP
 
-#include <vector>
 #include <QUdpSocket>
 #include <QObject>
 #include <QMutex>
-
-#define SOCKET int  // A sock handle is just an int in linux
 
 #define MULTICAST_ADDRESS   "239.255.42.99"     // IANA, local network
 #define MULTICAST_ADDRESS_6 "0:0:0:0:0:FFFF:EFFF:2A63"	// ipv6 of above
@@ -58,7 +55,7 @@ public:
     explicit mocap_optitrack(QObject *parent = nullptr);
     ~mocap_optitrack();
 
-    bool read_message(std::vector<optitrack_message_t> &msg_out);
+    bool read_message(QVector<optitrack_message_t> &msg_out);
 
     /**
     * create_optitrack_data_socket creates a socket for receiving Optitrack data from the Optitrack server.

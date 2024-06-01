@@ -12,8 +12,7 @@
 class mocap_data_t: public optitrack_message_t
 {
 public:
-    // uint64_t time_us_old;
-    uint64_t time_s;
+    uint64_t time_ms;
     double roll;
     double pitch;
     double yaw;
@@ -22,6 +21,29 @@ public:
 private:
 };
 
+class mocap_data_aggegator : public QObject
+{
+    Q_OBJECT
+public:
+    mocap_data_aggegator(QObject* parent);
+    ~mocap_data_aggegator();
+
+public slots:
+    void update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation);
+    void clear(void);
+
+    QVector<int> get_ids(void);
+    bool get_frame(int frame_id, mocap_data_t &frame);
+
+signals:
+    void frame_ids_updated(QVector<int> frame_ids);
+    void frames_updated(QVector<mocap_data_t> frames);
+
+private:
+    QVector<int> frame_ids_;
+    QVector<mocap_data_t> frames_;
+    QMutex* mutex = nullptr;
+};
 
 class mocap_thread : public generic_thread
 {
@@ -37,22 +59,25 @@ public:
     void run();
 
 signals:
-    void new_data_available(void);
+    // void new_data_available(void);
+    bool update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation);
 
 public slots:
 
-    bool get_data(mocap_data_t& buff, int ID);
-    std::vector<int> get_current_ids(void);
-    bool check_if_there_are_new_ids(std::vector<int> &ids_out, std::vector<int> current_ids);
+    // bool get_data(mocap_data_t& buff, int ID);
+    // std::vector<int> get_current_ids(void);
+    // bool check_if_there_are_new_ids(std::vector<int> &ids_out, std::vector<int> current_ids);
 
 
 private:
-    qint64 time_s = QDateTime::currentSecsSinceEpoch();
+    // qint64 time_s = QDateTime::currentSecsSinceEpoch();
 
-    std::vector<optitrack_message_t> incomingMessages;
+    // std::vector<optitrack_message_t> incomingMessages;
     mocap_optitrack* optitrack = nullptr;
     mocap_settings mocap_settings_;
 };
+
+
 
 class mocap_data_inspector_thread : public generic_thread
 {
@@ -69,14 +94,35 @@ public slots:
 
 signals:
 
-    bool check_if_there_are_new_ids(std::vector<int> &ids_out, std::vector<int> current_ids);
-    void ready_to_update_frame_ids(std::vector<int> &frame_ids_out);
-    void ready_to_update_data(void);
+    void time_to_update(void);
 
 private:
     bool new_data_available_ = false;
-    std::vector<int> frame_ids;
 };
+
+class mocap_relay_thread : public generic_thread
+{
+    Q_OBJECT
+public:
+    explicit mocap_relay_thread(QObject *parent, generic_thread_settings *new_settings, mocap_relay_settings *relay_settings, mocap_data_aggegator** mocap_data_ptr);
+    ~mocap_relay_thread();
+
+    void run();
+
+public slots:
+
+signals:
+    int write_to_port(QByteArray &message);
+
+    void relay_started(int frame_id, QString Port_Name);
+    void relay_exited(int frame_id, QString Port_Name);
+
+private:
+    QByteArray pack_most_recent_msg(void);
+    mocap_relay_settings relay_settings;
+    mocap_data_aggegator** mocap_data_ptr = nullptr;
+};
+
 
 namespace Ui {
 class mocap_manager;
@@ -92,15 +138,21 @@ public:
 
 public slots:
 
-    void update_visuals_mocap_frame_ids(std::vector<int> &frame_ids_out);
+    void update_visuals_mocap_frame_ids(QVector<int> frame_ids);
     void update_visuals_mocap_data(void);
 
-    // void close_all(bool delete_settings = false);
+    void update_relay_mocap_frame_ids(QVector<int> frame_ids);
+    void update_relay_port_list(QVector<QString> new_port_names);
+    void update_relay_sysid_list(QVector<uint8_t> new_sysids);
+    void update_relay_compids(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compids);
 
 signals:
     void update_visuals_settings(generic_thread_settings *new_settings);
     void reset_visuals(void);
-    bool get_data(mocap_data_t& buff, int ID);
+    // bool get_data(mocap_data_t& buff, int ID);
+    QVector<QString> get_port_names(void);
+    QVector<uint8_t> get_sysids(void);
+    QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
 
 private slots:
 
@@ -131,12 +183,17 @@ private slots:
 
     void on_btn_relay_go_back_clicked();
 
+    void refresh_relay(void);
+
+    void on_cmbx_relay_sysid_currentTextChanged(const QString &arg1);
+
 private:
-    QMutex* mutex;
+    // QMutex* mutex;
     Ui::mocap_manager *ui;
 
     mocap_thread* mocap_thread_ = nullptr;
     mocap_data_inspector_thread* mocap_data_inspector_thread_ = nullptr;
+    mocap_data_aggegator* mocap_data = nullptr;
 };
 
 

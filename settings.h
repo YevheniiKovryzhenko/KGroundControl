@@ -25,6 +25,8 @@ enum mocap_rotation
     ZUP2NED
 };
 
+
+
 class ip_address
 {
 public:
@@ -188,6 +190,44 @@ public:
 
     QString get_QString(void);
     void printf(void);
+};
+
+class mocap_relay_settings : public QObject
+{
+    Q_OBJECT
+public:
+    enum mocap_relay_msg_opt
+    {
+        mavlink_odometry,
+        mavlink_vision_position_estimate
+    };
+    Q_ENUM(mocap_relay_msg_opt);
+
+    mocap_relay_settings(QObject *parent = nullptr);
+    ~mocap_relay_settings();
+
+    int frame_id = -1;
+    QString Port_Name = "N/A";
+    mocap_relay_msg_opt msg_option = mavlink_vision_position_estimate;
+
+    QString get_QString(void);
+    void printf(void);
+    void save(QSettings &settings);
+    bool load(QSettings &settings);
+
+
+    mocap_relay_settings& operator=(const mocap_relay_settings& other)
+    {
+        // Check for self-assignment
+        if (this != &other) {
+            // Copy data from other to this object
+            this->setParent(other.parent());
+            frame_id = other.frame_id;
+            Port_Name = QString(other.Port_Name);
+            msg_option = other.msg_option;
+        }
+        return *this; // Return a reference to this object
+    }
 };
 
 #endif // SETTINGS_H
