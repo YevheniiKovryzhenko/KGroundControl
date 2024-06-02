@@ -67,7 +67,7 @@ signals:
 
     int write_message(void* message);
 
-    void port_added(QString port_name);
+    // void port_added(QString port_name);
 
 public slots:
     bool is_unique(QString &in);
@@ -102,10 +102,11 @@ public slots:
     // bool relay_msg(QString src_port_name_, mavlink_message_t &msg);
 
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
-    bool load_saved_connections(QSettings &qsettings, mavlink_manager* mavlink_manager_);
+    bool load_saved_connections(QSettings &qsettings, mavlink_manager* mavlink_manager_, QStringList &loaded_port_names);
     bool load_routing(QSettings &qsettings);
 
     bool get_ports(QVector<QString> &port_names_out, QVector<Generic_Port*> &Ports_out);//for external liking
+    bool get_port(QString port_name, Generic_Port** port);
 private:
 
     bool add_routing(QString src_port_name_, QString target_port_name);

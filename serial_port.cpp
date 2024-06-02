@@ -48,30 +48,36 @@ Serial_Port::Serial_Port(QObject* parent, serial_settings* new_settings, size_t 
     : Generic_Port(parent)
 {
     mutex = new QMutex();
-    memcpy(&settings, new_settings, settings_size);
+    settings = new serial_settings(*new_settings);
+    // memcpy(&settings, new_settings, settings_size);
 }
 
 Serial_Port::~Serial_Port()
 {
     exiting = true;
-    if (Port != NULL && Port->isOpen()) Port->close();
+    if (Port != NULL && Port->isOpen())
+    {
+        disconnect(Port, &QSerialPort::readyRead, this, &Serial_Port::read_port);
+        Port->close();
+    }
+    delete settings;
     delete mutex;
     delete Port;
 }
 
 void Serial_Port::save_settings(QSettings &qsettings)
 {
-    settings.save(qsettings);
+    settings->save(qsettings);
 }
 void Serial_Port::load_settings(QSettings &qsettings)
 {
-    settings.load(qsettings);
+    settings->load(qsettings);
 }
 
 bool Serial_Port::is_heartbeat_emited(void)
 {
     mutex->lock();
-    bool out = settings.emit_heartbeat;
+    bool out = settings->emit_heartbeat;
     mutex->unlock();
     return out;
 }
@@ -79,8 +85,8 @@ bool Serial_Port::is_heartbeat_emited(void)
 bool Serial_Port::toggle_heartbeat_emited(bool val)
 {
     mutex->lock();
-    bool res = val != settings.emit_heartbeat;
-    if (res) settings.emit_heartbeat = val;
+    bool res = val != settings->emit_heartbeat;
+    if (res) settings->emit_heartbeat = val;
     mutex->unlock();
     return res;
 }
@@ -188,12 +194,12 @@ char Serial_Port::start(void)
     // --------------------------------------------------------------------------
 
     Port = new QSerialPort(this);
-    Port->setPortName(settings.uart_name);
-    Port->setBaudRate(settings.baudrate);
-    Port->setDataBits(settings.DataBits);
-    Port->setParity(settings.Parity);
-    Port->setStopBits(settings.StopBits);
-    Port->setFlowControl(settings.FlowControl);
+    Port->setPortName(settings->uart_name);
+    Port->setBaudRate(settings->baudrate);
+    Port->setDataBits(settings->DataBits);
+    Port->setParity(settings->Parity);
+    Port->setStopBits(settings->StopBits);
+    Port->setFlowControl(settings->FlowControl);
     if (!Port->open(QIODevice::ReadWrite))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
@@ -218,7 +224,11 @@ char Serial_Port::start(void)
 void Serial_Port::stop()
 {
     exiting = true;
-    if (Port->isOpen()) Port->close();
+    if (Port->isOpen())
+    {
+        disconnect(Port, &QSerialPort::readyRead, this, &Serial_Port::read_port);
+        Port->close();
+    }
 }
 
 // ------------------------------------------------------------------------------
@@ -259,7 +269,7 @@ int Serial_Port::_write_port(char *buf, unsigned len)
 
 QString Serial_Port::get_settings_QString(void)
 {
-    return settings.get_QString();
+    return settings->get_QString();
 }
 void Serial_Port::get_settings(void* input_settings)
 {
@@ -267,6 +277,6 @@ void Serial_Port::get_settings(void* input_settings)
 }
 connection_type Serial_Port::get_type(void)
 {
-    return settings.type;
+    return settings->type;
 }
 

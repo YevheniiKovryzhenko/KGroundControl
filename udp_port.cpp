@@ -24,7 +24,11 @@ UDP_Port::UDP_Port(QObject* parent, udp_settings* new_settings, size_t settings_
 
 UDP_Port::~UDP_Port()
 {
-    if (Port != NULL && Port->isOpen()) Port->close();
+    if (Port != NULL && Port->isOpen())
+    {
+        disconnect(Port, &QUdpSocket::readyRead, this, &UDP_Port::read_port);
+        Port->close();
+    }
     delete mutex;
     delete Port;
 }
@@ -183,7 +187,11 @@ char UDP_Port::start(void)
 // ------------------------------------------------------------------------------
 void UDP_Port::stop()
 {
-    if (Port->isOpen()) Port->close();
+    if (Port->isOpen())
+    {
+        disconnect(Port, &QUdpSocket::readyRead, this, &UDP_Port::read_port);
+        Port->close();
+    }
 }
 
 

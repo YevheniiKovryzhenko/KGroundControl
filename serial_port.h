@@ -64,7 +64,7 @@ private:
 
     bool exiting = false;
 
-    serial_settings settings;
+    serial_settings* settings = nullptr;
 
     QByteArray bytearray;
 

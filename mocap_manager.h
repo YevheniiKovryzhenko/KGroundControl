@@ -7,6 +7,7 @@
 
 #include "threads.h"
 #include "optitrack.hpp"
+#include "generic_port.h"
 
 
 class mocap_data_t: public optitrack_message_t
@@ -53,6 +54,7 @@ public:
     ~mocap_thread();
 
     void update_settings(mocap_settings* settings_in_);
+    void get_settings(mocap_settings* settings_out_);
 
     bool start(mocap_settings* mocap_new_settings);
 
@@ -104,22 +106,21 @@ class mocap_relay_thread : public generic_thread
 {
     Q_OBJECT
 public:
-    explicit mocap_relay_thread(QObject *parent, generic_thread_settings *new_settings, mocap_relay_settings *relay_settings, mocap_data_aggegator** mocap_data_ptr);
+    explicit mocap_relay_thread(QObject *parent, generic_thread_settings *new_settings, mocap_relay_settings *relay_settings, mocap_data_aggegator** mocap_data_ptr);    
     ~mocap_relay_thread();
 
     void run();
 
-public slots:
+public slots:    
+    void update_settings(mocap_relay_settings* settings_in_);
+    void get_settings(mocap_relay_settings* settings_out_);
 
 signals:
     int write_to_port(QByteArray &message);
 
-    void relay_started(int frame_id, QString Port_Name);
-    void relay_exited(int frame_id, QString Port_Name);
-
 private:
-    QByteArray pack_most_recent_msg(void);
-    mocap_relay_settings relay_settings;
+    QByteArray pack_most_recent_msg(mocap_data_t data);
+    mocap_relay_settings* relay_settings = nullptr;
     mocap_data_aggegator** mocap_data_ptr = nullptr;
 };
 
@@ -146,6 +147,8 @@ public slots:
     void update_relay_sysid_list(QVector<uint8_t> new_sysids);
     void update_relay_compids(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compids);
 
+    void remove_all(bool remove_settings = true);
+
 signals:
     void update_visuals_settings(generic_thread_settings *new_settings);
     void reset_visuals(void);
@@ -153,6 +156,8 @@ signals:
     QVector<QString> get_port_names(void);
     QVector<uint8_t> get_sysids(void);
     QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
+
+    bool get_port_pointer(QString Port_Name, Generic_Port **port_ptr);
 
 private slots:
 
@@ -176,6 +181,7 @@ private slots:
 
     void terminate_visuals_thread(void);
     void terminate_mocap_processing_thread(void);
+    void terminate_mocap_relay_thread(void);
 
     void on_btn_refesh_clear_clicked();
 
@@ -187,6 +193,10 @@ private slots:
 
     void on_cmbx_relay_sysid_currentTextChanged(const QString &arg1);
 
+    void on_btn_relay_add_clicked();
+
+    void on_btn_relay_delete_clicked();
+
 private:
     // QMutex* mutex;
     Ui::mocap_manager *ui;
@@ -194,6 +204,7 @@ private:
     mocap_thread* mocap_thread_ = nullptr;
     mocap_data_inspector_thread* mocap_data_inspector_thread_ = nullptr;
     mocap_data_aggegator* mocap_data = nullptr;
+    QVector<mocap_relay_thread*> mocap_relay;
 };
 
 

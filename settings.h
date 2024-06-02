@@ -106,6 +106,8 @@ class serial_settings : public generic_port_settings
 {
 
 public:
+    serial_settings();
+
     QString uart_name;
     unsigned int baudrate = QSerialPort::BaudRate::Baud9600;
     QSerialPort::DataBits DataBits = QSerialPort::DataBits::Data8;
@@ -203,12 +205,15 @@ public:
     };
     Q_ENUM(mocap_relay_msg_opt);
 
-    mocap_relay_settings(QObject *parent = nullptr);
+    explicit mocap_relay_settings(QObject *parent = nullptr);
+    explicit mocap_relay_settings(mocap_relay_settings &other);
     ~mocap_relay_settings();
 
-    int frame_id = -1;
+    int frameid = -1;
     QString Port_Name = "N/A";
     mocap_relay_msg_opt msg_option = mavlink_vision_position_estimate;
+    uint8_t sysid = 0;
+    mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
 
     QString get_QString(void);
     void printf(void);
@@ -222,9 +227,11 @@ public:
         if (this != &other) {
             // Copy data from other to this object
             this->setParent(other.parent());
-            frame_id = other.frame_id;
+            frameid = other.frameid;
             Port_Name = QString(other.Port_Name);
             msg_option = other.msg_option;
+            sysid = other.sysid;
+            compid = other.compid;
         }
         return *this; // Return a reference to this object
     }

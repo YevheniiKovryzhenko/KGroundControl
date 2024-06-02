@@ -4,18 +4,18 @@
 
 QString generic_port_settings::get_QString(void)
 {
-    QString detailed_text_ = "Connection Type: ";
+    QString text_out_ = "Connection Type: ";
     switch (type) {
     case UDP:
-        detailed_text_ += "UDP\n";
+        text_out_ += "UDP\n";
         break;
     case Serial:
-        detailed_text_ += "Serial\n";
+        text_out_ += "Serial\n";
     }
-    if (emit_heartbeat) detailed_text_+= "Emit system heartbeat: YES\n";
-    else detailed_text_+= "Emit system heartbeat: NO\n";
+    if (emit_heartbeat) text_out_+= "Emit system heartbeat: YES\n";
+    else text_out_+= "Emit system heartbeat: NO\n";
 
-    return detailed_text_;
+    return text_out_;
 }
 void generic_port_settings::printf(void)
 {
@@ -45,61 +45,66 @@ bool generic_port_settings::load(QSettings &settings)
 }
 
 
+serial_settings::serial_settings()
+{
+    uart_name.reserve(60);
+}
+
 QString serial_settings::get_QString(void)
 {
-    QString detailed_text_ = generic_port_settings::get_QString();
+    QString text_out_ = generic_port_settings::get_QString();
 
-    detailed_text_ += "UART Port: " + uart_name + "\n";
-    detailed_text_ += "Baudrate: " + QString::number(baudrate) + "\n";
-    detailed_text_ += "Data Bits: " + QString::number(DataBits) + "\n";
+    text_out_ += "UART Port: " + uart_name + "\n";
+    text_out_ += "Baudrate: " + QString::number(baudrate) + "\n";
+    text_out_ += "Data Bits: " + QString::number(DataBits) + "\n";
     switch (Parity) {
     case QSerialPort::Parity::NoParity:
     {
-        detailed_text_ += "Parity: No\n";
+        text_out_ += "Parity: No\n";
         break;
     }
     case QSerialPort::Parity::EvenParity:
     {
-        detailed_text_ += "Parity: Even\n";
+        text_out_ += "Parity: Even\n";
         break;
     }
     case QSerialPort::Parity::MarkParity:
     {
-        detailed_text_ += "Parity: Mark\n";
+        text_out_ += "Parity: Mark\n";
         break;
     }
     case QSerialPort::Parity::OddParity:
     {
-        detailed_text_ += "Parity: Odd\n";
+        text_out_ += "Parity: Odd\n";
         break;
     }
     case QSerialPort::Parity::SpaceParity:
     {
-        detailed_text_ += "Parity: Space\n";
+        text_out_ += "Parity: Space\n";
         break;
     }
     }
 
-    detailed_text_ += "StopBits: " + QString::number(StopBits) + "\n";
+    text_out_ += "StopBits: " + QString::number(StopBits) + "\n";
     switch (FlowControl) {
     case QSerialPort::FlowControl::NoFlowControl:
     {
-        detailed_text_ += "Flow Control: No\n";
+        text_out_ += "Flow Control: No\n";
         break;
     }
     case QSerialPort::FlowControl::HardwareControl:
     {
-        detailed_text_ += "Flow Control: Hardware\n";
+        text_out_ += "Flow Control: Hardware\n";
         break;
     }
     case QSerialPort::FlowControl::SoftwareControl:
     {
-        detailed_text_ += "Flow Control: Software\n";
+        text_out_ += "Flow Control: Software\n";
         break;
     }
     }
 
-    return detailed_text_;
+    return text_out_;
 }
 void serial_settings::printf(void)
 {
@@ -139,13 +144,13 @@ bool serial_settings::load(QSettings &settings)
 
 QString udp_settings::get_QString(void)
 {
-    QString detailed_text_ = generic_port_settings::get_QString();
-    detailed_text_ += "Host Address: " + host_address.get_QString() + "\n";
-    detailed_text_ += "Host Port: " + QString::number(host_port) + "\n";
-    detailed_text_ += "Local Address: " + local_address.get_QString() + "\n";
-    detailed_text_ += "Local Port: " + QString::number(local_port) + "\n";
+    QString text_out_ = generic_port_settings::get_QString();
+    text_out_ += "Host Address: " + host_address.get_QString() + "\n";
+    text_out_ += "Host Port: " + QString::number(host_port) + "\n";
+    text_out_ += "Local Address: " + local_address.get_QString() + "\n";
+    text_out_ += "Local Port: " + QString::number(local_port) + "\n";
 
-    return detailed_text_;
+    return text_out_;
 }
 void udp_settings::printf(void)
 {
@@ -203,9 +208,9 @@ bool udp_settings::load(QSettings &settings)
 
 QString generic_thread_settings::get_QString(void)
 {
-    QString detailed_text_ = "Update Rate: " + QString::number(update_rate_hz) + " (Hz)\n";
-    detailed_text_ += default_ui_config::Priority::value2key(priority) + "\n";
-    return detailed_text_;
+    QString text_out_ = "Update Rate: " + QString::number(update_rate_hz) + " (Hz)\n";
+    text_out_ += default_ui_config::Priority::value2key(priority) + "\n";
+    return text_out_;
 }
 void generic_thread_settings::save(QSettings &settings)
 {
@@ -272,38 +277,38 @@ void mocap_settings::printf(void)
 
 QString mocap_settings::get_QString(void)
 {
-    QString detailed_text_ = "Connection Type: ";
+    QString text_out_ = "Connection Type: ";
     switch (type) {
     case UDP:
-        detailed_text_ += "UDP\n";
+        text_out_ += "UDP\n";
         break;
     case Serial:
-        detailed_text_ += "Serial\n";
+        text_out_ += "Serial\n";
     }
-    if (use_ipv6) detailed_text_ += "Use IPv6: YES\n";
-    else detailed_text_ += "Use IPv6: NO\n";
-    detailed_text_ += "Host Address: " + host_address + "\n";
-    detailed_text_ += "Multicast Address: " + multicast_address + "\n";
-    detailed_text_ += "Local Address: " + local_address + "\n";
-    detailed_text_ += "Local Port: " + QString::number(local_port) + "\n";
+    if (use_ipv6) text_out_ += "Use IPv6: YES\n";
+    else text_out_ += "Use IPv6: NO\n";
+    text_out_ += "Host Address: " + host_address + "\n";
+    text_out_ += "Multicast Address: " + multicast_address + "\n";
+    text_out_ += "Local Address: " + local_address + "\n";
+    text_out_ += "Local Port: " + QString::number(local_port) + "\n";
 
-    detailed_text_ += "Data Rotation: ";
+    text_out_ += "Data Rotation: ";
     switch (data_rotation)
     {
     case NONE:
-        detailed_text_ += "NONE\n";
+        text_out_ += "NONE\n";
         break;
 
     case YUP2NED:
-        detailed_text_ += "YUP2END\n";
+        text_out_ += "YUP2END\n";
         break;
 
     case ZUP2NED:
-        detailed_text_ += "ZUP2NED\n";
+        text_out_ += "ZUP2NED\n";
         break;
     }
 
-    return detailed_text_;
+    return text_out_;
 }
 
 
@@ -312,6 +317,15 @@ mocap_relay_settings::mocap_relay_settings(QObject *parent)
     : QObject(parent)
 {
 
+}
+mocap_relay_settings::mocap_relay_settings(mocap_relay_settings &other)
+    : QObject(other.parent())
+{
+    frameid = other.frameid;
+    Port_Name = QString(other.Port_Name);
+    msg_option = other.msg_option;
+    sysid = other.sysid;
+    compid = other.compid;
 }
 
 mocap_relay_settings::~mocap_relay_settings()
@@ -326,20 +340,25 @@ void mocap_relay_settings::printf(void)
 
 QString mocap_relay_settings::get_QString(void)
 {
-    QString detailed_text_ = "Frame ID: " + QString::number(frame_id) + "\n";
-    detailed_text_ += "Port: " + Port_Name + "\n";
-    detailed_text_ += enum_helpers::value2key(msg_option) + "\n";
-    return detailed_text_;
+    QString text_out_ = "MOCAP Relay Settings:\n";
+    text_out_ += "Frame ID: " + QString::number(frameid) + "\n";
+    text_out_ += "Port: " + Port_Name + "\n";
+    text_out_ += "Message Option:" + enum_helpers::value2key(msg_option) + "\n";
+    text_out_ += "System ID: " + QString::number(sysid);
+    text_out_ += "Component ID: " + enum_helpers::value2key(compid);
+    return text_out_;
 }
 void mocap_relay_settings::save(QSettings &settings)
 {
-    if (frame_id > -1 && Port_Name != "N/A" && !Port_Name.isEmpty())
+    if (frameid > -1 && Port_Name != "N/A" && !Port_Name.isEmpty())
     {
         settings.beginGroup("mocap_relay_settings");
         // settings.beginGroup(Port_Name);
-        settings.setValue("frame_id", frame_id);
+        settings.setValue("frameid", frameid);
         settings.setValue("Port_Name", Port_Name);
         settings.setValue("msg_option", static_cast<uint>(msg_option));
+        settings.setValue("sysid", sysid);
+        settings.setValue("compid", static_cast<int32_t>(compid));
         // settings.endGroup();
         settings.endGroup();
     }
@@ -348,14 +367,16 @@ void mocap_relay_settings::save(QSettings &settings)
 bool mocap_relay_settings::load(QSettings &settings)
 {
     settings.beginGroup("mocap_relay_settings");
-    if (!(settings.contains("frame_id") && settings.contains("Port_Name") && settings.contains("msg_option")))
+    if (!(settings.contains("frameid") && settings.contains("Port_Name") && settings.contains("msg_option") && settings.contains("sysid") && settings.contains("compid")))
     {
         settings.endGroup();
         return false;
     }
-    frame_id = settings.value("frame_id").toUInt();
+    frameid = settings.value("frameid").toUInt();
     Port_Name = settings.value("Port_Name").toString();
     msg_option = static_cast<mocap_relay_msg_opt>(settings.value("msg_option").toUInt());
+    sysid = settings.value("sysid").toUInt();
+    compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid").toUInt());
     settings.endGroup();
     return true;
 }

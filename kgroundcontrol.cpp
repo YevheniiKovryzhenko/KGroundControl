@@ -37,7 +37,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
 
 
-    connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
+    // connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
 
     // Start of Commns Pannel configuration:
 
@@ -152,9 +152,11 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     //autostart previously opened ports:
     QSettings qsettings;
-    if (connection_manager_->load_saved_connections(qsettings, mavlink_manager_))
+    QStringList port_names;
+    if (connection_manager_->load_saved_connections(qsettings, mavlink_manager_, port_names))
     {
         connection_manager_->load_routing(qsettings);
+        ui->list_connections->addItems(port_names);
     }
 }
 
@@ -164,10 +166,10 @@ KGroundControl::~KGroundControl()
     delete settings_mutex_;
 }
 
-void KGroundControl::port_added_externally(QString port_name)
-{
-    ui->list_connections->addItem(port_name);
-}
+// void KGroundControl::port_added_externally(QString port_name)
+// {
+//     ui->list_connections->addItem(port_name);
+// }
 
 void KGroundControl::load_settings(void)
 {
@@ -218,6 +220,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     save_settings();
 
     //close all other active ports:
+    mocap_manager_->remove_all(false);
     connection_manager_->remove_all(false);
     event->accept();
 }
@@ -319,7 +322,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
     }
     ui->list_connections->addItem(new_port_name);
     ui->stackedWidget_main->setCurrentIndex(1);
-    emit port_added(new_port_name);
+    // emit port_added(new_port_name);
 }
 
 
@@ -426,7 +429,7 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
 
     MavlinkInspector* mavlink_inpector_ = new MavlinkInspector(); //don't set parent so the window can be below the main one
     mavlink_inpector_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
-    connect(this, &KGroundControl::about2close, mavlink_inpector_, &MavlinkInspector::close);
+    connect(this, &KGroundControl::about2close, mavlink_inpector_, &MavlinkInspector::close, Qt::DirectConnection);
     mavlink_inpector_->show();
 
     connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::process_new_msg, Qt::DirectConnection);
@@ -512,7 +515,6 @@ void KGroundControl::on_list_connections_itemSelectionChanged()
     if (items.size() == 1)
     {
         ui->groupBox_connection_ctrl->setEnabled(true);
-
         ui->checkBox_emit_system_heartbeat->setChecked(emit is_heartbeat_emited(items[0]->text()));
         ui->checkBox_emit_system_heartbeat->setCheckable(true);
     }
@@ -522,7 +524,12 @@ void KGroundControl::on_list_connections_itemSelectionChanged()
         ui->checkBox_emit_system_heartbeat->setCheckable(false);
     }
 
-    update_port_status_txt();
+    update_port_status_txt(); //this causes seg fault for some reason
+    // if (items.size() == 1) ui->txt_port_info->setText(emit get_port_settings_QString(items[0]->text()));
+    // else if (items.size() > 1)
+    // {
+    //     foreach (QListWidgetItem* item, items) ui->txt_port_info->append(emit get_port_settings_QString(item->text()));
+    // }
 }
 
 void KGroundControl::update_port_status_txt(void)
@@ -539,13 +546,17 @@ void KGroundControl::update_port_status_txt(void)
 
 void KGroundControl::on_btn_mocap_clicked()
 {
+    emit close_mocap();
+
     //open mocap ui window, it will handle the rest:
     mocap_manager_ = new mocap_manager();
     mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
+    connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);
 
     connect(connection_manager_, &connection_manager::port_names_updated, mocap_manager_, &mocap_manager::update_relay_port_list, Qt::QueuedConnection);
     connect(mocap_manager_, &mocap_manager::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+    connect(mocap_manager_, &mocap_manager::get_port_pointer, connection_manager_, &connection_manager::get_port, Qt::DirectConnection);
 
     connect(mavlink_manager_, &mavlink_manager::sysid_list_changed, mocap_manager_, &mocap_manager::update_relay_sysid_list, Qt::QueuedConnection);
     connect(mocap_manager_, &mocap_manager::get_sysids, mavlink_manager_, &mavlink_manager::get_sysids, Qt::DirectConnection);

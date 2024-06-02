@@ -43,12 +43,13 @@ signals:
     void port_removed(QString port_name);
 
     void about2close(void);
+    void close_mocap(void);
 
 
 public slots:
     void get_settings(kgroundcontrol_settings* settings_out);
 
-    void port_added_externally(QString port_name);
+    // void port_added_externally(QString port_name);
 
 private slots:
 
