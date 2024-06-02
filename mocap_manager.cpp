@@ -294,21 +294,12 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
 
 void mocap_thread::run()
 {
-#define FAKE_DATA
+// #define FAKE_DATA
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         QVector<optitrack_message_t> msgs_;
         if (optitrack->read_message(msgs_))
         {
-            // transfer new data
-            // mutex->lock();
-            // incomingMessages.clear();
-            // incomingMessages = msgs_;
-            // time_s = QDateTime::currentSecsSinceEpoch();
-            // mutex->unlock();
-
-            // let eveyone else now that new data is available:
-            // emit new_data_available();
             mutex->lock();
             mocap_rotation data_rotation = mocap_settings_.data_rotation;
             mutex->unlock();
@@ -520,7 +511,7 @@ mocap_manager::mocap_manager(QWidget *parent)
                                 "Z-UP to NED"
     };
     ui->cmbx_connection_rotation->addItems(def_rotations);
-    ui->cmbx_connection_rotation->setCurrentIndex(2);
+    ui->cmbx_connection_rotation->setCurrentIndex(0);
     // End of Open Data Socket Pannel //
 
 
