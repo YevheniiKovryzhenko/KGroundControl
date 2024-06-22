@@ -93,7 +93,7 @@ public:
     * parse_optitrack_packet_into_messages parses the contents of a datagram received from the Optitrack server
     * into a vector containing the 3D position + quaternion for every rigid body
     */
-    int parse_optitrack_packet_into_messages(std::vector<optitrack_message_t> &messages);
+    bool parse_optitrack_packet_into_messages(int &nBytes, std::vector<optitrack_message_t> &messages);
     bool is_ready_to_parse(void);
 
     /**

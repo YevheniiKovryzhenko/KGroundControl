@@ -197,6 +197,8 @@ private slots:
 
     void on_btn_relay_delete_clicked();
 
+    void on_tableWidget_mocap_relay_itemSelectionChanged();
+
 private:
     // QMutex* mutex;
     Ui::mocap_manager *ui;

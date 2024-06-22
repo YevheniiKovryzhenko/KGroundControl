@@ -53,6 +53,9 @@ void mocap_optitrack::read_port(void)
     mutex->lock();
     QNetworkDatagram datagram = Port->receiveDatagram();
     QByteArray new_data = datagram.data();
+#ifdef DEBUG
+    //qDebug() << "Recevied new data: size = " << new_data.size();
+#endif
     bytearray.append(new_data);
     mutex->unlock();
 }
@@ -65,9 +68,9 @@ bool mocap_optitrack::read_message(QVector<optitrack_message_t> &msg_out)
     if (is_ready_to_parse())
     {
         std::vector<optitrack_message_t> parsed_data;
-        int nbytes = parse_optitrack_packet_into_messages(parsed_data);
+        int nbytes = 0;
 
-        if (parsed_data.size() > 0)
+        if (parse_optitrack_packet_into_messages(nbytes, parsed_data))
         {
             foreach (auto msg, parsed_data) msg_out.push_back(msg);
             msgReceived = true;
@@ -170,15 +173,15 @@ bool mocap_optitrack::guess_optitrack_network_interface_ipv6(QNetworkInterface &
 bool mocap_optitrack::get_network_interface(QNetworkInterface &interface, QString address)
 {
     //get a list of all network interfaces and ip addresses
-    auto tmp0 = QNetworkInterface::allInterfaces();
+    // auto tmp0 = QNetworkInterface::allInterfaces();
     foreach (const QNetworkInterface &interface_, QNetworkInterface::allInterfaces())
     {
         if (interface_.flags().testFlag(QNetworkInterface::IsUp))
         {
-            auto tmp1 = interface_.allAddresses();
-            foreach(const QHostAddress &address_, interface_.allAddresses())
+            // auto tmp1 = interface_.addressEntries();
+            foreach(const QNetworkAddressEntry &address_, interface_.addressEntries())
             {
-                if (address_.toString() == address)
+                if (address_.ip().toString() == address)
                 {
                     interface = interface_;
                     return true;
@@ -235,12 +238,12 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     }
     multicast_address_ = multicast_address;
     // create a 1MB buffer
-    int optval = 0x100000;
+    int optval = 100000;
 
-    Port->setReadBufferSize(optval);
+    Port->setReadBufferSize(100000);
 #ifdef DEBUG
     optval = Port->readBufferSize();
-    if (optval != 0x100000) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
+    if (optval != 100000) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
     else qDebug() << "[create_optitrack_data_socket] Increased receive buffer size to " << QString::number(optval);
 #endif
 
@@ -295,249 +298,262 @@ bool check_size(int max, int requested)
     }
     return false;
 }
-int mocap_optitrack::parse_optitrack_packet_into_messages(std::vector<optitrack_message_t> &messages)
+bool mocap_optitrack::parse_optitrack_packet_into_messages(int &nBytes, std::vector<optitrack_message_t> &messages)
 {
 
-  // std::vector<optitrack_message_t> messages;
+    // std::vector<optitrack_message_t> messages;
 
-  int major = 3;
-  int minor = 0;  
+    int major = 3;
+    int minor = 0;
 
-  char* ptr = bytearray.begin();
-  int n_bytes_read = 0;
-#ifdef DEBUG
-  if (VERBOSE) {
-      qDebug() << "Begin Packet\n-------\n";
-  }
-#endif
-
-  // message ID
-  int MessageID = 0;
-  memcpy(&MessageID, ptr, 2);
-  ptr += 2;
-#ifdef DEBUG
-  if (VERBOSE) {
-    qDebug() << "Message ID : " << MessageID;
-  }
-#endif
-
-  // size
-  int nBytes = 0;
-  memcpy(&nBytes, ptr, 2);
-  ptr += 2;
-#ifdef DEBUG
-  if (VERBOSE) {
-    qDebug() << "Byte count : " << nBytes;
-  }
-#endif
-  n_bytes_read = 4;
-  if (nBytes < 5) return n_bytes_read;
-  if (nBytes > bytearray.size())
-  {
-#ifdef DEBUG
-      qDebug() << "[mocap_optitrack] Need to wait for more data before parsing..."; //should not occur
-#endif
-      return 0;
-  }
-  if (MessageID == NAT_FRAMEOFDATA) {  // FRAME OF MOCAP DATA packet
-    // frame number
-    int frameNumber = 0;
-    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-    n_bytes_read += 4;
-    memcpy(&frameNumber, ptr, 4);
-    ptr += 4; //8
+    char* ptr = bytearray.begin();
+    int n_bytes_read = 0;
 #ifdef DEBUG
     if (VERBOSE) {
-      qDebug() << "Frame # : " << frameNumber;
+        qDebug() << "Begin Packet\n-------\n";
     }
 #endif
 
-    // number of data sets (markersets, rigidbodies, etc)
-    int nMarkerSets = 0;
-    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-    n_bytes_read += 4;
-    memcpy(&nMarkerSets, ptr, 4);
-    ptr += 4; //12
+    // message ID
+    int MessageID = 0;
+    memcpy(&MessageID, ptr, 2);
+    ptr += 2;
 #ifdef DEBUG
     if (VERBOSE) {
-      qDebug() << "Marker Set Count : " << nMarkerSets;
+        qDebug() << "Message ID : " << MessageID;
     }
 #endif
-    for (int i = 0; i < nMarkerSets; i++) {
-      // Markerset name
-      char szName[256];
-      strcpy(szName, ptr);
-      int nDataBytes = (int)strlen(szName) + 1;
-      if (check_size(nBytes, n_bytes_read + nDataBytes)) return n_bytes_read;
-      n_bytes_read += nDataBytes;
-      ptr += nDataBytes;
-      // printf("Model Name: %s\n", szName);
 
-      // marker data
-      int nMarkers = 0;
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&nMarkers, ptr, 4);
-      ptr += 4;
-      // printf("Marker Count : %d\n", nMarkers);
-
-      for (int j = 0; j < nMarkers; j++) {
-        float x = 0;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-        n_bytes_read += 4;
-        memcpy(&x, ptr, 4);
-        ptr += 4;
-
-        float y = 0;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-        n_bytes_read += 4;
-        memcpy(&y, ptr, 4);
-        ptr += 4;
-
-        float z = 0;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-        n_bytes_read += 4;
-        memcpy(&z, ptr, 4);
-        ptr += 4;
-        // printf("\tMarker %d : [x=%3.2f,y=%3.2f,z=%3.2f]\n",j,x,y,z);
-      }
-    }
-
-    // unidentified markers
-    int nOtherMarkers = 0;
-    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-    n_bytes_read += 4;
-    memcpy(&nOtherMarkers, ptr, 4);
-    ptr += 4;
+    // size
+    nBytes = 0;
+    memcpy(&nBytes, ptr, 2);
+    ptr += 2;
 #ifdef DEBUG
     if (VERBOSE) {
-      qDebug() << "Unidentified Marker Count : " << nOtherMarkers;
+        qDebug() << "Byte count : " << nBytes;
     }
 #endif
-    for (int j = 0; j < nOtherMarkers; j++) {
-      float x = 0.0f;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-        n_bytes_read += 4;
-        memcpy(&x, ptr, 4);
-        ptr += 4;
+    n_bytes_read = 4;
+    if (nBytes < 5) return false; //this is an incorrect message for sure
 
-        float y = 0.0f;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+    nBytes += 4; //nBytes includes only payload size
+    if (bytearray.size() < nBytes)
+    {
+#ifdef DEBUG
+        qDebug() << "[mocap_optitrack] Need to wait for more data before parsing..."; //should not occur
+#endif
+        nBytes = 0;
+        return false;
+    }
+    if (MessageID == NAT_FRAMEOFDATA)
+    {  // FRAME OF MOCAP DATA packet
+        // frame number
+        int frameNumber = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
         n_bytes_read += 4;
-        memcpy(&y, ptr, 4);
-        ptr += 4;
-
-        float z = 0.0f;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-        n_bytes_read += 4;
-        memcpy(&z, ptr, 4);
-        ptr += 4;
+        memcpy(&frameNumber, ptr, 4);
+        ptr += 4; //8
 #ifdef DEBUG
         if (VERBOSE) {
-          qDebug() << "\tMarker " << j <<" : pos = [" << x << y << z << "]";
+            qDebug() << "Frame # : " << frameNumber;
         }
 #endif
-    }
 
-    // rigid bodies
-    int nRigidBodies = 0;
-    if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-    n_bytes_read += 4;
-    memcpy(&nRigidBodies, ptr, 4);
-    ptr += 4;
-#ifdef DEBUG
-    if (VERBOSE) {
-      qDebug() << "Rigid Body Count : " << nRigidBodies;
-    }
-#endif
-
-    for (int j = 0; j < nRigidBodies; j++) {
-      optitrack_message_t msg;
-      // rigid body position/orientation
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.id), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.x), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.y), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.z), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.qx), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.qy), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.qz), ptr, 4);
-      ptr += 4;
-
-      if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
-      n_bytes_read += 4;
-      memcpy(&(msg.qw), ptr, 4);
-      ptr += 4;
-
-#ifdef DEBUG
-      if (VERBOSE) {
-            qDebug() << "ID : " << msg.id;
-            qDebug() << "pos: [" << msg.x << msg.y << msg.z << "]";
-            qDebug() << "ori: [" << msg.qx << msg.qy << msg.qz << msg.qw << "]\n";
-      }
-#endif
-
-      // NatNet version 2.0 and later
-      if (major >= 2) {
-        // Mean marker error
-        float fError = 0.0f;
-        if (check_size(nBytes, n_bytes_read + 4)) return n_bytes_read;
+        // number of data sets (markersets, rigidbodies, etc)
+        int nMarkerSets = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
         n_bytes_read += 4;
-        memcpy(&fError, ptr, 4);
-        ptr += 4;
-      }
-
-      // NatNet version 2.6 and later
-      if (((major == 2) && (minor >= 6)) || (major > 2) || (major == 0)) {
-        // params
-        short params = 0;
-        if (check_size(nBytes, n_bytes_read + 2)) return n_bytes_read;
-        n_bytes_read += 2;
-        memcpy(&params, ptr, 2);
-        ptr += 2;
-        bool bTrackingValid =
-            params &
-            0x01;  // 0x01 : rigid body was successfully tracked in this frame
-        msg.trackingValid = bTrackingValid;
-      }
-      messages.push_back(msg);
-
-    }  // Go to next rigid body
-
-  }
-  else
-  {
+        memcpy(&nMarkerSets, ptr, 4);
+        ptr += 4; //12
 #ifdef DEBUG
-    qDebug() << "Unrecognized Packet Type: " << MessageID;
+        if (VERBOSE) {
+            qDebug() << "Marker Set Count : " << nMarkerSets;
+        }
 #endif
-  }
+        for (int i = 0; i < nMarkerSets; i++)
+        {
+            // Markerset name
+            char szName[256];
+            strcpy(szName, ptr);
+            int nDataBytes = (int)strlen(szName) + 1;
+            if (check_size(nBytes, n_bytes_read + nDataBytes)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += nDataBytes;
+            ptr += nDataBytes;
+            // printf("Model Name: %s\n", szName);
 
-  return n_bytes_read;
+            // marker data
+            int nMarkers = 0;
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&nMarkers, ptr, 4);
+            ptr += 4;
+            // printf("Marker Count : %d\n", nMarkers);
+
+            for (int j = 0; j < nMarkers; j++)
+            {
+                float x = 0;
+                if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+                n_bytes_read += 4;
+                memcpy(&x, ptr, 4);
+                ptr += 4;
+
+                float y = 0;
+                if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+                n_bytes_read += 4;
+                memcpy(&y, ptr, 4);
+                ptr += 4;
+
+                float z = 0;
+                if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+                n_bytes_read += 4;
+                memcpy(&z, ptr, 4);
+                ptr += 4;
+                // printf("\tMarker %d : [x=%3.2f,y=%3.2f,z=%3.2f]\n",j,x,y,z);
+            }
+        }
+
+        // unidentified markers
+        int nOtherMarkers = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+        n_bytes_read += 4;
+        memcpy(&nOtherMarkers, ptr, 4);
+        ptr += 4;
+#ifdef DEBUG
+        if (VERBOSE)
+        {
+            qDebug() << "Unidentified Marker Count : " << nOtherMarkers;
+        }
+#endif
+        for (int j = 0; j < nOtherMarkers; j++)
+        {
+            float x = 0.0f;
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&x, ptr, 4);
+            ptr += 4;
+
+            float y = 0.0f;
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&y, ptr, 4);
+            ptr += 4;
+
+            float z = 0.0f;
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&z, ptr, 4);
+            ptr += 4;
+#ifdef DEBUG
+            if (VERBOSE)
+            {
+                qDebug() << "\tMarker " << j <<" : pos = [" << x << y << z << "]";
+            }
+#endif
+        }
+
+        // rigid bodies
+        int nRigidBodies = 0;
+        if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+        n_bytes_read += 4;
+        memcpy(&nRigidBodies, ptr, 4);
+        ptr += 4;
+#ifdef DEBUG
+        if (VERBOSE)
+        {
+            qDebug() << "Rigid Body Count : " << nRigidBodies;
+        }
+#endif
+
+        for (int j = 0; j < nRigidBodies; j++)
+        {
+            optitrack_message_t msg;
+            // rigid body position/orientation
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.id), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.x), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.y), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.z), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.qx), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.qy), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.qz), ptr, 4);
+            ptr += 4;
+
+            if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+            n_bytes_read += 4;
+            memcpy(&(msg.qw), ptr, 4);
+            ptr += 4;
+
+#ifdef DEBUG
+            if (VERBOSE) {
+                qDebug() << "ID : " << msg.id;
+                qDebug() << "pos: [" << msg.x << msg.y << msg.z << "]";
+                qDebug() << "ori: [" << msg.qx << msg.qy << msg.qz << msg.qw << "]\n";
+            }
+#endif
+
+            // NatNet version 2.0 and later
+            if (major >= 2)
+            {
+                // Mean marker error
+                float fError = 0.0f;
+                if (check_size(nBytes, n_bytes_read + 4)) return false; //we already checked for the full size, so this makes no sense
+                n_bytes_read += 4;
+                memcpy(&fError, ptr, 4);
+                ptr += 4;
+            }
+
+            // NatNet version 2.6 and later
+            if (((major == 2) && (minor >= 6)) || (major > 2) || (major == 0))
+            {
+                // params
+                short params = 0;
+                if (check_size(nBytes, n_bytes_read + 2)) return false; //we already checked for the full size, so this makes no sense
+                n_bytes_read += 2;
+                memcpy(&params, ptr, 2);
+                ptr += 2;
+                bool bTrackingValid =
+                    params &
+                    0x01;  // 0x01 : rigid body was successfully tracked in this frame
+                msg.trackingValid = bTrackingValid;
+            }
+            messages.push_back(msg);
+
+        }  // Go to next rigid body
+        return true;
+    }
+    else
+    {
+#ifdef DEBUG
+        qDebug() << "Unrecognized Packet Type: " << MessageID;
+#endif
+    }
+
+    return false;
 }
 
 void mocap_optitrack::toEulerAngle(const optitrack_message_t& msg, double& roll, double& pitch,

@@ -220,7 +220,6 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     save_settings();
 
     //close all other active ports:
-    mocap_manager_->remove_all(false);
     connection_manager_->remove_all(false);
     event->accept();
 }

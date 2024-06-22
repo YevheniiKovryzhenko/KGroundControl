@@ -4,3 +4,6 @@ C:\Qt\6.7.0\mingw_64\bin\windeployqt6.exe D:\Qt\Deployment\KGroundControl\KGroun
 
 or use this to also create an installer:
 'C:\Program Files\CQtDeployer\1.6\CQtDeployer.exe' -bin D:\Qt\Deployment\KGroundControl_v1.01\KGroundControl.exe -qmake C:\Qt\6.7.0\mingw_64\bin\qmake.exe qif
+
+Laptop:
+D:\CQtDeployer\1.6\CQtDeployer.exe -bin D:\GitHub\KGroundControl\build\Desktop_Qt_6_7_0_MinGW_64_bit-Release\KGroundControl.exe -targetDir D:\DistributionFiles\ -qmake D:\Qt\6.7.0\mingw_64\bin\qmake.exe qif

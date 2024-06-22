@@ -384,7 +384,6 @@ void mocap_relay_thread::run()
         if (pending_data.isEmpty()) break; //something went wrong, this should not normally happen
 
         emit write_to_port(pending_data);
-
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
@@ -1141,33 +1140,37 @@ void mocap_manager::on_btn_relay_add_clicked()
 
     { //frameid
         QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.frameid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 0, newItem);
     }
     { //sysid
         QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.sysid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 1, newItem);
     }
     { //compid
         QTableWidgetItem *newItem = new QTableWidgetItem(enum_helpers::value2key(relay_settings.compid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 2, newItem);
     }
     { //port name
         QTableWidgetItem *newItem = new QTableWidgetItem(relay_settings.Port_Name);
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 3, newItem);
     }
     { //rate
         QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(thread_settings_.update_rate_hz));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 4, newItem);
     }
     { //priority
         QTableWidgetItem *newItem = new QTableWidgetItem(default_ui_config::Priority::value2key(thread_settings_.priority));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 5, newItem);
     }
 
     mocap_relay.push_back(mocap_relay_);
     connect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port, Qt::DirectConnection);
-
-    ui->btn_relay_delete->setVisible(true);
 }
 
 void mocap_manager::on_btn_relay_delete_clicked()
@@ -1175,6 +1178,8 @@ void mocap_manager::on_btn_relay_delete_clicked()
     if (!mocap_relay.isEmpty())
     {
         int row_ind = ui->tableWidget_mocap_relay->currentRow();
+        if (row_ind < 0 || row_ind > mocap_relay.length()) return;
+
         mocap_relay[row_ind]->requestInterruption();
         for (int ii = 0; ii < 300; ii++)
         {
@@ -1195,5 +1200,13 @@ void mocap_manager::on_btn_relay_delete_clicked()
         if (ui->tableWidget_mocap_relay->rowCount() < 1) ui->btn_relay_delete->setVisible(false);
 
     } else ui->btn_relay_delete->setVisible(false);
+}
+
+
+void mocap_manager::on_tableWidget_mocap_relay_itemSelectionChanged()
+{
+    int row_ind = ui->tableWidget_mocap_relay->currentRow();
+    if (row_ind < 0 || row_ind > mocap_relay.length()) ui->btn_relay_delete->setVisible(false);
+    else ui->btn_relay_delete->setVisible(true);
 }
 
