@@ -134,3 +134,22 @@ install(TARGETS KGroundControl
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(KGroundControl)
 endif()
+
+
+#deployement
+find_program(Q_MAKE_EXE qmake)
+
+find_program(CQT_EXE cqtdeployer)
+
+IF(NOT EXISTS ${CQT_EXE})
+    message("the cqtdeployer not exits please install the cqtdeployer and run cmake again!")
+    return()
+endif(NOT EXISTS ${CQT_EXE})
+
+ADD_CUSTOM_TARGET(
+    deploy
+    DEPENDS KGroundControl
+    COMMAND cqtdeployer clear -bin ${CMAKE_BINARY_DIR} -qmake ${Q_MAKE_EXE} -libDir ${PROJECT_SOURCE_DIR} -qmlDir ${PROJECT_SOURCE_DIR} -recursiveDepth 5 qif
+    COMMENT "Deploy: cqtdeployer clear -bin ${CMAKE_BINARY_DIR} -qmake ${Q_MAKE_EXE} -libDir ${PROJECT_SOURCE_DIR} -qmlDir ${PROJECT_SOURCE_DIR} -recursiveDepth 5 qif"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)

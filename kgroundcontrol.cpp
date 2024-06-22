@@ -542,7 +542,10 @@ void KGroundControl::update_port_status_txt(void)
     }
 }
 
-
+void KGroundControl::mocap_closed(void)
+{
+    ui->btn_mocap->setVisible(true);
+}
 void KGroundControl::on_btn_mocap_clicked()
 {
     emit close_mocap();
@@ -563,6 +566,8 @@ void KGroundControl::on_btn_mocap_clicked()
     connect(mavlink_manager_, &mavlink_manager::compid_list_changed, mocap_manager_, &mocap_manager::update_relay_compids, Qt::QueuedConnection);
     connect(mocap_manager_, &mocap_manager::get_compids, mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
 
+    connect(mocap_manager_, &mocap_manager::closed, this, &KGroundControl::mocap_closed);
+    ui->btn_mocap->setVisible(false);
     mocap_manager_->show();
 }
 

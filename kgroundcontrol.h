@@ -93,6 +93,9 @@ private slots:
 
     void on_btn_relay_clicked();
 
+
+    void mocap_closed(void);
+
 private:
     Ui::KGroundControl *ui;
     QMutex *settings_mutex_ = nullptr;

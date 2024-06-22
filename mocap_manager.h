@@ -159,6 +159,8 @@ signals:
 
     bool get_port_pointer(QString Port_Name, Generic_Port **port_ptr);
 
+    void closed(void);
+
 private slots:
 
     void on_btn_open_data_socket_clicked();

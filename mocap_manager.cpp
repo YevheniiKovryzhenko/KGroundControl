@@ -564,6 +564,7 @@ mocap_manager::mocap_manager(QWidget *parent)
 mocap_manager::~mocap_manager()
 {
     remove_all(false);
+    emit closed();
     delete ui;
     delete mocap_data;
 }

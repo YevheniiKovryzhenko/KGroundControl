@@ -6,3 +6,4 @@ bin/
 *.user
 .txt.user.*
 build*/*
+*.md5
