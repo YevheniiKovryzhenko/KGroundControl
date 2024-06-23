@@ -27,7 +27,7 @@
     <item>
      <widget class="QStackedWidget" name="stackedWidget_main">
       <property name="currentIndex">
-       <number>1</number>
+       <number>2</number>
       </property>
       <widget class="QWidget" name="page_main_menu">
        <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -1515,7 +1515,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                <string notr="true"/>
               </property>
               <property name="text">
-               <string notr="true">10000</string>
+               <string notr="true">500</string>
               </property>
               <property name="maxLength">
                <number>10</number>
@@ -2045,7 +2045,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
   <buttongroup name="buttonGroup_2"/>
+  <buttongroup name="buttonGroup"/>
  </buttongroups>
 </ui>

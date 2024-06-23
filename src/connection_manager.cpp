@@ -18,16 +18,11 @@ void port_read_thread::run()
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         mavlink_message_t* message = new mavlink_message_t;
-        //mavlink_message_t message;
         void* ptr = static_cast<mavlink_message_t*>(message);
-        // if (static_cast<bool>(port_->read_message(message, MAVLINK_COMM_0)))
         if (emit read_message(ptr, static_cast<int>(MAVLINK_COMM_0)))
         {
-
-            // mavlink_manager_->parse(&message);
             emit message_received(ptr, QDateTime::currentMSecsSinceEpoch());
             emit write_message(ptr);
-            // message = mavlink_message_t();
             continue; //there might be more messages, so don't wait
         } else delete message;
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
@@ -337,19 +332,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
             port_names.remove(i);
             Ports.remove(i);
             heartbeat_emited.remove(i);
-
-
-            // for (int j = 0; j < routing_table.size(); j++) //check all other columns and remove this entry
-            // {
-            //     for (int jj = 0; jj < routing_table[j].size(); jj++)
-            //     {
-            //         if (port_name_.compare(routing_table[j][jj]) == 0)
-            //         {
-            //             routing_table[j].remove(jj);
-            //             break;
-            //         }
-            //     }
-            // }
+            PortThreads.remove(i);
 
             n_connections--;
 

@@ -17,48 +17,48 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
 find_package(Qt6 REQUIRED COMPONENTS Location)
 
 set(PROJECT_HEADERS
-    connection_manager.h
-    generic_port.h
-    kgroundcontrol.h
-    mavlink_enum_types.h
-    mavlink_inspector.h
-    serial_port.h
-    settings.h
-    threads.h
-    udp_port.h
-    mocap_manager.h
-    relaydialog.h
-    signal_filters.h
-    keybinddialog.h
-    # cartography.h
-    default_ui_config.h
+    include/connection_manager.h
+    include/generic_port.h
+    include/kgroundcontrol.h
+    include/mavlink_enum_types.h
+    include/mavlink_inspector.h
+    include/serial_port.h
+    include/settings.h
+    include/threads.h
+    include/udp_port.h
+    include/mocap_manager.h
+    include/relaydialog.h
+    include/signal_filters.h
+    include/keybinddialog.h
+    # include/cartography.h
+    include/default_ui_config.h
 )
 
 set(PROJECT_SOURCES
-    connection_manager.cpp
-    kgroundcontrol.cpp
-    main.cpp
-    mavlink_inspector.cpp
-    serial_port.cpp
-    settings.cpp
-    threads.cpp
-    udp_port.cpp
-    mocap_manager.cpp
-    relaydialog.cpp
-    signal_filters.cpp
-    keybinddialog.cpp
-    # cartography.cpp
-    default_ui_config.cpp
+    src/connection_manager.cpp
+    src/kgroundcontrol.cpp
+    src/main.cpp
+    src/mavlink_inspector.cpp
+    src/serial_port.cpp
+    src/settings.cpp
+    src/threads.cpp
+    src/udp_port.cpp
+    src/mocap_manager.cpp
+    src/relaydialog.cpp
+    src/signal_filters.cpp
+    src/keybinddialog.cpp
+    # src/cartography.cpp
+    src/default_ui_config.cpp
 )
 
 set(PROJECT_UI
-    kgroundcontrol.ui
-    mavlink_inspector.ui
-    mocap_manager.ui
-    relaydialog.ui
-    mavlink_inspector_msg.ui
-    keybinddialog.ui
-    # cartography.ui
+    src/kgroundcontrol.ui
+    src/mavlink_inspector.ui
+    src/mocap_manager.ui
+    src/relaydialog.ui
+    src/mavlink_inspector_msg.ui
+    src/keybinddialog.ui
+    # src/cartography.ui
 )
 
 
@@ -94,9 +94,8 @@ else()
     endif()
 endif()
 
-# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-# target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui")
+target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)
