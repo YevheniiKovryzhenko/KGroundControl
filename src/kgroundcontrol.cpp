@@ -3,6 +3,7 @@
 #include "ui_kgroundcontrol.h"
 #include "settings.h"
 #include "relaydialog.h"
+#include "default_ui_config.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -11,7 +12,6 @@
 #include <QCloseEvent>
 #include <QStringList>
 #include <QDialog>
-#include "default_ui_config.h"
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -157,7 +157,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     {
         connection_manager_->load_routing(qsettings);
         ui->list_connections->addItems(port_names);
-    }
+    }    
 }
 
 KGroundControl::~KGroundControl()

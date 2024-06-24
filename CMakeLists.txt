@@ -14,7 +14,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
-find_package(Qt6 REQUIRED COMPONENTS Location)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
 
 set(PROJECT_HEADERS
     include/connection_manager.h
@@ -32,6 +32,8 @@ set(PROJECT_HEADERS
     include/keybinddialog.h
     # include/cartography.h
     include/default_ui_config.h
+    include/joystick.h
+    include/joystick_manager.h
 )
 
 set(PROJECT_SOURCES
@@ -49,6 +51,8 @@ set(PROJECT_SOURCES
     src/keybinddialog.cpp
     # src/cartography.cpp
     src/default_ui_config.cpp
+    src/joystick.cpp
+    src/joystick_manager.cpp
 )
 
 set(PROJECT_UI
@@ -59,9 +63,8 @@ set(PROJECT_UI
     src/mavlink_inspector_msg.ui
     src/keybinddialog.ui
     # src/cartography.ui
+    src/joystick_manager.ui
 )
-
-
 
 add_subdirectory(libs) #libs/ has all of the required libraries 
 
@@ -105,6 +108,7 @@ target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # Link all the outside libraries used in this project (from libs folder):
 target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
+target_link_libraries(KGroundControl PRIVATE SDL2main SDL2-static)
 
 # Inlude pluggins:
 qt_import_plugins(KGroundControl INCLUDE Qt::osm)
@@ -129,6 +133,19 @@ install(TARGETS KGroundControl
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+qt_add_resources(KGroundControl "SDL"
+    PREFIX "/resources/"
+    FILES
+        resources/SDL/Database.txt
+    )
+qt_add_resources(KGroundControl "SDL/GenericMappings"
+    PREFIX "/resources/"
+    FILES
+        resources/SDL/GenericMappings/Linux.txt
+        resources/SDL/GenericMappings/OSX.txt
+        resources/SDL/GenericMappings/Windows.txt
+    )
 
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(KGroundControl)

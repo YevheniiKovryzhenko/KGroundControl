@@ -6,6 +6,7 @@
 #include "mocap_manager.h"
 #include "connection_manager.h"
 #include "mavlink_inspector.h"
+#include "joystick_manager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
