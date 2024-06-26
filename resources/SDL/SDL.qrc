@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/resources/SDL">
+        <file>Database.txt</file>
+        <file>GenericMappings/Linux.txt</file>
+        <file>GenericMappings/OSX.txt</file>
+        <file>GenericMappings/Windows.txt</file>
+    </qresource>
+</RCC>

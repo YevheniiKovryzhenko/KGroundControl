@@ -25,6 +25,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QTimer>
+#include <QErrorMessage>
 // #include <QApplication>
 
 /**
@@ -65,6 +66,11 @@ SDL_Joysticks::SDL_Joysticks(QObject *parent)
 
         database.close();
     }
+    else
+    {
+        (new QErrorMessage)->showMessage("Failed to read Database file.\n" + database.errorString());
+        return;
+    }
 
     QFile genericMappings(GENERIC_MAPPINGS_PATH);
     if (genericMappings.open(QFile::ReadOnly))
@@ -72,6 +78,12 @@ SDL_Joysticks::SDL_Joysticks(QObject *parent)
         GENERIC_MAPPINGS = QString::fromUtf8(genericMappings.readAll());
         genericMappings.close();
     }
+    else
+    {
+        (new QErrorMessage)->showMessage("Failed to read GenericMappings file.\n" + genericMappings.errorString());
+        return;
+    }
+
 
     QTimer::singleShot(100, Qt::PreciseTimer, this, SLOT(update()));
 }

@@ -17,6 +17,11 @@ public:
     explicit Joystick_manager(QWidget *parent = nullptr);
     ~Joystick_manager();
 
+private slots:
+    void update_joystick_list(void);
+
+    void on_comboBox_joysticopt_currentTextChanged(const QString &arg1);
+
 private:
     Ui::Joystick_manager *ui;
 

@@ -593,3 +593,12 @@ void KGroundControl::on_btn_relay_clicked()
 
 }
 
+
+void KGroundControl::on_btn_joystick_clicked()
+{
+    Joystick_manager* joystick_manager_ = new Joystick_manager(); //don't set parent so the window can be below the main one
+    joystick_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    connect(this, &KGroundControl::about2close, joystick_manager_, &Joystick_manager::close, Qt::DirectConnection);
+    joystick_manager_->show();
+}
+

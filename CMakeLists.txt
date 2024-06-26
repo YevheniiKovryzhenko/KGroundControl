@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(KGroundControl VERSION 0.1 LANGUAGES CXX)
+project(KGroundControl VERSION 1.3 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -66,6 +66,9 @@ set(PROJECT_UI
     src/joystick_manager.ui
 )
 
+set(PROJECT_RESOURCES
+    resources/SDL/SDL.qrc)
+
 add_subdirectory(libs) #libs/ has all of the required libraries 
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -74,6 +77,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_HEADERS}
         ${PROJECT_SOURCES}
         ${PROJECT_UI}
+        ${PROJECT_RESOURCES}
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET KGroundControl APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -133,19 +137,6 @@ install(TARGETS KGroundControl
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-
-qt_add_resources(KGroundControl "SDL"
-    PREFIX "/resources/"
-    FILES
-        resources/SDL/Database.txt
-    )
-qt_add_resources(KGroundControl "SDL/GenericMappings"
-    PREFIX "/resources/"
-    FILES
-        resources/SDL/GenericMappings/Linux.txt
-        resources/SDL/GenericMappings/OSX.txt
-        resources/SDL/GenericMappings/Windows.txt
-    )
 
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(KGroundControl)

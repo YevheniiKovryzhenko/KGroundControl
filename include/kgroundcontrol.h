@@ -97,6 +97,8 @@ private slots:
 
     void mocap_closed(void);
 
+    void on_btn_joystick_clicked();
+
 private:
     Ui::KGroundControl *ui;
     QMutex *settings_mutex_ = nullptr;
