@@ -324,7 +324,7 @@ QJoystickAxisEvent SDL_Joysticks::getAxisEvent(const SDL_Event *sdl_event)
     }
 
     event.axis = sdl_event->caxis.axis;
-    event.value = static_cast<qreal>(sdl_event->caxis.value) / 32767;
+    event.value = static_cast<qreal>(sdl_event->caxis.value) / 32767.0;
     event.joystick = m_joysticks[sdl_event->cdevice.which];
 
     return event;
