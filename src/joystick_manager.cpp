@@ -257,7 +257,7 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
     {
         QStringList name_list = joysticks->deviceNames();
         if (name_list.isEmpty() || !name_list.contains(arg1)) return;
-        current_joystick_id = name_list.indexOf(arg1);
+        current_joystick_id = ui->comboBox_joysticopt->currentIndex();
         if (!joysticks->joystickExists(current_joystick_id)) return;
     } else return;
 
