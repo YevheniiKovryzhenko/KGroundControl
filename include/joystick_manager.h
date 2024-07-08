@@ -10,6 +10,40 @@
 
 #include "joystick.h"
 
+class joystick_enums : public QObject
+{
+    Q_OBJECT
+public:
+    enum role {
+        UNUSED,
+        ROLL,
+        PITCH,
+        YAW,
+        THROTTLE,
+        ARM,
+        AUX_1,
+        AUX_2,
+        AUX_3,
+        AUX_4,
+        AUX_5,
+        AUX_6,
+        AUX_7,
+        AUX_8,
+        AUX_9,
+        AUX_10,
+        AUX_11,
+        AUX_12,
+        AUX_13,
+        AUX_14,
+        AUX_15,
+        AUX_16,
+        AUX_17,
+        AUX_18,
+        AUX_19,
+        AUX_20
+    };
+    Q_ENUM(role)
+};
 
 class JoystickAxisBar : public QProgressBar
 {
@@ -24,6 +58,12 @@ public slots:
     void reset_calibration(void);
     void set_reverse(bool reversed);
 
+    void set_role(int role);
+    void unset_role_all(int role);
+
+signals:
+    void role_updated(int role);
+
 private:
     double map(double value);
 
@@ -35,20 +75,29 @@ private:
 
     bool in_calibration = false;
 
+    joystick_enums::role role = joystick_enums::UNUSED;
 };
 
 class JoystickButton : public QCheckBox
 {
     Q_OBJECT
 public:
-    explicit JoystickButton(QWidget* parent, int joystick, int axis, bool pressed);
+    explicit JoystickButton(QWidget* parent, int joystick, int button, bool pressed);
 
 public slots:
-    void update_value(const int js, const int axis, const bool pressed);
+    void update_value(const int js, const int button, const bool pressed);
+
+    void set_role(int role);
+    void unset_role_all(int role);
+
+signals:
+    void role_updated(int role);
 
 private:
     const int joystick; /**< The numerical ID of the joystick */
-    const int axis; /**< The numerical ID of the axis */
+    const int button; /**< The numerical ID of the axis */
+
+    joystick_enums::role role = joystick_enums::UNUSED;
 };
 
 namespace Ui {
@@ -67,6 +116,8 @@ signals:
     void calibration_mode_toggled(bool enabled);
     void reset_calibration(void);
 
+    void unset_role(int role);
+
 private slots:
     void update_joystick_list(void);
 
@@ -82,7 +133,6 @@ private slots:
     void on_pushButton_reset_clicked();
     void on_pushButton_save_clicked();
     void on_pushButton_cal_axes_toggled(bool checked);
-
 private:
     int current_joystick_id = 0;
 

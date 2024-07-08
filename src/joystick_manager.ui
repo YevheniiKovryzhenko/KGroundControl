@@ -114,6 +114,18 @@
    </item>
    <item>
     <widget class="QScrollArea" name="scrollArea_axes">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="horizontalScrollBarPolicy">
+      <enum>Qt::ScrollBarAsNeeded</enum>
+     </property>
+     <property name="sizeAdjustPolicy">
+      <enum>QAbstractScrollArea::AdjustIgnored</enum>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -123,8 +135,14 @@
         <x>0</x>
         <y>0</y>
         <width>580</width>
-        <height>172</height>
+        <height>120</height>
        </rect>
+      </property>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
      </widget>
     </widget>
@@ -137,6 +155,9 @@
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
+     <property name="sizeAdjustPolicy">
+      <enum>QAbstractScrollArea::AdjustIgnored</enum>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -146,8 +167,14 @@
         <x>0</x>
         <y>0</y>
         <width>580</width>
-        <height>68</height>
+        <height>120</height>
        </rect>
+      </property>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
      </widget>
     </widget>

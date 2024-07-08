@@ -1,5 +1,6 @@
 #include "joystick_manager.h"
 #include "ui_joystick_manager.h"
+#include "default_ui_config.h"
 
 #include <QTextBrowser>
 
@@ -68,21 +69,56 @@ void JoystickAxisBar::set_reverse(bool reverse_)
 {
     reverse = reverse_;
 }
+void JoystickAxisBar::set_role(int role_)
+{
+    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
+    if (role != static_cast<joystick_enums::role>(role_))
+    {
+        role = static_cast<joystick_enums::role>(role_);
+        emit role_updated(role);
+    }
+}
+void JoystickAxisBar::unset_role_all(int role_)
+{
+    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
+    if (role != joystick_enums::UNUSED && role == static_cast<joystick_enums::role>(role_))
+    {
+        role = joystick_enums::UNUSED;
+        emit role_updated(role);
+    }
+}
 
-JoystickButton::JoystickButton(QWidget* parent, int joystick_, int axis_, bool pressed)
-    : QCheckBox(parent), joystick(joystick_), axis(axis_)
+JoystickButton::JoystickButton(QWidget* parent, int joystick_, int button_, bool pressed)
+    : QCheckBox(parent), joystick(joystick_), button(button_)
 {
     setChecked(pressed);
     setFocusPolicy(Qt::FocusPolicy::NoFocus);
 }
-void JoystickButton::update_value(const int js, const int axis_, const bool pressed)
+void JoystickButton::update_value(const int js, const int button_, const bool pressed)
 {
-    if (js == joystick && axis_ == axis)
+    if (js == joystick && button_ == button)
     {
         setChecked(pressed);
     }
 }
-
+void JoystickButton::set_role(int role_)
+{
+    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
+    if (role != static_cast<joystick_enums::role>(role_))
+    {
+        role = static_cast<joystick_enums::role>(role_);
+        emit role_updated(role);
+    }
+}
+void JoystickButton::unset_role_all(int role_)
+{
+    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
+    if (role != joystick_enums::UNUSED && role == static_cast<joystick_enums::role>(role_))
+    {
+        role = joystick_enums::UNUSED;
+        emit role_updated(role);
+    }
+}
 
 
 Joystick_manager::Joystick_manager(QWidget *parent)
@@ -168,7 +204,6 @@ void Joystick_manager::clear_all(void)
     clear_buttons();
 }
 
-
 bool Joystick_manager::add_axis(int axis_id)
 {
     if (axes_layout == NULL) return false;
@@ -207,6 +242,16 @@ bool Joystick_manager::add_axis(int axis_id)
     connect(button_reverse_, &QCheckBox::clicked, axis_slider_, &JoystickAxisBar::set_reverse);
     horisontal_layout_->addWidget(button_reverse_);
 
+    QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
+    combobox_role_->addItems(enum_helpers::get_all_keys_list<joystick_enums::role>());
+    combobox_role_->setCurrentIndex(0);
+    combobox_role_->setEditable(false);
+    connect(this, &Joystick_manager::unset_role, axis_slider_, &JoystickAxisBar::unset_role_all); //first unset role if requested
+    connect(combobox_role_, &QComboBox::currentIndexChanged, this, [this](int index){emit this->unset_role(index);}); //unset all when current index changes
+    connect(combobox_role_, &QComboBox::currentIndexChanged, axis_slider_, &JoystickAxisBar::set_role); //set new current role
+    connect(axis_slider_, &JoystickAxisBar::role_updated, combobox_role_, &QComboBox::setCurrentIndex); //update current index if role was updated
+    horisontal_layout_->addWidget(combobox_role_);
+
     // horisontal_layout_->addStretch();
 
     axes_layout->addWidget(horisontal_container_);
@@ -220,6 +265,8 @@ bool Joystick_manager::add_button(int button_id)
     QWidget* horisontal_container_ = new QWidget();
     QBoxLayout* horisontal_layout_ = new QHBoxLayout(horisontal_container_);
     horisontal_layout_->setContentsMargins(3,3,3,3);
+
+    horisontal_layout_->addStretch();
 
     QTextBrowser* text_browser_ = new QTextBrowser(horisontal_container_);
     text_browser_->setText("Button " + QString::number(button_id));
@@ -239,8 +286,19 @@ bool Joystick_manager::add_button(int button_id)
     connect(joysticks, &QJoysticks::buttonChanged, button_state_, &JoystickButton::update_value);
     horisontal_layout_->addWidget(button_state_);
 
-    // horisontal_layout_->addStretch();
-    int max_num_columns_ = 5;
+    QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
+    combobox_role_->addItems(enum_helpers::get_all_keys_list<joystick_enums::role>());
+    combobox_role_->setCurrentIndex(0);
+    combobox_role_->setEditable(false);
+    connect(this, &Joystick_manager::unset_role, button_state_, &JoystickButton::unset_role_all); //first unset role if requested
+    connect(combobox_role_, &QComboBox::currentIndexChanged, this, [this](int index){emit this->unset_role(index);}); //unset all when current index changes
+    connect(combobox_role_, &QComboBox::currentIndexChanged, button_state_, &JoystickButton::set_role); //set new current role
+    connect(button_state_, &JoystickButton::role_updated, combobox_role_, &QComboBox::setCurrentIndex); //update current index if role was updated
+    horisontal_layout_->addWidget(combobox_role_);
+
+    horisontal_layout_->addStretch();
+
+    int max_num_columns_ = 3;
     if (button_id < max_num_columns_) buttons_layout->addWidget(horisontal_container_, 0, button_id);
     else buttons_layout->addWidget(horisontal_container_, button_id / max_num_columns_, button_id % max_num_columns_);
 
@@ -263,7 +321,6 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
 
     for (int i = 0; i < joysticks->getNumAxes(current_joystick_id); i++) add_axis(i);
     for (int i = 0; i < joysticks->getNumButtons(current_joystick_id); i++) add_button(i);
-
 }
 
 

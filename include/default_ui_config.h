@@ -30,7 +30,7 @@ namespace enum_helpers {
         return list_out;
     }
     template <typename T>
-    QVector<QString> get_all_keys_list(void)
+    QStringList get_all_keys_list(void)
     {
         QStringList list_out;
         for (int i = 0; i < QMetaEnum::fromType<T>().keyCount(); i++)
@@ -53,7 +53,7 @@ namespace enum_helpers {
         return list_out;
     }
     template <typename T>
-    QVector<T> get_all_vals_list(void)
+    QList<T> get_all_vals_list(void)
     {
         QList<T> list_out;
         for (int i = 0; i < QMetaEnum::fromType<T>().keyCount(); i++)
