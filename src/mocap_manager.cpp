@@ -527,11 +527,13 @@ mocap_manager::mocap_manager(QWidget *parent)
     ui->cmbx_relay_priority->addItems(default_ui_config::Priority::keys);
     ui->cmbx_relay_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
     ui->txt_relay_update_rate_hz->setValidator( new QIntValidator(1, 120, this) );
+    ui->cmbx_relay_msg_type->addItems(enum_helpers::get_all_keys_list<mocap_relay_settings::mocap_relay_msg_opt>());
+    ui->cmbx_relay_msg_type->setCurrentIndex(static_cast<int>(mocap_relay_settings::mocap_relay_msg_opt::mavlink_vision_position_estimate));
 
     ui->btn_relay_delete->setVisible(false);
     ui->btn_relay_add->setVisible(false);
 
-    ui->tableWidget_mocap_relay->setColumnCount(6);
+    ui->tableWidget_mocap_relay->setColumnCount(7);
     ui->tableWidget_mocap_relay->setSortingEnabled(false);
     ui->tableWidget_mocap_relay->setSelectionBehavior(QTableWidget::SelectionBehavior::SelectRows);
     { //frameid
@@ -546,17 +548,21 @@ mocap_manager::mocap_manager(QWidget *parent)
         QTableWidgetItem *newItem = new QTableWidgetItem("Component ID");
         ui->tableWidget_mocap_relay->setHorizontalHeaderItem(2, newItem);
     }
+    { //msg type
+        QTableWidgetItem *newItem = new QTableWidgetItem("Message Type");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(3, newItem);
+    }
     { //port name
         QTableWidgetItem *newItem = new QTableWidgetItem("Port");
-        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(3, newItem);
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(4, newItem);
     }
     { //rate
         QTableWidgetItem *newItem = new QTableWidgetItem("Rate (Hz)");
-        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(4, newItem);
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(5, newItem);
     }
     { //priority
         QTableWidgetItem *newItem = new QTableWidgetItem("Priority");
-        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(5, newItem);
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(6, newItem);
     }
     // End of MOCAP Relay Pannel //
 }
@@ -1093,6 +1099,7 @@ void mocap_manager::on_btn_relay_add_clicked()
     relay_settings.sysid = ui->cmbx_relay_sysid->currentText().toUInt();
     enum_helpers::key2value(ui->cmbx_relay_compid->currentText(), relay_settings.compid);
     relay_settings.Port_Name = ui->cmbx_relay_port_name->currentText();
+    enum_helpers::key2value(ui->cmbx_relay_msg_type->currentText(), relay_settings.msg_option);//mocap_relay_settings::mavlink_vision_position_estimate
 
     generic_thread_settings thread_settings_;
     default_ui_config::Priority::key2value(ui->cmbx_relay_priority->currentText(), thread_settings_.priority);
@@ -1154,20 +1161,25 @@ void mocap_manager::on_btn_relay_add_clicked()
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 2, newItem);
     }
+    { //msg type
+        QTableWidgetItem *newItem = new QTableWidgetItem(enum_helpers::value2key(relay_settings.msg_option));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 3, newItem);
+    }
     { //port name
         QTableWidgetItem *newItem = new QTableWidgetItem(relay_settings.Port_Name);
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
-        ui->tableWidget_mocap_relay->setItem(row_index, 3, newItem);
+        ui->tableWidget_mocap_relay->setItem(row_index, 4, newItem);
     }
     { //rate
         QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(thread_settings_.update_rate_hz));
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
-        ui->tableWidget_mocap_relay->setItem(row_index, 4, newItem);
+        ui->tableWidget_mocap_relay->setItem(row_index, 5, newItem);
     }
     { //priority
         QTableWidgetItem *newItem = new QTableWidgetItem(default_ui_config::Priority::value2key(thread_settings_.priority));
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
-        ui->tableWidget_mocap_relay->setItem(row_index, 5, newItem);
+        ui->tableWidget_mocap_relay->setItem(row_index, 6, newItem);
     }
 
     mocap_relay.push_back(mocap_relay_);
