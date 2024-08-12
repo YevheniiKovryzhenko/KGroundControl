@@ -1,21 +1,24 @@
-//================================================================================
-// NOTE: This code is adapted from PacketClient.cpp, which remains in this folder.
-// The license for the code is located in that file and duplicated below:
+/****************************************************************************
+//          Auburn University Aerospace Engineering Department
+//             Aero-Astro Computational and Experimental lab
 //
-//=============================================================================
-// Copyright © 2014 NaturalPoint, Inc. All Rights Reserved.
+//     Copyright (C) 2024  Yevhenii Kovryzhenko
 //
-// This software is provided by the copyright holders and contributors "as is" and
-// any express or implied warranties, including, but not limited to, the implied
-// warranties of merchantability and fitness for a particular purpose are disclaimed.
-// In no event shall NaturalPoint, Inc. or contributors be liable for any direct,
-// indirect, incidental, special, exemplary, or consequential damages
-// (including, but not limited to, procurement of substitute goods or services;
-// loss of use, data, or profits; or business interruption) however caused
-// and on any theory of liability, whether in contract, strict liability,
-// or tort (including negligence or otherwise) arising in any way out of
-// the use of this software, even if advised of the possibility of such damage.
-//=============================================================================
+//     This program is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//
+//     This program is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU General Public License for more details.
+//
+//     You should have received a copy of the
+//     GNU AFFERO GENERAL PUBLIC LICENSE Version 3
+//     along with this program.  If not, see <https://www.gnu.org/licenses/>
+//
+****************************************************************************/
 
 
 #ifndef OPTITRACK_OPTITRACK_HPP
