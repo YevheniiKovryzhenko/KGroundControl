@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/resources/Images">
+        <file>Logo/KLogo.png</file>
+        <file>Logo/KLogo.rc</file>
+        <file>Logo/KLogo_256x256.ico</file>
+        <file>Logo/KLogo_256x256.png</file>
+    </qresource>
+</RCC>

@@ -148,6 +148,9 @@ Joystick_manager::Joystick_manager(QWidget *parent)
     , ui(new Ui::Joystick_manager)
 {
     ui->setupUi(this);
+    setWindowFlags(Qt::Window);
+    setWindowIcon(QIcon(":/resources/Images/Logo/KLogo_256x256.png"));
+    setWindowTitle("Joystick Manager");
 
     //start joysticks:
     joysticks = (QJoysticks::getInstance());

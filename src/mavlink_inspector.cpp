@@ -709,6 +709,7 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowFlags(Qt::Window);
+    setWindowIcon(QIcon(":/resources/Images/Logo/KLogo_256x256.png"));
     setWindowTitle("Mavlink Inspector");
     main_container = new QWidget();
     ui->scrollArea->setWidget(main_container);

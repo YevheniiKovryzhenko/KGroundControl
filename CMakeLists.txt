@@ -67,18 +67,38 @@ set(PROJECT_UI
 )
 
 set(PROJECT_RESOURCES
-    resources/SDL/SDL.qrc)
+    resources/SDL/SDL.qrc
+    resources/Images/Images.qrc
+)
 
-add_subdirectory(libs) #libs/ has all of the required libraries 
+add_subdirectory(libs) #libs/ has all of the required libraries
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
-    qt_add_executable(KGroundControl
-        MANUAL_FINALIZATION
-        ${PROJECT_HEADERS}
-        ${PROJECT_SOURCES}
-        ${PROJECT_UI}
-        ${PROJECT_RESOURCES}
-    )
+
+    if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+
+        set(app_icon_resource_windows  "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images/Logo/KLogo.rc")
+
+        qt_add_executable(KGroundControl
+            MANUAL_FINALIZATION
+            ${PROJECT_HEADERS}
+            ${PROJECT_SOURCES}
+            ${PROJECT_UI}
+            ${PROJECT_RESOURCES}
+            ${app_icon_resource_windows}
+        )
+
+    else()
+        qt_add_executable(KGroundControl
+            MANUAL_FINALIZATION
+            ${PROJECT_HEADERS}
+            ${PROJECT_SOURCES}
+            ${PROJECT_UI}
+            ${PROJECT_RESOURCES}
+        )
+    endif()
+
+
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET KGroundControl APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
 #                 ${CMAKE_CURRENT_SOURCE_DIR}/android)

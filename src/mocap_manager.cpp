@@ -501,6 +501,7 @@ mocap_manager::mocap_manager(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowFlags(Qt::Window);
+    setWindowIcon(QIcon(":/resources/Images/Logo/KLogo_256x256.png"));
     setWindowTitle("Motion Capture Manager");
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 
