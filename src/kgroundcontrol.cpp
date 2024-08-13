@@ -45,6 +45,10 @@ KGroundControl::KGroundControl(QWidget *parent)
     load_settings();
     ui->stackedWidget_main->setCurrentIndex(0);
 
+    // disable experimental features:
+    ui->btn_joystick->setVisible(false);
+    //
+
     settings_mutex_ = new QMutex;
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
