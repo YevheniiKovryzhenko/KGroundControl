@@ -24,11 +24,17 @@ Additionally, it supports the Optitrack Motion Capture System and can stream dat
   - Raspbian - must compile from source
 
 # Installation
-## With Installer
+## Installer
 Use one of the installers, which are available under the releases tab. All instructions are 
-included as part of the installation walkthrough. 
+included as part of the installation walkthrough. Installer will create a shortcut on your desktop
+and uninstaller for proper removal of the program.
 
-
+## Binary
+You can use the standalone binary (execuitable) file as is, without any installation. 
+It is compiled with statically-built Qt and should be the most optimized 
+version of the app (performance-wise), but may take longer to start. If using Linux, 
+you may still have to download some external libraries, but this highly depends on your distribuion
+and the execuitable may need to be recompiled for your specific platform (see Compiling from source). 
 
 ## Compiling from source
 Requirements: 
