@@ -32,7 +32,7 @@ included as part of the installation walkthrough.
 
 ## Compiling from source
 Requirements: 
-* Qt 6.2+ (all releases use Qt 6.7)
+* Qt 6.2+
 * For installer creation, you should install [cqtdeployer](https://github.com/QuasarApp/CQtDeployer)
 
 ### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Comertial Licence Required)
