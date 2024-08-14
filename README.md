@@ -17,9 +17,9 @@ Additionally, it supports the Optitrack Motion Capture System and can stream dat
 
 # Tested Architectures and Platforms
 * x86-64:
-  - Windows - installer available
+  - Windows - installer and binary available
   - Ubuntu - installer available
-  - Arch   - must compile from source
+  - Arch   - binary available
 * ARM64:
   - Raspbian - must compile from source
 
