@@ -97,6 +97,10 @@ Here is a quick example of compiling everything on Linux:
 4. Configure QtCreator to use the Qt 6.7.2 library we have just compiled and installed.
 5. Compile KGroundControl.
 
+> [!TIP]
+> If you want to deploy KGC to RPi or similar devices, I would recommend [cross-compiling](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi) everything using a powerful host machine
+> instead of attempting to compile on the target device.  
+
 
 # Optitrack Motion Capture System
 Although KGroundControl is cross-platform and works on different operating systems, watch out for the OS-specific limitations.
