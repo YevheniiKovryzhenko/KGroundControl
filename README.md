@@ -105,6 +105,9 @@ Here is a quick example of compiling everything on the target Linux device:
 > [!WARNING]
 > This is a very advanced topic, and you must have prior experience in cross-compiling for embedded platforms.
 
+> [!WARNING]
+> This section is still a work in progress, I will update it once I figure out why this does not work as expected.
+
 I am using an Arch Linux host machine for cross-compilation for RPi 5 target. Refer to the [official documentation](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi),
 since it is far more detailed and you are probably not using Arch. For now, I will leave some of my notes on the process I have gone through.
 
@@ -195,7 +198,10 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
                symlinks -rc sysroot
              ```           
             
-    3. Install the toolchain
+    3. Install the toolchain:
+          ```bash
+            sudo pacman -S aarch64-linux-gnu-gcc
+          ```
     4. Setup build and install directories for the cross-compiled version of Qt.
          * I chose to keep all source and build files in the same top-level directory I created earlier. Let's create build directory:
          ```bash
@@ -289,16 +295,34 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
            ```
     6. Configure your host Qt installation for the cross-compiling the RPi-Qt:
          ```bash
-            ../qt5/configure -release -opengl es2 -nomake examples -nomake tests -qt-host-path $HOME/qt-host -extprefix $HOME/qt-raspi -prefix /usr/local/qt6 -device linux-rasp-pi4-aarch64 -device-option CROSS_COMPILE=aarch64-linux-gnu- -- -DCMAKE_TOOLCHAIN_FILE=$HOME/toolchain.cmake -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
+           cd Qt-raspi-build
+            /home/jack/Qt/v6.7.2/src/configure -static -release -opengl es2 -nomake examples -nomake tests -qt-host-path /home/jack/Qt/v6.7.2/build/ -extprefix /run/media/jack/HDD/RPi5/Qt-raspi -prefix $HOME/Qt/6.7.2-RPi5-Static -device linux-rasp-pi4-aarch64 -device-option CROSS_COMPILE=aarch64-linux-gnu- -DCMAKE_TOOLCHAIN_FILE=/run/media/jack/HDD/RPi5/toolchain.cmake -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
          ```
-    8. Compile:
+    7. Compile:
         ```bash
           cmake --build . --parallel
         ```
-    9. Install:
+    8. Install:
         ```bash
           cmake --install .
         ```
+3. Compile KGroundControl:
+    1. Go to where you have cloned KGroundControl source and create a build directory:
+        ```bash
+        cd /run/media/jack/HDD/Github/KGroundControl
+        mkdir build/Qt6.7.2-Release-Static-RPi
+        cd build/Qt6.7.2-Release-Static-RPi
+       ```
+    2. Run CMake using the RPi-Qt:
+        ```bash
+        /run/media/jack/HDD/RPi5/Qt-raspi/bin/qt-cmake ../../CMakeLists.txt
+       ```
+    3. Compile:
+       ```bash           
+        cmake --build . --parallel
+       ```
+4. If you have compiled everything statically, you can not copy the executable to the RPi5 and test it.
+   
 
 # Optitrack Motion Capture System
 Although KGroundControl is cross-platform and works on different operating systems, watch out for the OS-specific limitations.
