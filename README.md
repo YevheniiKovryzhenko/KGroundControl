@@ -51,7 +51,7 @@ create your own installer, or compile a static version of Qt from the source.
 > Keep in mind, that this is a very time-consuming process and you may have to restart it a couple of times if something was done incorrectly.
 > You need a lot of storage space for this, get yourself at least 128Gb or better 256Gb of free space before you start.
 
-Here is a quick example of compiling everything on Linux:
+Here is a quick example of compiling everything on the target Linux device:
 1. Make sure you have all the dependencies:
   * Update system:
     ```bash
@@ -99,8 +99,206 @@ Here is a quick example of compiling everything on Linux:
 
 > [!TIP]
 > If you want to deploy KGC to RPi or similar devices, I would recommend [cross-compiling](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi) everything using a powerful host machine
-> instead of attempting to compile on the target device.  
+> instead of attempting to dirrectly compile on the target device.
 
+### With the cross-compiled static version of Qt (open-source)
+> [!WARNING]
+> This is a very advanced topic, and you must have prior experience in cross-compiling for embedded platforms.
+
+I am using an Arch Linux host machine for cross-compilation for RPi 5 target. Refer to the [official documentation](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi),
+since it is far more detailed and you are probably not using Arch. For now, I will leave some of my notes on the process I have gone through.
+
+1. Prepare the target:
+    1. Install the official Raspbian image for the RPi 5 and do all the setup you need. I recommend using a wired ethernet connection and work remotely though ssh.
+         If you are actually setting up a brand new OS, don't forget to do a sull system upgrade first:
+         ```bash
+          sudo apt update
+          sudo apt full-upgrade
+          sudo reboot
+        ```
+    2. Regardless, make sure the system is up to date:
+         ```bash
+         sudo apt-get update && sudo apt-get upgrade -y
+         sudo reboot    
+        ```
+    3. Install all the required libraries.
+         ```bash
+         sudo apt-get install -y libboost-all-dev libudev-dev libinput-dev libts-dev libmtdev-dev libjpeg-dev libfontconfig1-dev libssl-dev libdbus-1-dev libglib2.0-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev libgles2-mesa-dev mesa-common-dev libasound2-dev libpulse-dev gstreamer1.0-omx libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev  gstreamer1.0-alsa libvpx-dev libsrtp2-dev libsnappy-dev libnss3-dev "^libxcb.*" flex bison libxslt-dev ruby gperf libbz2-dev libcups2-dev libatkmm-1.6-dev libxi6 libxcomposite1 libfreetype6-dev libicu-dev libsqlite3-dev libxslt1-dev libavcodec-dev libavformat-dev libswscale-dev libx11-dev freetds-dev libpq-dev libiodbc2-dev firebird-dev  libxext-dev libxcb1 libxcb1-dev libx11-xcb1 libx11-xcb-dev libxcb-keysyms1 libxcb-keysyms1-dev libxcb-image0 libxcb-image0-dev libxcb-shm0 libxcb-shm0-dev libxcb-icccm4 libxcb-icccm4-dev libxcb-sync1 libxcb-sync-dev libxcb-render-util0 libxcb-render-util0-dev libxcb-xfixes0-dev libxrender-dev libxcb-shape0-dev libxcb-randr0-dev libxcb-glx0-dev libxi-dev libdrm-dev libxcb-xinerama0 libxcb-xinerama0-dev libatspi2.0-dev libxcursor-dev libxcomposite-dev libxdamage-dev libxss-dev libxtst-dev libpci-dev libcap-dev libxrandr-dev libdirectfb-dev libaudio-dev libxkbcommon-x11-dev rsync
+         ```
+2. Prepare the host:
+    1. Compile Qt 6.7 from source for the host.
+          1. Make sure you have all the dependencies:
+                * Get required packages:
+                ```bash
+                 sudo pacman -S make cmake clang gcc git ninja bison python3 gperf pkg-config llvm rsync symlinks
+                ```
+          2. [Compile Qt 6.7 from source](https://doc.qt.io/qt-6/linux-building.html):
+                * Get Qt source:
+                ```bash
+                cd ~
+                git clone --branch v6.7.2 git://code.qt.io/qt/qt5.git Qt/6.7.2/src    
+                ```
+                * Initialize the repository:
+                ```bash
+                cd ~/Qt/6.7.2/src/
+                ./init-repository
+                ```
+                * Configure build settings:
+                ```bash
+                cd ~/Qt/6.7.2/
+                mkdir build-static
+                cd build-static
+                ../src/configure -static -no-feature-accessibility -debug_and_release -opensource -prefix ~/Qt/6.7.2/install-static/
+                ```
+                * Compile Qt
+                ```bash
+                cmake --build . --parallel
+                ```          
+                * Install Qt:
+                ```bash
+                cmake --install .
+                ```
+          3. Install QtCreator IDE:
+             ```bash
+             sudo pacman -S qtcreator
+             ```
+          4. Run and configure QtCreator to use the Qt 6.7.2 library we have just compiled and installed.
+          5. Compile KGroundControl.
+
+    2. Create a sysroot directly on your host and synchronize it with the target.
+         * Choose the storrage location. I used my second hard drive for this:
+             ```bash
+               cd /run/media/jack/HDD/
+               mkdir RPi5
+               cd RPi5
+             ```
+         * Create sysroot:
+             ```bash
+               mkdir sysroot
+               cd sysroot
+               mkdir lib usr opt
+             ```
+         * Start copying all the required files from RPi (username is **pi** and **raspberrypi.local** is the ip address for me):
+             ```bash
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/lib/* ./lib
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/include/* ./usr/include
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/lib/* ./usr/lib
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/opt/vc rpi-sysroot/opt/vc
+             ```
+         * I did not have it, but you may need to also copy the following folder from RPi:
+             ```bash
+              rsync -avzS --rsync-path="rsync" --delete <pi_username>@<pi_ip_address>:/opt/vc rpi-sysroot/opt/vc
+             ```
+         * Don't forget to update the symbolic links:
+             ```bash
+               cd /run/media/jack/HDD/RPi
+               symlinks -rc sysroot
+             ```           
+            
+    3. Install the toolchain
+    4. Setup build and install directories for the cross-compiled version of Qt.
+         * I chose to keep all source and build files in the same top-level directory I created earlier. Let's create build directory:
+         ```bash
+           cd /run/media/jack/HDD/RPi
+           mkdir Qt-raspi  Qt-raspi-build
+         ``` 
+    5. Configure toolchain CMake file:
+         * Open a new file:
+           ```bash
+              nano toolchain.cmake
+           ```
+         * Configure toolchain for your case:
+           ```
+            cmake_minimum_required(VERSION 3.18)
+            include_guard(GLOBAL)
+            
+            set(CMAKE_SYSTEM_NAME Linux)
+            set(CMAKE_SYSTEM_PROCESSOR arm)
+            
+            set(TARGET_SYSROOT /run/media/jack/HDD/RPi5/sysroot)
+            set(CMAKE_SYSROOT ${TARGET_SYSROOT})
+            
+            set(ENV{PKG_CONFIG_PATH} $PKG_CONFIG_PATH:/usr/lib/aarch64-linux-gnu/pkgconfig)
+            set(ENV{PKG_CONFIG_LIBDIR} /usr/lib/pkgconfig:/usr/share/pkgconfig/:${TARGET_SYSROOT}/usr/lib/aarch64-linux-gnu/pkgconfig:${TARGET_SYSROOT}/usr/lib/pkgconfig)
+            set(ENV{PKG_CONFIG_SYSROOT_DIR} ${CMAKE_SYSROOT})
+            
+            # if you use other version of gcc and g++, you must change the following variables
+            set(CMAKE_C_COMPILER /usr/bin/aarch64-linux-gnu-gcc)
+            set(CMAKE_CXX_COMPILER /usr/bin/aarch64-linux-gnu-g++)
+            
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${TARGET_SYSROOT}/usr/include")
+            set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
+            
+            set(QT_COMPILER_FLAGS "-march=armv8-a")
+            set(QT_COMPILER_FLAGS_RELEASE "-O2 -pipe")
+            set(QT_LINKER_FLAGS "-Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed")
+            
+            set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+            set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+            set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+            set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+            set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+            set(CMAKE_BUILD_RPATH ${TARGET_SYSROOT})
+            
+            
+            include(CMakeInitializeConfigs)
+            
+            function(cmake_initialize_per_config_variable _PREFIX _DOCSTRING)
+              if (_PREFIX MATCHES "CMAKE_(C|CXX|ASM)_FLAGS")
+                set(CMAKE_${CMAKE_MATCH_1}_FLAGS_INIT "${QT_COMPILER_FLAGS}")
+            
+                foreach (config DEBUG RELEASE MINSIZEREL RELWITHDEBINFO)
+                  if (DEFINED QT_COMPILER_FLAGS_${config})
+                    set(CMAKE_${CMAKE_MATCH_1}_FLAGS_${config}_INIT "${QT_COMPILER_FLAGS_${config}}")
+                  endif()
+                endforeach()
+              endif()
+            
+            
+              if (_PREFIX MATCHES "CMAKE_(SHARED|MODULE|EXE)_LINKER_FLAGS")
+                foreach (config SHARED MODULE EXE)
+                  set(CMAKE_${config}_LINKER_FLAGS_INIT "${QT_LINKER_FLAGS}")
+                endforeach()
+              endif()
+            
+              _cmake_initialize_per_config_variable(${ARGV})
+            endfunction()
+            
+            set(XCB_PATH_VARIABLE ${TARGET_SYSROOT})
+            
+            set(GL_INC_DIR ${TARGET_SYSROOT}/usr/include)
+            set(GL_LIB_DIR ${TARGET_SYSROOT}:${TARGET_SYSROOT}/usr/lib/aarch64-linux-gnu/:${TARGET_SYSROOT}/usr:${TARGET_SYSROOT}/usr/lib)
+            
+            set(EGL_INCLUDE_DIR ${GL_INC_DIR})
+            set(EGL_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libEGL.so)
+            
+            set(OPENGL_INCLUDE_DIR ${GL_INC_DIR})
+            set(OPENGL_opengl_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libOpenGL.so)
+           
+            set(GLESv2_INCLUDE_DIR ${GL_INC_DIR})
+            set(GLESv2_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libGLESv2.so)
+            
+            set(gbm_INCLUDE_DIR ${GL_INC_DIR})
+            set(gbm_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libgbm.so)
+            
+            set(Libdrm_INCLUDE_DIR ${GL_INC_DIR})
+            set(Libdrm_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libdrm.so)
+            
+            set(XCB_XCB_INCLUDE_DIR ${GL_INC_DIR})
+            set(XCB_XCB_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libxcb.so)
+           ```
+    6. Configure your host Qt installation for the cross-compiling the RPi-Qt:
+         ```bash
+            ../qt5/configure -release -opengl es2 -nomake examples -nomake tests -qt-host-path $HOME/qt-host -extprefix $HOME/qt-raspi -prefix /usr/local/qt6 -device linux-rasp-pi4-aarch64 -device-option CROSS_COMPILE=aarch64-linux-gnu- -- -DCMAKE_TOOLCHAIN_FILE=$HOME/toolchain.cmake -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
+         ```
+    8. Compile:
+        ```bash
+          cmake --build . --parallel
+        ```
+    9. Install:
+        ```bash
+          cmake --install .
+        ```
 
 # Optitrack Motion Capture System
 Although KGroundControl is cross-platform and works on different operating systems, watch out for the OS-specific limitations.
