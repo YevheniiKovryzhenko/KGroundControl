@@ -26,15 +26,15 @@ Additionally, it supports the Optitrack Motion Capture System and can stream dat
 # Installation
 ## Installer
 Use one of the installers, which are available under the releases tab. All instructions are 
-included as part of the installation walkthrough. Installer will create a shortcut on your desktop
-and uninstaller for proper removal of the program.
+included as part of the installation walkthrough. The installer will create a shortcut on your desktop
+and an uninstaller in the same directory to properly remove the program.
 
 ## Binary
-You can use the standalone binary (execuitable) file as is, without any installation. 
-It is compiled with statically-built Qt and should be the most optimized 
-version of the app (performance-wise), but may take longer to start. If using Linux, 
-you may still have to download some external libraries, but this highly depends on your distribuion
-and the execuitable may need to be recompiled for your specific platform (see Compiling from source). 
+You can use the standalone binary (executable) file as is, without any installation. 
+It is compiled with statically built Qt and should be the most optimized 
+version of the app (performance-wise), but it may take longer to start. If using Linux, 
+you may still have to download some external libraries, but this highly depends on your distribution
+. The executable may need to be recompiled for your specific platform (see Compiling from source). 
 
 ## Compiling from source
 Requirements: 
@@ -42,17 +42,17 @@ Requirements:
 * For installer creation, you should install [cqtdeployer](https://github.com/QuasarApp/CQtDeployer)
 
 ### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Comertial Licence Required)
-This is perhaps the easiest option. Just install Qt using the official online installer, get the source code for KGroundControl
-and commpile. This will not be sufficient to generate a standalone execuitable so you will either have to use deployment tool (like cqtdeployer),
-create your own installer or compile a static version of Qt from source.
+This is, perhaps, the easiest option. You just need to install Qt using the official online installer, get the source code for KGroundControl, 
+and compile. This will not be sufficient to generate a standalone executable so you will either have to use a deployment tool (like cqtdeployer),
+create your own installer, or compile a static version of Qt from the source.
 
-### With static version of Qt (open-source)
-Keep in mind, that this is a very time consuming process and you may have to restart it a couple of times if something was done incorrectly.
-You need a lot of storrage space for this, get yourself at least 128Gb or better 256Gb SD card before you start. 
-I started with an empty 64Gb SD Card (~55Gb were unused). 
-Here is a summary-tutorial for compiling everything on a RPi4:
+### With the static version of Qt (open-source)
+> [!NOTE]
+> Keep in mind, that this is a very time-consuming process and you may have to restart it a couple of times if something was done incorrectly.
+> You need a lot of storage space for this, get yourself at least 128Gb or better 256Gb of free space before you start.
 
-1. Make sure you have all the dependancies:
+Here is a quick example of compiling everything on Linux:
+1. Make sure you have all the dependencies:
   * Update system:
     ```bash
     sudo apt-get update && sudo apt-get upgrade -y    
@@ -83,7 +83,10 @@ Here is a summary-tutorial for compiling everything on a RPi4:
     ```bash
     cmake --build . --parallel
     ```
-  * If you have somehow made it here, you can proceed to installing Qt:
+> [!TIP]
+> You can usually restart this building process from the point it was interrupted by running the same command.
+
+  * If you have somehow made it here, you can proceed to install Qt:
     ```bash
     cmake --install .
     ```
