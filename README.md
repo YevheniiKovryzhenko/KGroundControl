@@ -14,6 +14,7 @@ so the entire app is written from scratch with that in mind
 
 Additionally, it supports the Optitrack Motion Capture System and can stream data to multiple UAVs.
 
+Check out my videos using KGC on [YouTube](https://www.youtube.com/playlist?list=PLgxIoIw6ONulUfYvzxfoZNM6QXrcRqKkV)!
 
 # Tested Architectures and Platforms
 * x86-64:
