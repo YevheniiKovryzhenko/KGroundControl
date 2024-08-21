@@ -105,19 +105,19 @@ void JoystickAxisBar::set_reverse(bool reverse_)
 }
 void JoystickAxisBar::set_role(int role_)
 {
-    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
-    if (role != static_cast<joystick_enums::role>(role_))
+    if (role_ > remote_control::enums::role::AUX_20 || role_ < remote_control::enums::UNUSED) return; //invalid role
+    if (role != static_cast<remote_control::enums::role>(role_))
     {
-        role = static_cast<joystick_enums::role>(role_);
+        role = static_cast<remote_control::enums::role>(role_);
         emit role_updated(role);
     }
 }
 void JoystickAxisBar::unset_role_all(int role_)
 {
-    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
-    if (role != joystick_enums::UNUSED && role == static_cast<joystick_enums::role>(role_))
+    if (role_ > remote_control::enums::role::AUX_20 || role_ < remote_control::enums::UNUSED) return; //invalid role
+    if (role != remote_control::enums::UNUSED && role == static_cast<remote_control::enums::role>(role_))
     {
-        role = joystick_enums::UNUSED;
+        role = remote_control::enums::UNUSED;
         emit role_updated(role);
     }
 }
@@ -137,19 +137,19 @@ void JoystickButton::update_value(const int js, const int button_, const bool pr
 }
 void JoystickButton::set_role(int role_)
 {
-    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
-    if (role != static_cast<joystick_enums::role>(role_))
+    if (role_ > remote_control::enums::role::AUX_20 || role_ < remote_control::enums::UNUSED) return; //invalid role
+    if (role != static_cast<remote_control::enums::role>(role_))
     {
-        role = static_cast<joystick_enums::role>(role_);
+        role = static_cast<remote_control::enums::role>(role_);
         emit role_updated(role);
     }
 }
 void JoystickButton::unset_role_all(int role_)
 {
-    if (role_ > joystick_enums::role::AUX_20 || role_ < joystick_enums::UNUSED) return; //invalid role
-    if (role != joystick_enums::UNUSED && role == static_cast<joystick_enums::role>(role_))
+    if (role_ > remote_control::enums::role::AUX_20 || role_ < remote_control::enums::UNUSED) return; //invalid role
+    if (role != remote_control::enums::UNUSED && role == static_cast<remote_control::enums::role>(role_))
     {
-        role = joystick_enums::UNUSED;
+        role = remote_control::enums::UNUSED;
         emit role_updated(role);
     }
 }
@@ -280,7 +280,7 @@ bool Joystick_manager::add_axis(int axis_id)
     horisontal_layout_->addWidget(button_reverse_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
-    combobox_role_->addItems(enum_helpers::get_all_keys_list<joystick_enums::role>());
+    combobox_role_->addItems(enum_helpers::get_all_keys_list<remote_control::enums::role>());
     combobox_role_->setCurrentIndex(0);
     combobox_role_->setEditable(false);
     connect(this, &Joystick_manager::unset_role, axis_slider_, &JoystickAxisBar::unset_role_all); //first unset role if requested
@@ -324,7 +324,7 @@ bool Joystick_manager::add_button(int button_id)
     horisontal_layout_->addWidget(button_state_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
-    combobox_role_->addItems(enum_helpers::get_all_keys_list<joystick_enums::role>());
+    combobox_role_->addItems(enum_helpers::get_all_keys_list<remote_control::enums::role>());
     combobox_role_->setCurrentIndex(0);
     combobox_role_->setEditable(false);
     connect(this, &Joystick_manager::unset_role, button_state_, &JoystickButton::unset_role_all); //first unset role if requested

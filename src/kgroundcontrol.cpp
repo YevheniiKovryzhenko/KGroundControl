@@ -58,7 +58,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->stackedWidget_main->setCurrentIndex(0);
 
     // disable experimental features:
-    ui->btn_joystick->setVisible(false);
+    // ui->btn_joystick->setVisible(false);
     //
 
     settings_mutex_ = new QMutex;

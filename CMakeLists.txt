@@ -34,6 +34,7 @@ set(PROJECT_HEADERS
     include/default_ui_config.h
     include/joystick.h
     include/joystick_manager.h
+    include/remote_control_manager.h
 )
 
 set(PROJECT_SOURCES
@@ -53,6 +54,7 @@ set(PROJECT_SOURCES
     src/default_ui_config.cpp
     src/joystick.cpp
     src/joystick_manager.cpp
+    src/remote_control_manager.cpp
 )
 
 set(PROJECT_UI

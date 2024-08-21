@@ -43,41 +43,7 @@
 #include <QCheckBox>
 
 #include "joystick.h"
-
-class joystick_enums : public QObject
-{
-    Q_OBJECT
-public:
-    enum role {
-        UNUSED,
-        ROLL,
-        PITCH,
-        YAW,
-        THROTTLE,
-        ARM,
-        AUX_1,
-        AUX_2,
-        AUX_3,
-        AUX_4,
-        AUX_5,
-        AUX_6,
-        AUX_7,
-        AUX_8,
-        AUX_9,
-        AUX_10,
-        AUX_11,
-        AUX_12,
-        AUX_13,
-        AUX_14,
-        AUX_15,
-        AUX_16,
-        AUX_17,
-        AUX_18,
-        AUX_19,
-        AUX_20
-    };
-    Q_ENUM(role)
-};
+#include "remote_control_manager.h"
 
 class JoystickAxisBar : public QProgressBar
 {
@@ -109,7 +75,7 @@ private:
 
     bool in_calibration = false;
 
-    joystick_enums::role role = joystick_enums::UNUSED;
+    remote_control::enums::role role = remote_control::enums::UNUSED;
 };
 
 class JoystickButton : public QCheckBox
@@ -131,7 +97,7 @@ private:
     const int joystick; /**< The numerical ID of the joystick */
     const int button; /**< The numerical ID of the axis */
 
-    joystick_enums::role role = joystick_enums::UNUSED;
+    remote_control::enums::role role = remote_control::enums::UNUSED;
 };
 
 namespace Ui {
