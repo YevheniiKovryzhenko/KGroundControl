@@ -49,33 +49,12 @@ class JoystickAxisBar : public QProgressBar
 {
     Q_OBJECT
 public:
-    explicit JoystickAxisBar(QWidget* parent, int joystick, int axis, double value);
+    explicit JoystickAxisBar(QWidget* parent, int joystick, int axis);
 
-public slots:
-    void update_value(const int js, const int axis, const qreal value);
-    void set_input_range(double min, double max);
-    void do_calibration(bool enable);
-    void reset_calibration(void);
-    void set_reverse(bool reversed);
+    remote_control::channel::axis::joystick::manager joystick;
 
-    void set_role(int role);
-    void unset_role_all(int role);
-
-signals:
-    void role_updated(int role);
-
-private:
-    double map(double value);
-
-    const int joystick; /**< The numerical ID of the joystick */
-    const int axis; /**< The numerical ID of the axis */
-    double min_val = -1.0;
-    double max_val = 1.0;
-    bool reverse = false;
-
-    bool in_calibration = false;
-
-    remote_control::enums::role role = remote_control::enums::UNUSED;
+private slots:
+    void map_value(qreal value);
 };
 
 class JoystickButton : public QCheckBox
@@ -97,7 +76,7 @@ private:
     const int joystick; /**< The numerical ID of the joystick */
     const int button; /**< The numerical ID of the axis */
 
-    remote_control::enums::role role = remote_control::enums::UNUSED;
+    remote_control::channel::enums::role role = remote_control::channel::enums::UNUSED;
 };
 
 namespace Ui {
