@@ -108,7 +108,51 @@ private:
 }
 }
 
+namespace button {
+namespace joystick {
+class settings
+{
+public:
+    explicit settings(void);
 
+    int joystick_id; /**< The numerical ID of the joystick */
+    int button_id; /**< The numerical ID of the axis */
+
+    enums::role role;
+
+    bool is_source_configured(void);
+    bool is_target_configured(void);
+    bool is_fully_configured(void);
+    void reset(void);
+};
+
+class manager : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit manager(QObject* parent, int joystick_id, int button_id);
+    ~manager(){};
+
+public slots:
+    void update_value(const int joystick_id, const int button_id, const bool pressed);
+
+    void set_role(int role);
+    void unset_role(int role);
+
+    void fetch_update(void);
+
+signals:
+    void role_updated(int role);
+    void unassigned_value_updated(qreal value);
+    void assigned_value_updated(int role, qreal value);
+
+protected:
+    settings settings_;
+};
+
+}
+}
 
 }
 

@@ -61,22 +61,12 @@ class JoystickButton : public QCheckBox
 {
     Q_OBJECT
 public:
-    explicit JoystickButton(QWidget* parent, int joystick, int button, bool pressed);
+    explicit JoystickButton(QWidget* parent, int joystick, int button);
 
-public slots:
-    void update_value(const int js, const int button, const bool pressed);
+    remote_control::channel::button::joystick::manager button;
 
-    void set_role(int role);
-    void unset_role_all(int role);
-
-signals:
-    void role_updated(int role);
-
-private:
-    const int joystick; /**< The numerical ID of the joystick */
-    const int button; /**< The numerical ID of the axis */
-
-    remote_control::channel::enums::role role = remote_control::channel::enums::UNUSED;
+private slots:
+    void map_value(qreal value);
 };
 
 namespace Ui {
