@@ -36,7 +36,12 @@
 #define SIGNAL_FILTERS_H
 
 
-
+/*
+ * Low-Pass Filter Class
+ *
+ * This object is a discrete implementation of
+ * a first order low-pass filter.
+ */
 class LowPassFilter {
 public:
     LowPassFilter(double sample_rate_hz, double cutoff_frequency_hz);

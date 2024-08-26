@@ -38,10 +38,14 @@
 #include <QThread>
 
 #include "settings.h"
-// #include "mavlink_manager.h"
-// #include "mavlink_inspector.h"
-// #include "generic_port.h"
 
+/*
+ * Generic Thread Class
+ *
+ * This object is a convinient extension for the Qt native
+ * QThread class. The primary goal is to generalize
+ * initialization and configuration of all threads used in this project
+ */
 class generic_thread : public QThread
 {
     Q_OBJECT

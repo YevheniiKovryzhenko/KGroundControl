@@ -39,19 +39,14 @@
 
 #include "generic_port.h"
 #include "settings.h"
-//#include "libs/Mavlink/mavlink2/all/mavlink.h"
 #include "all/mavlink.h"
 
-// ----------------------------------------------------------------------------------
-//   Serial Port Manager Class
-// ----------------------------------------------------------------------------------
 /*
  * Serial Port Class
  *
  * This object handles the opening and closing of the offboard computer's
- * serial port over which we'll communicate.  It also has methods to write
- * a byte stream buffer.  MAVlink is not used in this object yet, it's just
- * a serialization interface.  To help with read and write pthreading, it
+ * serial port over which we'll communicate. It also has methods to write
+ * a byte stream buffer. To help with read and write pthreading, it
  * gaurds any port operation with a pthread mutex.
  */
 class Serial_Port: public Generic_Port
@@ -81,9 +76,6 @@ public slots:
 
     QString get_settings_QString(void);
     void get_settings(void* current_settings);
-
-// signals:
-//     void ready_to_forward_new_data(const QByteArray& new_data);
 
 private:
     void read_port(void);

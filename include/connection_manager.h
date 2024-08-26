@@ -43,6 +43,13 @@
 #include "generic_port.h"
 #include "threads.h"
 
+/*
+ * Port Read Thread Class
+ *
+ * This object defines generic
+ * functionality for any port
+ * irrespective of the type.
+ */
 class port_read_thread : public generic_thread
 {
     Q_OBJECT
@@ -62,6 +69,16 @@ private:
     // mavlink_message_t message;
 };
 
+
+/*
+ * System Status Thread Class
+ *
+ * This object defines system status thread,
+ * which runs at 1 Hz and serves as an internal
+ * clock / syncronization counter. We need this
+ * if we want to sent heartbeat MAVLINK message
+ * though any of the ports.
+ */
 class system_status_thread  : public generic_thread
 {
     Q_OBJECT
@@ -82,6 +99,15 @@ private:
 };
 
 
+/*
+ * Connection Mannager Class
+ *
+ * This object defines the core functionality
+ * related to Port communication and data forwarding.
+ * Internally stores all open ports, forwarding
+ * tables and settings. Provides an interface for
+ * configuring new connections / links.
+ */
 class connection_manager : public QObject
 {
     Q_OBJECT

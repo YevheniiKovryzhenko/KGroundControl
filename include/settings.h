@@ -60,7 +60,14 @@ enum mocap_rotation
 };
 
 
-
+/*
+ * Ip Address Class
+ *
+ * This object is used to manage ip address
+ * settings entry used throughout the project.
+ * Defines save/load and print functionality for
+ * this settings entry.
+ */
 class ip_address
 {
 public:
@@ -122,7 +129,14 @@ public:
 };
 
 
-
+/*
+ * Generic Port Class
+ *
+ * This object is used to manage all
+ * generic port (common) settings objects.
+ * Defines save/load and print functionality for
+ * all ports, regardless of the type.
+ */
 class generic_port_settings
 {
 public:
@@ -136,6 +150,14 @@ public:
     bool load(QSettings &settings);
 };
 
+/*
+ * Serial Settings Class
+ *
+ * This object is used to manage serial port
+ * settings object used throughout the project.
+ * Defines save/load and print functionality
+ * specific to the serial port only.
+ */
 class serial_settings : public generic_port_settings
 {
 
@@ -156,6 +178,14 @@ public:
     bool load(QSettings &settings);
 };
 
+/*
+ * UDP Settings Class
+ *
+ * This object is used to manage UDP port
+ * settings objects used throughout the project.
+ * Defines save/load and print functionality
+ * specific to the UDP port only.
+ */
 class udp_settings : public generic_port_settings
 {
 
@@ -173,6 +203,14 @@ public:
     bool load(QSettings &settings);
 };
 
+
+/*
+ * Generic Thread Settings Class
+ *
+ * This object is used to manage generic thread
+ * settings objects used throughout the project.
+ * Defines save/load and print functionality.
+ */
 class generic_thread_settings
 {
 public:
@@ -189,6 +227,14 @@ public:
     bool load(QSettings &settings);
 };
 
+
+/*
+ * KGroundControl Settings Class
+ *
+ * This object is used to manage KGroundControl
+ * (global) settings object used throughout the project.
+ * Defines save/load and print functionality.
+ */
 class kgroundcontrol_settings
 {
 public:
@@ -206,6 +252,14 @@ public:
     bool load(QSettings &settings);
 };
 
+
+/*
+ * Mocap Settings Class
+ *
+ * This object is used to manage mocap
+ * settings objects used throughout the project.
+ * Defines save/load and print functionality.
+ */
 class mocap_settings
 {
 
@@ -228,6 +282,14 @@ public:
     void printf(void);
 };
 
+
+/*
+ * Mocap Relay Settings Class
+ *
+ * This object is used to manage mocap relay
+ * settings objects used throughout the project.
+ * Defines save/load and print functionality.
+ */
 class mocap_relay_settings : public QObject
 {
     Q_OBJECT
