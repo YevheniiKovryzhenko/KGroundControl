@@ -4,7 +4,7 @@
 
 ## Hello there 👋
 
-This is a cross-platform ground control station software I have developed for my research purposes. 
+KGroundControl is a cross-platform ground control station software I have developed for my research purposes. 
 My initial goal for this was to combine multiple ground control stations I have previously written
 and implement a graphical interface for obvious reasons. This is my first app written in Qt and 
 developing a UI. I have found QGroundControl to be insufficient for my purposes, so KGroundControl
