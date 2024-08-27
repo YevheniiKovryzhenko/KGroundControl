@@ -2,6 +2,8 @@
 
 # ![Logo](resources/Images/Logo/KLogo.png)
 
+## Hello there 👋
+
 This is a cross-platform ground control station software I have developed for my research purposes. 
 My initial goal for this was to combine multiple ground control stations I have previously written
 and implement a graphical interface for obvious reasons. This is my first app written in Qt and 
