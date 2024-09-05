@@ -1,6 +1,6 @@
 # KGroundControl (KGC) - Ground Control and Monitoring Software
 
-# ![Logo](resources/Images/Logo/KLogo.png)
+# ![Logo](resources/Images/Logo/KGC_Logo.png)
 
 ## Hello there 👋
 
