@@ -52,7 +52,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     , ui(new Ui::KGroundControl)
 {
     ui->setupUi(this);
-    setWindowIcon(QIcon(":/resources/Images/Logo/KLogo_256x256.png"));
+    setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
 
     load_settings();
     ui->stackedWidget_main->setCurrentIndex(0);
