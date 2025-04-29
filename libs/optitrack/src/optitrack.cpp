@@ -58,7 +58,7 @@
 #define MAX_PACKETSIZE \
   100000  // max size of packet (actual packet size is dynamic)
 #define VERBOSE 0
-// #define DEBUG
+#define DEBUG
 
 mocap_optitrack::mocap_optitrack(QObject *parent) : QObject(parent)
 {
@@ -257,7 +257,7 @@ bool mocap_optitrack::create_optitrack_data_socket(\
     if (Port->joinMulticastGroup(QHostAddress(multicast_address), interface))
     {
 #ifdef DEBUG
-        qDebug() << "[create_optitrack_data_socket] joined multicast group at address " << QString(MULTICAST_ADDRESS);
+        qDebug() << "[create_optitrack_data_socket] joined multicast group at address " << QString(multicast_address);
 #endif
         iface = new QNetworkInterface(interface);
     }
