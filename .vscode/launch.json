@@ -1,0 +1,53 @@
+{
+    "version": "0.2.1",
+    "configurations": [
+        {
+            "name": "Debug KGroundControl",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/KGroundControl",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: Build",
+            "miDebuggerArgs": "",
+            "targetArchitecture": "x64",
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+        },
+        {
+            "name": "Release KGroundControl",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/KGroundControl",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: Build",
+            "miDebuggerArgs": "",
+            "targetArchitecture": "x64",
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+        }
+    ]
+}

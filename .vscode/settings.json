@@ -1,0 +1,14 @@
+{
+    "cmake.configureOnOpen": true,
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.generator": "Ninja",
+    "cmake.configureArgs": [
+        "-DCMAKE_PREFIX_PATH=/home/jack/Qt/v6.9.2/install-static"
+    ],
+    "cmake.buildArgs": [],
+    "cmake.installPrefix": "${workspaceFolder}/install",
+    "cmake.ctestPath": "ctest",
+    "cmake.cmakePath": "cmake",
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.5)
 
 project(KGroundControl VERSION 1.3 LANGUAGES CXX)
 
+set(CMAKE_PREFIX_PATH "/home/jack/Qt/v6.9.2/install-static")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

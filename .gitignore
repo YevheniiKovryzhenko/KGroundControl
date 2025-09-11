@@ -1,9 +1,18 @@
-.vscode
-**/.vs
+# Build directories
 build/
 bin/
+build*/
 .vs/
+**/.vs
+
+# Qt Creator files
 *.user
 .txt.user.*
-build*/*
+CMakeLists.txt.user*
+
+# Temporary files
 *.md5
+
+# VSCode - Keep important config files but ignore cache/temp files
+.vscode/browse.vc.db*
+.vscode/*.log
