@@ -587,11 +587,27 @@ void KGroundControl::mocap_closed(void)
 }
 void KGroundControl::on_btn_mocap_clicked()
 {
+    // Check if mocap_manager already exists
+    if (mocap_manager_) {
+        // If it exists but is hidden, show it
+        if (mocap_manager_->isHidden()) {
+            mocap_manager_->show();
+            mocap_manager_->raise();
+            mocap_manager_->activateWindow();
+        } else {
+            // If it's already visible, bring it to front
+            mocap_manager_->raise();
+            mocap_manager_->activateWindow();
+        }
+        return;
+    }
+
     emit close_mocap();
 
-    //open mocap ui window, it will handle the rest:
+    // Create new mocap ui window:
     mocap_manager_ = new mocap_manager();
-    mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    // Remove WA_DeleteOnClose since we hide instead of close now
+    // mocap_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true);
     connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
     connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);
 

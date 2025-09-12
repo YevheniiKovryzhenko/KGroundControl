@@ -167,7 +167,7 @@ int Serial_Port::write_message(void* message)
 
     return bytesWritten;
 }
-int Serial_Port::write_to_port(QByteArray &message)
+int Serial_Port::write_to_port(QByteArray message)
 {
 
     // Lock

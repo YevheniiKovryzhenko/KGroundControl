@@ -34,6 +34,7 @@
 
 #include <QMessageBox>
 #include <QErrorMessage>
+#include <QCloseEvent>
 
 #include "mocap_manager.h"
 #include "ui_mocap_manager.h"
@@ -56,22 +57,22 @@ QRegularExpression regexp_IPv6("("
     ":((:[0-9a-fA-F]{1,4}){1,7}|:)|"                    // ::2:3:4:5:6:7:8  ::2:3:4:5:6:7:8 ::8       ::
     "fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|"    // fe80::7:8%eth0   fe80::7:8%1     (link-local IPv6 addresses with zone index)
     "::(ffff(:0{1,4}){0,1}:){0,1}"
-    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}"
+    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}"
     "(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|"         // ::255.255.255.255   ::ffff:255.255.255.255  ::ffff:0:255.255.255.255  (IPv4-mapped IPv6 addresses and IPv4-translated addresses)
     "([0-9a-fA-F]{1,4}:){1,4}:"
-    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}"
+    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}"
     "(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])"          // 2001:db8:3:4::192.0.2.33  64:ff9b::192.0.2.33 (IPv4-Embedded IPv6 Address)
     ")");
 
 
 void __copy_data(mocap_data_t& buff_out, mocap_data_t& buff_in)
 {
-    memcpy(&buff_out, &buff_in, sizeof(mocap_data_t));
+    buff_out = buff_in;
     return;
 }
 void __copy_data(optitrack_message_t& buff_out, optitrack_message_t& buff_in)
 {
-    memcpy(&buff_out, &buff_in, sizeof(optitrack_message_t));
+    buff_out = buff_in;
     return;
 }
 
@@ -137,21 +138,49 @@ void __rotate_ZUP2NED(optitrack_message_t& buff_in)
 
 QString mocap_data_t::get_QString(void)
 {
-    QString detailed_text_ = "Time Stamp: " + QString::number(time_ms) + " (ms)\n";
-    detailed_text_ += "Frame ID: " + QString::number(id) + "\n";
-    if (trackingValid) detailed_text_ += "Tracking is valid: YES\n";
-    else detailed_text_ += "Tracking is valid: NO\n";
-    detailed_text_ += "X: " + QString::number(x) + " (m)\n";
-    detailed_text_ += "Y: " + QString::number(y) + " (m)\n";
-    detailed_text_ += "Z: " + QString::number(z) + " (m)\n";
-    detailed_text_ += "qx: " + QString::number(qx) + "\n";
-    detailed_text_ += "qy: " + QString::number(qy) + "\n";
-    detailed_text_ += "qz: " + QString::number(qz) + "\n";
-    detailed_text_ += "qw: " + QString::number(qw) + "\n";
-    detailed_text_ += "Roll: " + QString::number(roll*180.0/std::numbers::pi) + " (deg)\n";
-    detailed_text_ += "Pitch: " + QString::number(pitch*180.0/std::numbers::pi) + " (deg)\n";
-    detailed_text_ += "Yaw: " + QString::number(yaw*180.0/std::numbers::pi) + " (deg)\n";
-    return detailed_text_;
+    return QString("Time Stamp: %1 (ms)\n"
+                   "Frame ID: %2\n"
+                   "Tracking is valid: %3\n"
+                   "X: %4 (m)\n"
+                   "Y: %5 (m)\n"
+                   "Z: %6 (m)\n"
+                   "qx: %7\n"
+                   "qy: %8\n"
+                   "qz: %9\n"
+                   "qw: %10\n"
+                   "Roll: %11 (deg)\n"
+                   "Pitch: %12 (deg)\n"
+                   "Yaw: %13 (deg)\n")
+        .arg(time_ms)
+        .arg(id)
+        .arg(trackingValid ? "YES" : "NO")
+        .arg(x, 0, 'f', 6)
+        .arg(y, 0, 'f', 6)
+        .arg(z, 0, 'f', 6)
+        .arg(qx, 0, 'f', 6)
+        .arg(qy, 0, 'f', 6)
+        .arg(qz, 0, 'f', 6)
+        .arg(qw, 0, 'f', 6)
+        .arg(roll * 180.0 / M_PI, 0, 'f', 2)
+        .arg(pitch * 180.0 / M_PI, 0, 'f', 2)
+        .arg(yaw * 180.0 / M_PI, 0, 'f', 2);
+}
+
+bool mocap_data_t::equals(const mocap_data_t& other) const
+{
+    return id == other.id &&
+           trackingValid == other.trackingValid &&
+           qw == other.qw &&
+           qx == other.qx &&
+           qy == other.qy &&
+           qz == other.qz &&
+           x == other.x &&
+           y == other.y &&
+           z == other.z &&
+           time_ms == other.time_ms &&
+           roll == other.roll &&
+           pitch == other.pitch &&
+           yaw == other.yaw;
 }
 
 
@@ -174,6 +203,7 @@ void mocap_data_aggegator::clear(void)
     {
         frame_ids_.clear();
         frames_.clear();
+        frame_id_to_index_.clear();
     }
     mutex->unlock();
 }
@@ -197,22 +227,14 @@ void mocap_data_aggegator::update(QVector<optitrack_message_t> incoming_data, mo
         default:
             break;
         }
-        int new_frame_ind = -1;
-        for (int i = 0; i < frame_ids_.size(); i++)
-        {
-            if (frame_ids_[i] == msg.id)
-            {
-                new_frame_ind = i;
-                break;
-            }
-        }
+        int new_frame_ind = frame_id_to_index_.value(msg.id, -1);
 
         mocap_data_t frame;
         if (new_frame_ind < 0) //frame is actually brand new
         {
             frame_ids_.push_back(msg_NED.id);
+            frame_id_to_index_[msg_NED.id] = frames_.size();
             frame_ids_updated_ = true;
-
 
             __copy_data(frame, msg_NED);
             frame.time_ms = timestamp;
@@ -236,30 +258,16 @@ bool mocap_data_aggegator::get_frame(int frame_id, mocap_data_t &frame)
 {
     // Lock
     mutex->lock();
-    if (frames_.size() > 0)
+    int frame_index = frame_id_to_index_.value(frame_id, -1);
+    if (frame_index >= 0 && frame_index < frames_.size())
     {
-        for (auto& frame_ : frames_)
-        {
-            if (frame_.id == frame_id)
-            {
-                __copy_data(frame, frame_);
-
-                // Unlock
-                mutex->unlock();
-                return true;
-            }
-        }
-    }
-    else
-    {
+        __copy_data(frame, frames_[frame_index]);
         // Unlock
         mutex->unlock();
-        return false;
+        return true;
     }
-
     // Unlock
     mutex->unlock();
-    qDebug() << "WARNING in get_data: no rigid body matching ID = " << QString::number(frame_id); //this should never happen
     return false;
 }
 
@@ -328,7 +336,7 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
 
 void mocap_thread::run()
 {
-// #define FAKE_DATA
+ // #define FAKE_DATA
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         QVector<optitrack_message_t> msgs_;
@@ -383,6 +391,7 @@ mocap_relay_thread::mocap_relay_thread(QObject *parent, generic_thread_settings 
     if (*(mocap_data_ptr_) != NULL)
     {
         mocap_data_ptr = mocap_data_ptr_;
+        previous_data.time_ms = 0;
         generic_thread::start(generic_thread_settings_.priority);        
     }
 
@@ -411,13 +420,32 @@ void mocap_relay_thread::run()
 {
     while (*(mocap_data_ptr) != NULL && !(QThread::currentThread()->isInterruptionRequested()))
     {
-        mocap_data_t data;
-        if (!(*mocap_data_ptr)->get_frame(relay_settings->frameid, data)) break; //if false, this means that the connection does not exist anymore, so quit
+        // Keep processing frames as long as they are available
+        bool frame_processed = false;
+        do {
+            mocap_data_t data;
+            if (!(*mocap_data_ptr)->get_frame(relay_settings->frameid, data)) {
+                frame_processed = false; // No more frames available
+                break;
+            }
 
-        QByteArray pending_data = pack_most_recent_msg(data);
-        if (pending_data.isEmpty()) break; //something went wrong, this should not normally happen
+            if (data.trackingValid && !data.equals(previous_data))
+            {
+                QByteArray pending_data = pack_most_recent_msg(data);
+                if (pending_data.isEmpty()) {
+                    frame_processed = false; // Error condition
+                    break;
+                }
 
-        emit write_to_port(pending_data);
+                emit write_to_port(pending_data);
+                previous_data = data;
+                frame_processed = true; // Continue processing more frames
+            } else {
+                frame_processed = false; // Frame not valid or same as previous
+            }
+        } while (frame_processed && *(mocap_data_ptr) != NULL && !(QThread::currentThread()->isInterruptionRequested()));
+        
+        // Only sleep when no frames are available to process
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
@@ -460,8 +488,16 @@ QByteArray mocap_relay_thread::pack_most_recent_msg(mocap_data_t data)
         break;
     }}
 
-    char buf[300] = {0};
+    // Use a larger buffer to prevent overflow (MAVLINK_MAX_PACKET_LEN is typically 280)
+    char buf[MAVLINK_MAX_PACKET_LEN] = {0};
     unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, &msg);
+
+    // Safety check - ensure we don't exceed buffer size
+    if (len > MAVLINK_MAX_PACKET_LEN) {
+        qWarning() << "MAVLink message too large:" << len << "bytes, truncating";
+        len = MAVLINK_MAX_PACKET_LEN;
+    }
+
     QByteArray data_out(buf, len);
     return data_out;
 }
@@ -610,6 +646,16 @@ mocap_manager::~mocap_manager()
     delete mocap_data;
 }
 
+void mocap_manager::closeEvent(QCloseEvent *event)
+{
+    // Hide the window instead of closing it
+    hide();
+    // Emit the closed signal so the main app knows it was "closed"
+    emit closed();
+    // Accept the event to prevent the default close behavior
+    event->accept();
+}
+
 void mocap_manager::remove_all(bool remove_settings)
 {
     terminate_mocap_relay_thread();
@@ -705,7 +751,7 @@ void mocap_manager::on_btn_connection_confirm_clicked()
 
     mocap_thread_ = new mocap_thread(nullptr, &thread_settings_, &udp_settings_);
 
-    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
+    QThread::msleep(50); // Reduced from 100ms to 50ms
     if (!mocap_thread_->isRunning())
     {
         (new QErrorMessage)->showMessage("Error: mocap processing thread is not responding\n");
@@ -818,7 +864,7 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
     terminate_visuals_thread();
 
     mocap_data_inspector_thread_ = new mocap_data_inspector_thread(this, &thread_settings_);
-    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.5)});
+    QThread::msleep(100); // Reduced from 500ms to 100ms
     if (!mocap_data_inspector_thread_->isRunning())
     {
         (new QErrorMessage)->showMessage("Error: MOCAP data inspector thread is not responding\n");
@@ -908,10 +954,70 @@ void mocap_manager::on_btn_refesh_clear_clicked()
 }
 
 
+void mocap_manager::repopulate_relay_table()
+{
+    // Clear the table first
+    while (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->tableWidget_mocap_relay->removeRow(0);
+    }
+
+    // Repopulate with existing relays
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings settings;
+        mocap_relay[i]->get_settings(&settings);
+
+        int row_index = ui->tableWidget_mocap_relay->rowCount();
+        ui->tableWidget_mocap_relay->insertRow(row_index);
+
+        // Frame ID
+        QTableWidgetItem *frameItem = new QTableWidgetItem(QString::number(settings.frameid));
+        frameItem->setFlags(frameItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 0, frameItem);
+
+        // System ID
+        QTableWidgetItem *sysItem = new QTableWidgetItem(QString::number(settings.sysid));
+        sysItem->setFlags(sysItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 1, sysItem);
+
+        // Component ID
+        QTableWidgetItem *compItem = new QTableWidgetItem(enum_helpers::value2key(settings.compid));
+        compItem->setFlags(compItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 2, compItem);
+
+        // Message Type
+        QTableWidgetItem *msgItem = new QTableWidgetItem(enum_helpers::value2key(settings.msg_option));
+        msgItem->setFlags(msgItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 3, msgItem);
+
+        // Port Name
+        QTableWidgetItem *portItem = new QTableWidgetItem(settings.Port_Name);
+        portItem->setFlags(portItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 4, portItem);
+
+        // Update Rate
+        QTableWidgetItem *rateItem = new QTableWidgetItem(QString::number(settings.update_rate_hz));
+        rateItem->setFlags(rateItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 5, rateItem);
+
+        // Priority
+        QTableWidgetItem *priorityItem = new QTableWidgetItem(default_ui_config::Priority::value2key(static_cast<QThread::Priority>(settings.priority)));
+        priorityItem->setFlags(priorityItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 6, priorityItem);
+    }
+
+    // Update delete button visibility
+    if (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->btn_relay_delete->setVisible(true);
+    } else {
+        ui->btn_relay_delete->setVisible(false);
+    }
+}
+
 void mocap_manager::on_btn_configure_data_bridge_clicked()
 {
     ui->stackedWidget_main_scroll_window->setCurrentIndex(3);
     refresh_relay();
+    repopulate_relay_table();
 }
 
 
@@ -950,7 +1056,7 @@ void mocap_manager::update_relay_port_list(QVector<QString> new_port_list)
         {
             for(int row_ind = mocap_relay.size()-1; row_ind > -1; row_ind--)
             {
-                if (new_port_list.contains(ui->tableWidget_mocap_relay->item(row_ind,3)->text())) continue;
+                if (new_port_list.contains(ui->tableWidget_mocap_relay->item(row_ind,4)->text())) continue;
 
                 mocap_relay[row_ind]->requestInterruption();
                 for (int ii = 0; ii < 300; ii++)
@@ -982,7 +1088,6 @@ void mocap_manager::update_relay_port_list(QVector<QString> new_port_list)
     else
     {
         ui->cmbx_relay_port_name->clear();
-        terminate_mocap_relay_thread();
         ui->btn_relay_add->setVisible(false);
         ui->btn_relay_delete->setVisible(false);
     }
@@ -1011,9 +1116,8 @@ void mocap_manager::update_relay_sysid_list(QVector<uint8_t> new_sysids)
     else
     {
         ui->cmbx_relay_sysid->clear();
-
+        ui->cmbx_relay_compid->clear();
         ui->cmbx_relay_port_name->clear();
-        terminate_mocap_relay_thread();
         ui->btn_relay_add->setVisible(false);
         ui->btn_relay_delete->setVisible(false);
     }
@@ -1045,9 +1149,7 @@ void mocap_manager::update_relay_compids(uint8_t sysid, QVector<mavlink_enums::m
         else
         {
             ui->cmbx_relay_compid->clear();
-
             ui->cmbx_relay_port_name->clear();
-            terminate_mocap_relay_thread();
             ui->btn_relay_add->setVisible(false);
             ui->btn_relay_delete->setVisible(false);
         }
@@ -1085,43 +1187,36 @@ void mocap_manager::refresh_relay(void)
 
 void mocap_manager::terminate_mocap_relay_thread(void)
 {
-    //tell thread it has to quit:
-    foreach(auto mocap_relay_, mocap_relay)
-    {
+    // Tell threads to quit
+    for (auto mocap_relay_ : mocap_relay) {
         mocap_relay_->requestInterruption();
     }
 
-    //check the status of the thread:
-    foreach(auto mocap_relay_, mocap_relay)
-    {
-        for (int ii = 0; ii < 300; ii++)
-        {
-            if (!mocap_relay_->isRunning() && mocap_relay_->isFinished())
-            {
+    // Wait for threads to finish and clean up
+    for (auto mocap_relay_ : mocap_relay) {
+        for (int ii = 0; ii < 300; ii++) {
+            if (!mocap_relay_->isRunning() && mocap_relay_->isFinished()) {
                 break;
-            }
-            else if (ii == 299) //too long!, let's just end it...
-            {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap relay thread, manually terminating...\n");
+            } else if (ii == 299) {
+                qWarning() << "Warning: Failed to gracefully stop mocap relay thread, terminating forcefully";
                 mocap_relay_->terminate();
             }
-            //let's give it some time to exit cleanly
-            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            QThread::msleep(10); // Use msleep instead of sleep for shorter delays
         }
-    }
-
-    while (mocap_relay.count() > 0)
-    {
-        mocap_relay_thread* mocap_thread_ = mocap_relay.takeLast();
+        // Properly disconnect before deletion
         Generic_Port* port_pointer = nullptr;
         mocap_relay_settings relay_settings;
-        mocap_thread_->get_settings(&relay_settings);
-        if (emit get_port_pointer(relay_settings.Port_Name, &port_pointer))
-        {
-            disconnect(mocap_thread_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port);
+        mocap_relay_->get_settings(&relay_settings);
+        if (emit get_port_pointer(relay_settings.Port_Name, &port_pointer)) {
+            disconnect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port);
         }
+        delete mocap_relay_; // Clean up memory
     }
-    while (ui->tableWidget_mocap_relay->rowCount() > 0) ui->tableWidget_mocap_relay->removeRow(ui->tableWidget_mocap_relay->rowCount() - 1);
+
+    mocap_relay.clear();
+    while (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->tableWidget_mocap_relay->removeRow(ui->tableWidget_mocap_relay->rowCount() - 1);
+    }
 }
 
 
@@ -1134,7 +1229,32 @@ void mocap_manager::on_btn_relay_add_clicked()
     relay_settings.sysid = ui->cmbx_relay_sysid->currentText().toUInt();
     enum_helpers::key2value(ui->cmbx_relay_compid->currentText(), relay_settings.compid);
     relay_settings.Port_Name = ui->cmbx_relay_port_name->currentText();
-    enum_helpers::key2value(ui->cmbx_relay_msg_type->currentText(), relay_settings.msg_option);//mocap_relay_settings::mavlink_vision_position_estimate
+    enum_helpers::key2value(ui->cmbx_relay_msg_type->currentText(), relay_settings.msg_option);
+    relay_settings.update_rate_hz = ui->txt_relay_update_rate_hz->text().toUInt();
+    QThread::Priority temp_priority;
+    default_ui_config::Priority::key2value(ui->cmbx_relay_priority->currentText(), temp_priority);
+    relay_settings.priority = static_cast<int>(temp_priority);
+
+    // Validate relay settings
+    if (relay_settings.frameid < 0) {
+        qWarning() << "Invalid frame ID:" << relay_settings.frameid;
+        return;
+    }
+    if (relay_settings.Port_Name.isEmpty()) {
+        qWarning() << "Port name cannot be empty";
+        return;
+    }
+
+    // Check for duplicate relays
+    for (const auto& existing_relay : mocap_relay) {
+        mocap_relay_settings existing_settings;
+        existing_relay->get_settings(&existing_settings);
+        if (existing_settings.frameid == relay_settings.frameid &&
+            existing_settings.Port_Name == relay_settings.Port_Name) {
+            qWarning() << "Relay already exists for frame" << relay_settings.frameid << "on port" << relay_settings.Port_Name;
+            return;
+        }
+    }
 
     generic_thread_settings thread_settings_;
     default_ui_config::Priority::key2value(ui->cmbx_relay_priority->currentText(), thread_settings_.priority);
@@ -1142,10 +1262,10 @@ void mocap_manager::on_btn_relay_add_clicked()
 
 
     mocap_relay_thread* mocap_relay_ = new mocap_relay_thread(this, &thread_settings_, &relay_settings, &mocap_data);
-    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.5)});
+    QThread::msleep(100); // Reduced from 500ms to 100ms
     if (!mocap_relay_->isRunning())
     {
-        (new QErrorMessage)->showMessage("Error: MOCAP relay thread is not responding\n");
+        qWarning() << "Error: MOCAP relay thread failed to start";
         mocap_relay_->terminate();
         delete mocap_relay_;
         mocap_relay_ = nullptr;
@@ -1155,7 +1275,7 @@ void mocap_manager::on_btn_relay_add_clicked()
 
     if (! emit get_port_pointer(relay_settings.Port_Name, &port_pointer))
     {
-        (new QErrorMessage)->showMessage("Error: failed to match port name\n");
+        qWarning() << "Error: Failed to find port:" << relay_settings.Port_Name;
         if (!mocap_relay_->isFinished())
         {
             mocap_relay_->requestInterruption();
@@ -1207,18 +1327,18 @@ void mocap_manager::on_btn_relay_add_clicked()
         ui->tableWidget_mocap_relay->setItem(row_index, 4, newItem);
     }
     { //rate
-        QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(thread_settings_.update_rate_hz));
+        QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.update_rate_hz));
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 5, newItem);
     }
     { //priority
-        QTableWidgetItem *newItem = new QTableWidgetItem(default_ui_config::Priority::value2key(thread_settings_.priority));
+        QTableWidgetItem *newItem = new QTableWidgetItem(default_ui_config::Priority::value2key(static_cast<QThread::Priority>(relay_settings.priority)));
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 6, newItem);
     }
 
     mocap_relay.push_back(mocap_relay_);
-    connect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port, Qt::DirectConnection);
+    connect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port, Qt::QueuedConnection);
 }
 
 void mocap_manager::on_btn_relay_delete_clicked()
@@ -1237,7 +1357,7 @@ void mocap_manager::on_btn_relay_delete_clicked()
             }
             else if (ii == 299) //too long!, let's just end it...
             {
-                (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap relay thread, manually terminating...\n");
+                qWarning() << "Warning: Failed to gracefully stop mocap relay thread, terminating forcefully";
                 mocap_relay[row_ind]->terminate();
             }
             //let's give it some time to exit cleanly
@@ -1250,6 +1370,27 @@ void mocap_manager::on_btn_relay_delete_clicked()
     } else ui->btn_relay_delete->setVisible(false);
 }
 
+
+QString mocap_manager::get_relay_status_info()
+{
+    QString status = QString("Active Relays: %1\n\n").arg((int)mocap_relay.size());
+
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings settings;
+        mocap_relay[i]->get_settings(&settings);
+
+        status += QString("Relay %1:\n").arg(i + 1);
+        status += QString("  Frame ID: %1\n").arg(settings.frameid);
+        status += QString("  System ID: %1\n").arg(settings.sysid);
+        status += QString("  Component ID: %1\n").arg(settings.compid);
+        status += QString("  Port: %1\n").arg(settings.Port_Name);
+        status += QString("  Message Type: %1\n").arg(enum_helpers::value2key(settings.msg_option));
+        status += QString("  Thread Status: %1\n").arg(mocap_relay[i]->isRunning() ? "Running" : "Stopped");
+        status += "\n";
+    }
+
+    return status;
+}
 
 void mocap_manager::on_tableWidget_mocap_relay_itemSelectionChanged()
 {

@@ -18,13 +18,27 @@ Additionally, it supports the Optitrack Motion Capture System and can stream dat
 
 Check out my videos using KGC on [YouTube](https://www.youtube.com/playlist?list=PLgxIoIw6ONulUfYvzxfoZNM6QXrcRqKkV)!
 
+# Cross-Platform Features
+KGroundControl is designed to work across multiple platforms with minimal configuration:
+
+* **Automatic Qt Detection**: The build system automatically detects Qt installations in common locations
+* **Cross-Platform Deployment**: Uses CMake-based deployment that works on Windows, macOS, and Linux
+* **Architecture-Specific Builds**: Automatically creates deployment packages for different CPU architectures
+* **SDL2 Integration**: Cross-platform multimedia support for joysticks and other input devices
+* **MAVLink Protocol**: Platform-independent drone communication protocol
+
 # Tested Architectures and Platforms
 * x86-64:
-  - Windows - installer and binary available
-  - Ubuntu - installer available
-  - Arch   - binary available
+  - Windows 10/11 - build from source
+  - Ubuntu 20.04+ - build from source
+  - Arch Linux - build from source
+  - macOS 10.15+ - build from source
 * ARM64:
-  - Raspbian - must compile from source
+  - Raspbian - build from source
+  - macOS (Apple Silicon) - build from source
+
+> [!NOTE]
+> The project now includes automatic Qt path detection for cross-platform builds. The build system will automatically search for Qt installations in common locations on Windows, macOS, and Linux.
 
 # Installation
 ## Installer
@@ -40,12 +54,50 @@ you may still have to download some external libraries, but this highly depends 
 . The executable may need to be recompiled for your specific platform (see Compiling from source). 
 
 ## Compiling from source
-Requirements: 
+Requirements:
 * Qt 6.2+
+* CMake 3.5+
+* C++20 compatible compiler
 * For installer creation, you should install [cqtdeployer](https://github.com/QuasarApp/CQtDeployer)
 
-### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Comertial Licence Required)
-This is, perhaps, the easiest option. You just need to install Qt using the official online installer, get the source code for KGroundControl, 
+### Windows
+1. Install Qt 6.2+ using the [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html)
+2. Install Visual Studio 2019/2022 or MinGW
+3. Install CMake
+4. Clone the repository and navigate to the project directory
+5. Configure the build:
+   ```bash
+   mkdir build
+   cd build
+   cmake .. -DCMAKE_PREFIX_PATH="C:/Qt/6.9.2/msvc2019_64"  # Adjust path as needed
+   ```
+6. Build the project:
+   ```bash
+   cmake --build . --config Release
+   ```
+
+### macOS
+1. Install Qt 6.2+ using the [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) or Homebrew
+2. Install Xcode command line tools:
+   ```bash
+   xcode-select --install
+   ```
+3. Install CMake via Homebrew or download from official site
+4. Clone the repository and navigate to the project directory
+5. Configure the build:
+   ```bash
+   mkdir build
+   cd build
+   cmake .. -DCMAKE_PREFIX_PATH="/opt/homebrew/lib/cmake/Qt6"  # Adjust path as needed
+   ```
+6. Build the project:
+   ```bash
+   cmake --build . --config Release
+   ```
+
+### Linux
+#### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Commercial License Required)
+This is, perhaps, the easiest option. You just need to install Qt using the official online installer, get the source code for KGroundControl,
 and compile. This will not be sufficient to generate a standalone executable so you will either have to use a deployment tool (like cqtdeployer),
 create your own installer, or compile a static version of Qt from the source.
 

@@ -69,7 +69,7 @@ public:
 public slots:
     bool read_message(void* message, int mavlink_channel_);
     int write_message(void* message);
-    int write_to_port(QByteArray &message);
+    int write_to_port(QByteArray message);
 
     bool is_heartbeat_emited(void);
     bool toggle_heartbeat_emited(bool val);

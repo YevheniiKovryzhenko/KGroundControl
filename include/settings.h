@@ -310,6 +310,8 @@ public:
     mocap_relay_msg_opt msg_option = mavlink_vision_position_estimate;
     uint8_t sysid = 0;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
+    uint32_t update_rate_hz = 30;
+    int priority = 0;
 
     QString get_QString(void);
     void printf(void);
@@ -328,6 +330,8 @@ public:
             msg_option = other.msg_option;
             sysid = other.sysid;
             compid = other.compid;
+            update_rate_hz = other.update_rate_hz;
+            priority = other.priority;
         }
         return *this; // Return a reference to this object
     }

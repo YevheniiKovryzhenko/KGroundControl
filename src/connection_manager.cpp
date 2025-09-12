@@ -48,17 +48,25 @@ port_read_thread::port_read_thread(QObject* parent, generic_thread_settings *new
 
 void port_read_thread::run()
 {
-
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
-        mavlink_message_t* message = new mavlink_message_t;
-        void* ptr = static_cast<mavlink_message_t*>(message);
-        if (emit read_message(ptr, static_cast<int>(MAVLINK_COMM_0)))
-        {
-            emit message_received(ptr, QDateTime::currentMSecsSinceEpoch());
-            emit write_message(ptr);
-            continue; //there might be more messages, so don't wait
-        } else delete message;
+        // Keep processing messages as long as they are available
+        bool message_processed = false;
+        do {
+            mavlink_message_t* message = new mavlink_message_t;
+            void* ptr = static_cast<mavlink_message_t*>(message);
+            if (emit read_message(ptr, static_cast<int>(MAVLINK_COMM_0)))
+            {
+                emit message_received(ptr, QDateTime::currentMSecsSinceEpoch());
+                emit write_message(ptr);
+                message_processed = true; // Continue processing more messages
+            } else {
+                delete message;
+                message_processed = false; // No more messages, exit inner loop
+            }
+        } while (message_processed && !(QThread::currentThread()->isInterruptionRequested()));
+        
+        // Only sleep when no messages are available
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }

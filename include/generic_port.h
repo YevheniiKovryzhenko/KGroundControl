@@ -68,7 +68,7 @@ signals:
 public slots:
     virtual bool read_message(void* message, int mavlink_channel_)=0;
     virtual int write_message(void* message)=0;
-    virtual int write_to_port(QByteArray &message)=0;
+    virtual int write_to_port(QByteArray message)=0;
 
     virtual bool toggle_heartbeat_emited(bool val)=0;
     virtual bool is_heartbeat_emited(void)=0;

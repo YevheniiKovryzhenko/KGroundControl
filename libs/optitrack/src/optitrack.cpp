@@ -58,7 +58,7 @@
 #define MAX_PACKETSIZE \
   100000  // max size of packet (actual packet size is dynamic)
 #define VERBOSE 0
-#define DEBUG
+// #define DEBUG
 
 mocap_optitrack::mocap_optitrack(QObject *parent) : QObject(parent)
 {

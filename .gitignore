@@ -5,6 +5,9 @@ build*/
 .vs/
 **/.vs
 
+# Deployment directory (auto-generated)
+DistributionKit/
+
 # Qt Creator files
 *.user
 .txt.user.*

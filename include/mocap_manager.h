@@ -38,6 +38,7 @@
 #include <QWidget>
 #include <QNetworkInterface>
 #include <QDateTime>
+#include <QCloseEvent>
 
 #include "threads.h"
 #include "optitrack.hpp"
@@ -53,6 +54,7 @@ public:
     double yaw;
 
     QString get_QString(void);
+    bool equals(const mocap_data_t& other) const;
 private:
 };
 
@@ -77,6 +79,7 @@ signals:
 private:
     QVector<int> frame_ids_;
     QVector<mocap_data_t> frames_;
+    QHash<int, int> frame_id_to_index_; // Maps frame ID to index in frames_ vector
     QMutex* mutex = nullptr;
 };
 
@@ -150,12 +153,13 @@ public slots:
     void get_settings(mocap_relay_settings* settings_out_);
 
 signals:
-    int write_to_port(QByteArray &message);
+    int write_to_port(QByteArray message);
 
 private:
     QByteArray pack_most_recent_msg(mocap_data_t data);
     mocap_relay_settings* relay_settings = nullptr;
     mocap_data_aggegator** mocap_data_ptr = nullptr;
+    mocap_data_t previous_data;
 };
 
 
@@ -170,6 +174,9 @@ class mocap_manager : public QWidget
 public:
     explicit mocap_manager(QWidget *parent = nullptr);
     ~mocap_manager();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 public slots:
 
@@ -227,6 +234,8 @@ private slots:
 
     void refresh_relay(void);
 
+    void repopulate_relay_table(void);
+
     void on_cmbx_relay_sysid_currentTextChanged(const QString &arg1);
 
     void on_btn_relay_add_clicked();
@@ -236,6 +245,7 @@ private slots:
     void on_tableWidget_mocap_relay_itemSelectionChanged();
 
 private:
+    QString get_relay_status_info();
     // QMutex* mutex;
     Ui::mocap_manager *ui;
 

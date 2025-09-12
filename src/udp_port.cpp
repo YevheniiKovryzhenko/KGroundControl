@@ -152,7 +152,7 @@ int UDP_Port::write_message(void* message)
 
     return bytesWritten;
 }
-int UDP_Port::write_to_port(QByteArray &message)
+int UDP_Port::write_to_port(QByteArray message)
 {
     // Lock
     mutex->lock();

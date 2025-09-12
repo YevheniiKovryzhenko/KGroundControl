@@ -10,5 +10,8 @@
     "cmake.installPrefix": "${workspaceFolder}/install",
     "cmake.ctestPath": "ctest",
     "cmake.cmakePath": "cmake",
-    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "files.associations": {
+        "qmessagebox": "cpp"
+    }
 }
