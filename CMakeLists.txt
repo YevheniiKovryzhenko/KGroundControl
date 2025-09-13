@@ -22,7 +22,7 @@ if(NOT DEFINED CMAKE_CONFIGURATION_TYPES AND NOT DEFINED CMAKE_BUILD_TYPE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
 endif()
 
-# Option to force static Qt build
+# Option to force static Qt build (optional; usually auto-detected)
 option(FORCE_QT_STATIC "Force static Qt build even if dynamic is available" OFF)
 
 # Configure consistent MSVC runtime library usage
@@ -138,14 +138,17 @@ else() # Linux and other Unix-like systems
     # Try common Linux Qt installation paths
     set(QT_PATHS
         "$ENV{QTDIR}"
-        "/home/$ENV{USER}/Qt/v${QT_TARGET_VERSION}/install-static"
-        "/home/$ENV{USER}/Qt/${QT_TARGET_VERSION}/gcc_64"
-        "/opt/qt6-static"
-        "/usr/lib/cmake/Qt6"
+        "/home/$ENV{USER}/Qt/Static/v${QT_TARGET_VERSION}/install"
+        "/home/$ENV{USER}/Qt/Shared/v${QT_TARGET_VERSION}/install"
     )
     foreach(QT_PATH ${QT_PATHS})
         if(EXISTS "${QT_PATH}")
             set(CMAKE_PREFIX_PATH "${QT_PATH}")
+            # Auto-detect whether this Qt is static or shared by checking for static libQt6Core.a
+            if(EXISTS "${QT_PATH}/lib/libQt6Core.a")
+                set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
+                message(STATUS "Detected static Qt at: ${QT_PATH}")
+            endif()
             break()
         endif()
     endforeach()
@@ -382,8 +385,17 @@ if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     endif()
 endif()
 
-# Inlude pluggins:
-qt_import_plugins(KGroundControl INCLUDE Qt::osm)
+# Include plugins (limit for Linux static builds to avoid pulling in QtPdf, etc.)
+if(UNIX AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
+    # Disable default plugin auto-imports and include only the Xcb platform plugin
+    # to prevent linking optional plugins such as QtPdf on static builds.
+    qt_import_plugins(KGroundControl
+        NO_DEFAULT
+        INCLUDE
+            Qt6::QXcbIntegrationPlugin
+    )
+endif()
+
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an

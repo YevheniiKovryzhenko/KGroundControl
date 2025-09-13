@@ -33,7 +33,7 @@
       "name": "ninja-release",
       "displayName": "Ninja (Release)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/ninja-release",
+      "binaryDir": "${sourceDir}/build/Release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -42,9 +42,18 @@
       "name": "ninja-debug",
       "displayName": "Ninja (Debug)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/ninja-debug",
+      "binaryDir": "${sourceDir}/build/Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "ninja-minsizerel",
+      "displayName": "Ninja (MinSizeRel)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/MinSizeRel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
       }
     }
   ],
@@ -76,6 +85,10 @@
     {
       "name": "ninja-debug",
       "configurePreset": "ninja-debug"
+    },
+    {
+      "name": "ninja-minsizerel",
+      "configurePreset": "ninja-minsizerel"
     }
   ]
 }

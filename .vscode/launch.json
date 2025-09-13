@@ -17,7 +17,7 @@
             ],
             "console": "integratedTerminal",
             "preLaunchTask": "CMake: Configure and Build MinSizeRel",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "MinSizeRel - Linux/macOS",
@@ -33,10 +33,10 @@
                     "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
                 }
             ],
-            "preLaunchTask": "CMake: Configure and Build MinSizeRel",
+            "preLaunchTask": "Configure and Build MinSizeRel (Linux)",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Debug - Windows",
@@ -54,7 +54,7 @@
             ],
             "console": "integratedTerminal",
             "preLaunchTask": "CMake: Configure and Build Debug",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Debug - Linux/macOS",
@@ -70,10 +70,10 @@
                     "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
                 }
             ],
-            "preLaunchTask": "CMake: Configure and Build Debug",
+            "preLaunchTask": "Configure and Build Debug (Linux)",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Release - Windows",
@@ -91,7 +91,7 @@
             ],
             "console": "integratedTerminal",
             "preLaunchTask": "CMake: Configure and Build Release",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Release - Linux/macOS",
@@ -107,10 +107,10 @@
                     "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
                 }
             ],
-            "preLaunchTask": "CMake: Configure and Build Release",
+            "preLaunchTask": "Configure and Build Release (Linux)",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
         }
     ]
 }
