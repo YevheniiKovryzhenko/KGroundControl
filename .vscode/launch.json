@@ -1,53 +1,116 @@
 {
-    "version": "0.2.1",
+    "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug KGroundControl",
-            "type": "cppdbg",
+            "name": "MinSizeRel - Windows",
+            "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/KGroundControl",
+            "program": "${workspaceFolder}/build/MinSizeRel/KGroundControl.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "setupCommands": [
+            "cwd": "${workspaceFolder}/build/MinSizeRel",
+            "environment": [
                 {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
+                    "name": "PATH",
+                    "value": "${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;C:/Qt/6.8.0/msvc2022_64/bin;C:/Qt/6.7.0/msvc2022_64/bin;C:/Qt/6.6.0/msvc2022_64/bin;${env:PATH}"
                 }
             ],
-            "preLaunchTask": "CMake: Build",
-            "miDebuggerArgs": "",
-            "targetArchitecture": "x64",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: Configure and Build MinSizeRel",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
         {
-            "name": "Release KGroundControl",
+            "name": "MinSizeRel - Linux/macOS",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/KGroundControl",
+            "program": "${workspaceFolder}/build/MinSizeRel/KGroundControl",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "setupCommands": [
+            "cwd": "${workspaceFolder}/build/MinSizeRel",
+            "environment": [
                 {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
                 }
             ],
-            "preLaunchTask": "CMake: Build",
-            "miDebuggerArgs": "",
-            "targetArchitecture": "x64",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "preLaunchTask": "CMake: Configure and Build MinSizeRel",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+        },
+        {
+            "name": "Debug - Windows",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/Debug/KGroundControl.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/Debug",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "C:/Qt_Static/v6.9.2/install/bin;${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: Configure and Build Debug",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+        },
+        {
+            "name": "Debug - Linux/macOS",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/KGroundControl",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/Debug",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
+                }
+            ],
+            "preLaunchTask": "CMake: Configure and Build Debug",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+        },
+        {
+            "name": "Release - Windows",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Release/KGroundControl.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/Release",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;C:/Qt/6.8.0/msvc2022_64/bin;C:/Qt/6.7.0/msvc2022_64/bin;C:/Qt/6.6.0/msvc2022_64/bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: Configure and Build Release",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
+        },
+        {
+            "name": "Release - Linux/macOS",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Release/KGroundControl",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/Release",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
+                }
+            ],
+            "preLaunchTask": "CMake: Configure and Build Release",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         }
     ]
 }

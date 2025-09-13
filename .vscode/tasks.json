@@ -3,16 +3,46 @@
     "tasks": [
         {
             "type": "cmake",
-            "label": "CMake: Configure",
+            "label": "CMake: Configure Debug",
             "command": "configure",
-            "group": "build",
+            "options": {
+                "cwd": "${workspaceFolder}/build/Debug"
+            },
             "presentation": {
                 "echo": true,
                 "reveal": "always",
                 "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
+                "panel": "shared"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: Configure Release",
+            "command": "configure",
+            "options": {
+                "cwd": "${workspaceFolder}/build/Release"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: Configure MinSizeRel",
+            "command": "configure",
+            "options": {
+                "cwd": "${workspaceFolder}/build/MinSizeRel"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
             },
             "problemMatcher": "$gcc"
         },
@@ -20,48 +50,187 @@
             "type": "cmake",
             "label": "CMake: Build",
             "command": "build",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
             "presentation": {
                 "echo": true,
                 "reveal": "always",
                 "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
+                "panel": "shared"
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": [
+                "$gcc",
+                "$msCompile"
+            ]
         },
         {
             "type": "cmake",
             "label": "CMake: Clean",
             "command": "clean",
-            "group": "build",
             "presentation": {
                 "echo": true,
                 "reveal": "always",
                 "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
+                "panel": "shared"
             }
         },
         {
             "type": "cmake",
             "label": "CMake: Clean Rebuild",
             "command": "cleanRebuild",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: Build Debug",
+            "command": "build",
+            "options": {
+                "cwd": "${workspaceFolder}/build/Debug"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$gcc",
+                "$msCompile"
+            ]
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: Build Release",
+            "command": "build",
+            "options": {
+                "cwd": "${workspaceFolder}/build/Release"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$gcc",
+                "$msCompile"
+            ]
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: Build MinSizeRel",
+            "command": "build",
+            "options": {
+                "cwd": "${workspaceFolder}/build/MinSizeRel"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$gcc",
+                "$msCompile"
+            ]
+        },
+        {
+            "label": "CMake: Configure and Build MinSizeRel",
+            "dependsOn": [
+                "CMake: Configure MinSizeRel",
+                "CMake: Build MinSizeRel"
+            ],
+            "dependsOrder": "sequence",
             "group": "build",
             "presentation": {
                 "echo": true,
                 "reveal": "always",
                 "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "CMake: Configure and Build Debug",
+            "dependsOn": [
+                "CMake: Configure Debug",
+                "CMake: Build Debug"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "CMake: Configure and Build Release",
+            "dependsOn": [
+                "CMake: Configure Release",
+                "CMake: Build Release"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Deploy Qt Libraries (Windows)",
+            "type": "shell",
+            "command": "windeployqt",
+            "args": [
+                "--no-translations",
+                "--no-system-d3d-compiler",
+                "--no-opengl-sw",
+                "${workspaceFolder}/build/${input:buildType}/KGroundControl.exe"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
             },
-            "problemMatcher": "$gcc"
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "Build and Deploy Qt (Windows)",
+            "dependsOn": [
+                "CMake: Build ${input:buildType}",
+                "Deploy Qt Libraries (Windows)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "buildType",
+            "description": "Select build type",
+            "default": "Debug",
+            "type": "pickString",
+            "options": [
+                "Debug",
+                "Release",
+                "MinSizeRel"
+            ]
         }
     ]
 }

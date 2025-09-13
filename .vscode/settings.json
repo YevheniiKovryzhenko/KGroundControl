@@ -1,17 +1,29 @@
 {
     "cmake.configureOnOpen": true,
-    "cmake.buildDirectory": "${workspaceFolder}/build",
-    "cmake.sourceDirectory": "${workspaceFolder}",
-    "cmake.generator": "Ninja",
-    "cmake.configureArgs": [
-        "-DCMAKE_PREFIX_PATH=/home/jack/Qt/v6.9.2/install-static"
-    ],
-    "cmake.buildArgs": [],
+    "cmake.configureOnEdit": true,
+    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
     "cmake.installPrefix": "${workspaceFolder}/install",
-    "cmake.ctestPath": "ctest",
-    "cmake.cmakePath": "cmake",
-    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "cmake.configureSettings": {
+        // Let CMake find Qt automatically using system paths
+        // Set QTDIR environment variable if Qt is installed in a custom location
+        // Windows: C:/Qt/6.x.x/msvc2022_64 or C:/Qt/6.x.x/mingw_64
+        // Linux: /home/user/Qt/6.x.x/gcc_64 or /usr/lib/cmake/Qt6
+        // macOS: /Users/user/Qt/6.x.x/macos or /opt/homebrew/lib/cmake/Qt6
+    },
+    "cmake.configureArgs": [
+        "-DCMAKE_BUILD_TYPE_HINT=${buildType}"
+    ],
+    // Force C++ language detection and disable Python
     "files.associations": {
-        "qmessagebox": "cpp"
-    }
+        "*.cpp": "cpp",
+        "*.hpp": "cpp",
+        "*.h": "cpp",
+        "*.c": "c"
+    },
+    "C_Cpp.default.cppStandard": "c++20",
+    "C_Cpp.default.cStandard": "c11",
+    // Disable Python debugging by default
+    "python.terminal.activateEnvironment": false,
+    "python.terminal.activateEnvInCurrentTerminal": false,
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }

@@ -1,6 +1,56 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.16)
+
+# Use modern policy so CMAKE_MSVC_RUNTIME_LIBRARY works as intended (CMake >= 3.15)
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
 
 project(KGroundControl VERSION 1.3 LANGUAGES CXX)
+
+set(QT_TARGET_VERSION 6.9.2)
+
+# Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)
+if(MSVC OR CMAKE_GENERATOR MATCHES "Multi-Config")
+    if(NOT CMAKE_CONFIGURATION_TYPES)
+        set(CMAKE_CONFIGURATION_TYPES "Debug;Release;RelWithDebInfo;MinSizeRel" CACHE STRING "Available build types" FORCE)
+    endif()
+endif()
+
+# For single-config generators (e.g., Ninja), set a sensible default if not provided
+if(NOT DEFINED CMAKE_CONFIGURATION_TYPES AND NOT DEFINED CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
+# Option to force static Qt build
+option(FORCE_QT_STATIC "Force static Qt build even if dynamic is available" OFF)
+
+# Configure consistent MSVC runtime library usage
+if(MSVC)
+    if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
+        # For static Qt builds, use static runtime to avoid conflicts
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+        message(STATUS "Using static runtime for static Qt build")
+    else()
+        # For dynamic Qt builds, use dynamic runtime
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
+        message(STATUS "Using dynamic runtime for dynamic Qt build")
+    endif()
+
+    # Ensure all subprojects use the same runtime
+    set(SDL_FORCE_STATIC_VCRT ON CACHE BOOL "" FORCE)
+
+    # Disable SDL_LIBC to allow RTC removal for MSVC compatibility
+    set(SDL_LIBC OFF CACHE BOOL "" FORCE)
+
+    # Filter out GCC-specific flags that MSVC doesn't understand
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Zc:__cplusplus")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+
+    # Remove GCC-specific warning flags that MSVC doesn't understand
+    string(REPLACE "-Wno-address-of-packed-member" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    string(REPLACE "-Wno-address-of-packed-member" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+endif()
 
 # Add cmake modules path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -8,16 +58,65 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # Cross-platform Qt path detection
 if(WIN32)
     # Try common Windows Qt installation paths
-    set(QT_PATHS
-        "$ENV{QTDIR}"
-        "C:/Qt/6.9.2/msvc2019_64"
-        "C:/Qt/6.9.2/mingw_64"
-        "C:/Qt/6.7.2/msvc2019_64"
-        "C:/Qt/6.7.2/mingw_64"
-    )
+    if(MSVC)
+        # For MSVC, check build type hint from VS Code CMake extension
+        if(CMAKE_BUILD_TYPE_HINT STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "Debug" OR "$ENV{CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            # For Debug builds, prefer dynamic Qt libraries
+            set(QT_PATHS
+                "$ENV{QTDIR}"
+                # Dynamic Qt installations (preferred for Debug)
+                "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
+                # Static Qt installations (fallback for Debug)
+                "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
+                # Standard dynamic Qt installations (fallback)
+                "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
+                "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
+                # MinGW installations (last resort)
+                "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
+            )
+            message(STATUS "Debug build detected: Prioritizing dynamic Qt libraries")
+        else()
+            # For Release/MinSizeRel builds, prefer static Qt libraries
+            set(QT_PATHS
+                "$ENV{QTDIR}"
+                # Static Qt installations (preferred for Release to avoid DLL dependencies)
+                "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
+                # Dynamic Qt installations (fallback for Release)
+                "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
+                # Standard Qt installations (fallback)
+                "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
+                "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
+                # MinGW installations (last resort)
+                "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
+            )
+            message(STATUS "Release build detected: Prioritizing static Qt libraries")
+        endif()
+    else()
+        # For MinGW/other compilers, prefer static builds
+        set(QT_PATHS
+            "$ENV{QTDIR}"
+            # Static Qt installations (user's actual installation)
+            "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
+            "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
+            # Standard dynamic Qt installations (fallback)            
+            "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
+            "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
+        )
+    endif()
     foreach(QT_PATH ${QT_PATHS})
         if(EXISTS "${QT_PATH}")
+            message(STATUS "Found Qt installation at: ${QT_PATH}")
             set(CMAKE_PREFIX_PATH "${QT_PATH}")
+            
+            # Set QT_STATIC_BUILD based on the Qt installation type
+            if("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
+                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
+                message(STATUS "Using dynamic Qt libraries")
+            elseif("${QT_PATH}" MATCHES ".*Qt_Static.*" OR "${QT_PATH}" MATCHES ".*static.*")
+                set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
+                message(STATUS "Using static Qt libraries")
+            endif()
+            
             break()
         endif()
     endforeach()
@@ -27,8 +126,7 @@ elseif(APPLE)
         "$ENV{QTDIR}"
         "/opt/homebrew/lib/cmake/Qt6"
         "/usr/local/lib/cmake/Qt6"
-        "~/Qt/6.9.2/macos"
-        "~/Qt/6.7.2/macos"
+        "~/Qt/${QT_TARGET_VERSION}/macos"
     )
     foreach(QT_PATH ${QT_PATHS})
         if(EXISTS "${QT_PATH}")
@@ -40,10 +138,8 @@ else() # Linux and other Unix-like systems
     # Try common Linux Qt installation paths
     set(QT_PATHS
         "$ENV{QTDIR}"
-        "/home/$ENV{USER}/Qt/v6.9.2/install-static"
-        "/home/$ENV{USER}/Qt/6.9.2/gcc_64"
-        "/home/$ENV{USER}/Qt/6.7.2/install-static"
-        "/home/$ENV{USER}/Qt/6.7.2/gcc_64"
+        "/home/$ENV{USER}/Qt/v${QT_TARGET_VERSION}/install-static"
+        "/home/$ENV{USER}/Qt/${QT_TARGET_VERSION}/gcc_64"
         "/opt/qt6-static"
         "/usr/lib/cmake/Qt6"
     )
@@ -90,12 +186,40 @@ set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE INTERNAL "Suppress CMake develope
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# MSVC specific configuration for static Qt builds
+if(MSVC)
+    # Ensure C++17 standard is properly detected for Qt
+    add_compile_options(/Zc:__cplusplus)
+    # Suppress common warnings from Qt MOC generated code
+    add_compile_options(/wd4100 /wd4189 /wd4244 /wd4267)
+endif()
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
+
+# Configure for static Qt builds
+if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
+    message(STATUS "Configuring for static Qt build")
+    add_definitions(-DQT_STATICPLUGIN)
+
+    # For static builds, we need to link against all required Qt libraries
+    if(WIN32)
+        # Windows static linking may require additional libraries
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO")
+        if(MSVC)
+            # MSVC specific static linking flags
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:libcmt.lib /NODEFAULTLIB:msvcrt.lib")
+            # Additional flags for static Qt builds
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /FORCE:MULTIPLE")
+        endif()
+    endif()
+else()
+    message(STATUS "Configuring for dynamic Qt build")
+endif()
 
 set(PROJECT_HEADERS
     include/connection_manager.h
@@ -219,14 +343,63 @@ target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
 target_link_libraries(KGroundControl PRIVATE SDL2main SDL2-static)
 
+# Static Qt build additional libraries
+if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
+    if(WIN32 AND MSVC)
+        # Link against required Windows system libraries for static builds
+        target_link_libraries(KGroundControl PRIVATE
+            # Core Windows libraries
+            kernel32.lib
+            user32.lib
+            gdi32.lib
+            winspool.lib
+            shell32.lib
+            ole32.lib
+            oleaut32.lib
+            uuid.lib
+            comdlg32.lib
+            advapi32.lib
+            # Network and communication
+            ws2_32.lib
+            wsock32.lib
+            # Multimedia and UI
+            winmm.lib
+            imm32.lib
+            # Additional system libraries
+            version.lib
+            dwmapi.lib
+            uxtheme.lib
+            # Cryptography
+            crypt32.lib
+            # ODBC (for Qt SQL if needed)
+            odbc32.lib
+            odbccp32.lib
+            # Universal CRT and C runtime (for static linking)
+            msvcrt.lib
+            ucrt.lib
+            vcruntime.lib
+        )
+    endif()
+endif()
+
 # Inlude pluggins:
 qt_import_plugins(KGroundControl INCLUDE Qt::osm)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
 # explicit, fixed bundle identifier manually though.
-if(${QT_VERSION} VERSION_LESS 6.1.0)
-  set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.KGroundControl)
+# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
+# Guard this with proper variables and limit to Apple platforms to avoid configure errors
+if(APPLE)
+    # For Qt 6, use Qt6_VERSION; for Qt 5, use Qt5_VERSION. Fall back safely if not defined
+    if(QT_VERSION_MAJOR EQUAL 6)
+        if(DEFINED Qt6_VERSION AND Qt6_VERSION VERSION_LESS "6.1.0")
+            set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.KGroundControl)
+        endif()
+    elseif(QT_VERSION_MAJOR EQUAL 5)
+        # Qt 5 predates this auto-setting, keep explicit identifier
+        set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.KGroundControl)
+    endif()
 endif()
 set_target_properties(KGroundControl PROPERTIES
     ${BUNDLE_ID_OPTION}
