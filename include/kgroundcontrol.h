@@ -146,6 +146,7 @@ private:
 
     void update_port_status_txt(void);
     void save_settings(void);
-    void load_settings(void);    
+    void load_settings(void);
+    void updateAllWidgetsFont(QWidget* parent, const QFont& font);    
 };
 #endif // KGROUNDCONTROL_H

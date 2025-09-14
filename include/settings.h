@@ -245,6 +245,10 @@ public:
     uint8_t sysid = 254;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::mavlink_component_id::MISSIONPLANNER;
 
+    // UI typography preferences
+    QString font_family = "Ubuntu Sans";
+    int font_point_size = 11;
+
 
     QString get_QString(void);
     void printf(void);
@@ -277,6 +281,7 @@ public:
     // uint16_t host_port; //writing here //unused
 
     QString multicast_address = MULTICAST_ADDRESS;
+
 
     QString get_QString(void);
     void printf(void);
@@ -335,6 +340,26 @@ public:
         }
         return *this; // Return a reference to this object
     }
+};
+
+/*
+ * Fake Mocap Settings Class
+ *
+ * Runtime-configurable settings for the software mocap generator.
+ * Defines save/load and print functionality.
+ */
+class fake_mocap_settings
+{
+public:
+    bool enabled = false;
+    double period_s = 30.0;
+    double radius_m = 1.0;
+    int frame_id = 100;
+
+    QString get_QString(void);
+    void printf(void);
+    void save(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 #endif // SETTINGS_H

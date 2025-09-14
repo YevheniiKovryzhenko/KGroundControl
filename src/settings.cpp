@@ -280,6 +280,8 @@ QString kgroundcontrol_settings::get_QString(void)
     text_out += "System ID: " + QString::number(sysid);
     text_out += "Component ID: " + enum_helpers::value2key(compid);
 
+    text_out += "\nUI Font: " + font_family + ", " + QString::number(font_point_size) + "pt";
+
     return text_out;
 }
 void kgroundcontrol_settings::save(QSettings &settings)
@@ -287,6 +289,8 @@ void kgroundcontrol_settings::save(QSettings &settings)
     settings.beginGroup("kgroundcontrol");
     settings.setValue("sysid", sysid);
     settings.setValue("compid", static_cast<int32_t>(compid));
+    settings.setValue("font_family", font_family);
+    settings.setValue("font_point_size", font_point_size);
     settings.endGroup();
 }
 bool kgroundcontrol_settings::load(QSettings &settings)
@@ -299,6 +303,9 @@ bool kgroundcontrol_settings::load(QSettings &settings)
     }
     sysid = settings.value("sysid").toUInt();
     compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid").toUInt());
+    // Optional values with defaults
+    font_family = settings.value("font_family", font_family).toString();
+    font_point_size = settings.value("font_point_size", font_point_size).toInt();
     settings.endGroup();
     return true;
 }
@@ -411,6 +418,48 @@ bool mocap_relay_settings::load(QSettings &settings)
     msg_option = static_cast<mocap_relay_msg_opt>(settings.value("msg_option").toUInt());
     sysid = settings.value("sysid").toUInt();
     compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid").toUInt());
+    settings.endGroup();
+    return true;
+}
+
+// ---------------- Fake Mocap Settings ----------------
+void fake_mocap_settings::printf(void)
+{
+    qDebug() << get_QString();
+}
+
+QString fake_mocap_settings::get_QString(void)
+{
+    QString out;
+    out += QString("Fake Mocap: %1\n").arg(enabled ? "ENABLED" : "DISABLED");
+    out += QString("Period: %1 s\n").arg(period_s, 0, 'f', 2);
+    out += QString("Radius: %1 m\n").arg(radius_m, 0, 'f', 2);
+    out += QString("Frame ID: %1\n").arg(frame_id);
+    return out;
+}
+
+void fake_mocap_settings::save(QSettings &settings)
+{
+    settings.beginGroup("fake_mocap_settings");
+    settings.setValue("enabled", enabled);
+    settings.setValue("period_s", period_s);
+    settings.setValue("radius_m", radius_m);
+    settings.setValue("frame_id", frame_id);
+    settings.endGroup();
+}
+
+bool fake_mocap_settings::load(QSettings &settings)
+{
+    settings.beginGroup("fake_mocap_settings");
+    if (!(settings.contains("enabled") && settings.contains("period_s") && settings.contains("radius_m") && settings.contains("frame_id")))
+    {
+        settings.endGroup();
+        return false;
+    }
+    enabled   = settings.value("enabled").toBool();
+    period_s  = settings.value("period_s").toDouble();
+    radius_m  = settings.value("radius_m").toDouble();
+    frame_id  = settings.value("frame_id").toInt();
     settings.endGroup();
     return true;
 }

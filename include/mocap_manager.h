@@ -43,6 +43,11 @@
 #include "threads.h"
 #include "optitrack.hpp"
 #include "generic_port.h"
+#include "settings.h"
+#include "fake_mocap_dialog.h"
+#include <QElapsedTimer>
+#include <QPlainTextEdit>
+#include <QLineEdit>
 
 
 class mocap_data_t: public optitrack_message_t
@@ -52,6 +57,7 @@ public:
     double roll;
     double pitch;
     double yaw;
+    double freq_hz = 0.0; // smoothed incoming frame rate for this ID
 
     QString get_QString(void);
     bool equals(const mocap_data_t& other) const;
@@ -80,6 +86,7 @@ private:
     QVector<int> frame_ids_;
     QVector<mocap_data_t> frames_;
     QHash<int, int> frame_id_to_index_; // Maps frame ID to index in frames_ vector
+    QHash<int, uint64_t> last_time_ms_; // last timestamp per frame id
     QMutex* mutex = nullptr;
 };
 
@@ -163,6 +170,30 @@ private:
 };
 
 
+class fake_mocap_thread : public generic_thread
+{
+    Q_OBJECT
+public:
+    explicit fake_mocap_thread(QObject* parent, generic_thread_settings* new_settings);
+    ~fake_mocap_thread();
+
+    void run() override;
+
+signals:
+    bool update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation);
+
+public slots:
+    void update_settings(const fake_mocap_settings& settings);
+
+private:
+    // minimal internal copy of the relevant settings
+    bool enabled_ = false;
+    double period_s_ = 30.0;
+    double radius_m_ = 1.0;
+    int frame_id_ = 100;
+    QElapsedTimer timer_;
+};
+
 namespace Ui {
 class mocap_manager;
 }
@@ -217,6 +248,7 @@ private slots:
     void on_btn_terminate_all_clicked();
 
     void on_btn_mocap_data_inspector_clicked();
+    void on_btn_fake_mocap_clicked();
 
     void on_btn_connection_go_back_2_clicked();
 
@@ -253,6 +285,10 @@ private:
     mocap_data_inspector_thread* mocap_data_inspector_thread_ = nullptr;
     mocap_data_aggegator* mocap_data = nullptr;
     QVector<mocap_relay_thread*> mocap_relay;
+
+    // Fake mocap node (independent of hardware)
+    fake_mocap_thread* fake_mocap_thread_ = nullptr;
+    fake_mocap_settings fake_settings_;
 };
 
 

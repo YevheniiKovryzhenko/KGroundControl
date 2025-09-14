@@ -3,6 +3,11 @@
     "cmake.configureOnEdit": true,
     "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
     "cmake.installPrefix": "${workspaceFolder}/install",
+    // Ensure the CMake generator matches our tasks
+    "cmake.generator": "Ninja",
+    // Prevent stray build args from being injected (e.g. mistaken linker flags like -lm)
+    "cmake.buildArgs": [],
+    "cmake.buildToolArgs": [],
     "cmake.configureSettings": {
         // Let CMake find Qt automatically using system paths
         // Set QTDIR environment variable if Qt is installed in a custom location

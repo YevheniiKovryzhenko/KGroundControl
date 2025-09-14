@@ -37,6 +37,8 @@
 #include <QApplication>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QSettings>
+#include <QFont>
 
 void configureDarkStyle()
 {
@@ -67,6 +69,16 @@ int main(int argc, char *argv[])
     * Make the application use the Fusion style + dark palette
     */
     configureDarkStyle();
+
+    // Apply UI font from settings (with defaults) and minimal stylesheet
+    QCoreApplication::setOrganizationName("YevheniiKovryzhenko");
+    QCoreApplication::setOrganizationDomain("https://github.com/YevheniiKovryzhenko/KGroundControl");
+    QCoreApplication::setApplicationName("KGroundControl");
+    QSettings appSettings;
+    QString fontFamily = appSettings.value("kgroundcontrol/font_family", QString("Ubuntu Sans")).toString();
+    int fontSize = appSettings.value("kgroundcontrol/font_point_size", 11).toInt();
+    a.setFont(QFont(fontFamily, fontSize));
+    a.setStyleSheet("QTextBrowser { background: transparent; }");
 
     w.show();
     return a.exec();

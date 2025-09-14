@@ -243,6 +243,7 @@ set(PROJECT_HEADERS
     include/joystick.h
     include/joystick_manager.h
     include/remote_control_manager.h
+    include/fake_mocap_dialog.h
 )
 
 set(PROJECT_SOURCES
@@ -263,6 +264,7 @@ set(PROJECT_SOURCES
     src/joystick.cpp
     src/joystick_manager.cpp
     src/remote_control_manager.cpp
+    src/fake_mocap_dialog.cpp
 )
 
 set(PROJECT_UI
@@ -274,6 +276,7 @@ set(PROJECT_UI
     src/keybinddialog.ui
     # src/cartography.ui
     src/joystick_manager.ui
+    src/fake_mocap_dialog.ui
 )
 
 set(PROJECT_RESOURCES

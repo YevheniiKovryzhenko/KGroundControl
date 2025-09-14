@@ -38,8 +38,12 @@
 
 #include "mocap_manager.h"
 #include "ui_mocap_manager.h"
+#include "fake_mocap_dialog.h"
 #include "all/mavlink.h"
 #include "generic_port.h"
+#include <QtMath>
+#include <QGraphicsOpacityEffect>
+#include <QScrollBar>
 
 //IPv4 RegEx
 QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
@@ -139,19 +143,21 @@ void __rotate_ZUP2NED(optitrack_message_t& buff_in)
 QString mocap_data_t::get_QString(void)
 {
     return QString("Time Stamp: %1 (ms)\n"
-                   "Frame ID: %2\n"
-                   "Tracking is valid: %3\n"
-                   "X: %4 (m)\n"
-                   "Y: %5 (m)\n"
-                   "Z: %6 (m)\n"
-                   "qx: %7\n"
-                   "qy: %8\n"
-                   "qz: %9\n"
-                   "qw: %10\n"
-                   "Roll: %11 (deg)\n"
-                   "Pitch: %12 (deg)\n"
-                   "Yaw: %13 (deg)\n")
-        .arg(time_ms)
+                   "Frequency: %2 (Hz)\n"
+                   "Frame ID: %3\n"
+                   "Tracking is valid: %4\n"
+                   "X: %5 (m)\n"
+                   "Y: %6 (m)\n"
+                   "Z: %7 (m)\n"
+                   "qx: %8\n"
+                   "qy: %9\n"
+                   "qz: %10\n"
+                   "qw: %11\n"
+                   "Roll: %12 (deg)\n"
+                   "Pitch: %13 (deg)\n"
+                   "Yaw: %14 (deg)\n")
+    .arg(time_ms)
+    .arg(freq_hz, 0, 'f', 2)
         .arg(id)
         .arg(trackingValid ? "YES" : "NO")
         .arg(x, 0, 'f', 6)
@@ -238,12 +244,36 @@ void mocap_data_aggegator::update(QVector<optitrack_message_t> incoming_data, mo
 
             __copy_data(frame, msg_NED);
             frame.time_ms = timestamp;
+            // initialize frequency tracking
+            uint64_t prev = last_time_ms_.value(msg_NED.id, 0);
+            if (prev > 0)
+            {
+                double dt = static_cast<double>(timestamp - prev) / 1000.0;
+                if (dt > 0.0) frame.freq_hz = 1.0 / dt;
+            }
+            last_time_ms_[msg_NED.id] = timestamp;
             frames_.push_back(frame);
         }
         else //we have seen this frame id before
         {
             __copy_data(frame, msg_NED);
             frame.time_ms = timestamp;
+            // frequency estimate with EMA smoothing
+            uint64_t prev = last_time_ms_.value(msg_NED.id, 0);
+            if (prev > 0)
+            {
+                double dt = static_cast<double>(timestamp - prev) / 1000.0;
+                if (dt > 0.0)
+                {
+                    double f = 1.0 / dt;
+                    // smooth with previous displayed value if available
+                    double prev_f = frames_[new_frame_ind].freq_hz;
+                    // alpha controls responsiveness: 0.2 mildly smooth
+                    const double alpha = 0.2;
+                    frame.freq_hz = (prev_f > 0.0) ? (alpha * f + (1.0 - alpha) * prev_f) : f;
+                }
+            }
+            last_time_ms_[msg_NED.id] = timestamp;
             __copy_data(frames_[new_frame_ind], frame);
         }
         updated_frames.push_back(frame);
@@ -305,6 +335,60 @@ void mocap_thread::update_settings(mocap_settings* mocap_new_settings)
     memcpy(&mocap_settings_, mocap_new_settings, sizeof(*mocap_new_settings));
     mutex->unlock();
 }
+
+// ----------------- Fake MOCAP Thread -----------------
+fake_mocap_thread::fake_mocap_thread(QObject* parent, generic_thread_settings* new_settings)
+    : generic_thread(parent, new_settings)
+{
+    timer_.start();
+    generic_thread::start(generic_thread_settings_.priority);
+}
+
+fake_mocap_thread::~fake_mocap_thread() {}
+
+void fake_mocap_thread::update_settings(const fake_mocap_settings& settings)
+{
+    mutex->lock();
+    enabled_ = settings.enabled;
+    period_s_ = settings.period_s;
+    radius_m_ = settings.radius_m;
+    frame_id_ = settings.frame_id;
+    mutex->unlock();
+}
+
+void fake_mocap_thread::run()
+{
+    while (!(QThread::currentThread()->isInterruptionRequested()))
+    {
+        // Read config snapshot
+    mutex->lock();
+    const bool enabled = enabled_;
+    const double T = period_s_ > 0.01 ? period_s_ : 30.0;
+    const double R = radius_m_ >= 0.0 ? radius_m_ : 1.0;
+    const int id = frame_id_;
+    mutex->unlock();
+
+        if (enabled)
+        {
+            const double t = static_cast<double>(timer_.elapsed()) / 1000.0; // seconds
+            const double omega = 2.0 * M_PI / T;
+            const double ang = omega * t;
+            optitrack_message_t msg;
+            msg.id = id;
+            msg.trackingValid = true;
+            msg.x = R * qCos(ang);
+            msg.y = R * qSin(ang);
+            msg.z = -1.0;
+            msg.qw = 1.0;
+            msg.qx = msg.qy = msg.qz = 0.0;
+
+            QVector<optitrack_message_t> batch{msg};
+            emit update(batch, mocap_rotation::NONE); // already in desired frame
+        }
+
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+    }
+}
 void mocap_thread::get_settings(mocap_settings* settings_out_)
 {
     mutex->lock();
@@ -329,7 +413,7 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
     }
     if (!optitrack->create_optitrack_data_socket(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
 
-    update_settings(mocap_new_settings);    
+    update_settings(mocap_new_settings);
     generic_thread::start(generic_thread_settings_.priority);
     return true;
 }
@@ -347,34 +431,6 @@ void mocap_thread::run()
             mutex->unlock();
             emit update(msgs_, data_rotation);
         }
-#ifdef FAKE_DATA
-        {
-            optitrack_message_t fake_msg;
-            fake_msg.id = 100;
-            fake_msg.qw = 1;
-            fake_msg.trackingValid = true;
-            fake_msg.x = 1;
-            fake_msg.y = 2;
-            fake_msg.z = 3;
-
-            msgs_.push_back(fake_msg);
-        }
-        {
-            optitrack_message_t fake_msg;
-            fake_msg.id = 150;
-            fake_msg.qw = 1;
-            fake_msg.trackingValid = true;
-            fake_msg.x = 3;
-            fake_msg.y = 2;
-            fake_msg.z = 1;
-
-            msgs_.push_back(fake_msg);
-        }
-        mutex->lock();
-        mocap_rotation data_rotation = mocap_settings_.data_rotation;
-        mutex->unlock();
-        emit update(msgs_, data_rotation);
-#endif
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 
@@ -556,6 +612,16 @@ mocap_manager::mocap_manager(QWidget *parent)
     // mutex = new QMutex;
     mocap_data = new mocap_data_aggegator(this);
 
+    // Start fake mocap node (disabled by default; can be toggled later via settings)
+    {
+        generic_thread_settings fake_thr_set;
+        fake_thr_set.update_rate_hz = 60; // smooth circle
+        fake_thr_set.priority = QThread::NormalPriority;
+        fake_mocap_thread_ = new fake_mocap_thread(this, &fake_thr_set);
+        fake_mocap_thread_->update_settings(fake_settings_);
+        connect(fake_mocap_thread_, &fake_mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
+    }
+
     // Start of Open Data Socket Pannel //
     ui->cmbx_host_address->setEditable(true);
     ui->cmbx_local_address->setEditable(true);
@@ -592,6 +658,20 @@ mocap_manager::mocap_manager(QWidget *parent)
 
     ui->groupBox_not_active->setEnabled(true);
     ui->groupBox_active->setEnabled(false);
+    auto applyGroupDimming = [this]() {
+        auto setDim = [](QWidget* w, bool dim) {
+            if (!w) return;
+            QGraphicsOpacityEffect* eff = qobject_cast<QGraphicsOpacityEffect*>(w->graphicsEffect());
+            if (!eff) { eff = new QGraphicsOpacityEffect(w); w->setGraphicsEffect(eff); }
+            eff->setOpacity(dim ? 0.4 : 1.0);
+        };
+        setDim(ui->groupBox_not_active, !ui->groupBox_not_active->isEnabled());
+        setDim(ui->groupBox_active, !ui->groupBox_active->isEnabled());
+    };
+    applyGroupDimming();
+    // Store for reuse
+    connect(ui->groupBox_not_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
+    connect(ui->groupBox_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
     // End of MOCAP Data Inspector Pannel //
 
     // Start of MOCAP Relay Pannel //
@@ -658,6 +738,21 @@ void mocap_manager::closeEvent(QCloseEvent *event)
 
 void mocap_manager::remove_all(bool remove_settings)
 {
+    // stop fake first
+    if (fake_mocap_thread_)
+    {
+        if (!fake_mocap_thread_->isFinished())
+        {
+            fake_mocap_thread_->requestInterruption();
+            for (int ii = 0; ii < 300; ++ii)
+            {
+                if (!fake_mocap_thread_->isRunning() && fake_mocap_thread_->isFinished()) break;
+                if (ii == 299) fake_mocap_thread_->terminate();
+                QThread::msleep(10);
+            }
+        }
+        fake_mocap_thread_ = nullptr;
+    }
     terminate_mocap_relay_thread();
     terminate_visuals_thread();
     terminate_mocap_processing_thread();
@@ -672,6 +767,9 @@ void mocap_manager::on_btn_open_data_socket_clicked()
          QString::number(PORT_COMMAND)}));
     ui->cmbx_local_port->setCurrentIndex(0);
     on_btn_connection_local_update_clicked();
+    // ensure dimming reflects current enabled state
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(ui->groupBox_not_active->isEnabled()?1.0:0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(ui->groupBox_active->isEnabled()?1.0:0.4);
 }
 
 
@@ -726,6 +824,8 @@ void mocap_manager::on_btn_connection_local_update_clicked()
 void mocap_manager::on_btn_connection_go_back_clicked()
 {
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(ui->groupBox_not_active->isEnabled()?1.0:0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(ui->groupBox_active->isEnabled()?1.0:0.4);
 }
 
 
@@ -765,8 +865,13 @@ void mocap_manager::on_btn_connection_confirm_clicked()
         msgBox.setText("Successfully Started MOCAP UDP Communication!");
         msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
         msgBox.exec();
-        ui->groupBox_not_active->setEnabled(false);
-        ui->groupBox_active->setEnabled(true);
+    ui->groupBox_not_active->setEnabled(false);
+    ui->groupBox_active->setEnabled(true);
+    if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+    if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+    // dimming refresh
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(1.0);
         connect(mocap_thread_, &mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
     }
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
@@ -849,6 +954,8 @@ void mocap_manager::on_btn_terminate_all_clicked()
 
     ui->groupBox_not_active->setEnabled(true);
     ui->groupBox_active->setEnabled(false);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(1.0);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(0.4);
 }
 
 
@@ -886,6 +993,21 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
     connect(this, &mocap_manager::reset_visuals, mocap_data_inspector_thread_, &mocap_data_inspector_thread::reset, Qt::DirectConnection);
 
     ui->stackedWidget_main_scroll_window->setCurrentIndex(2);
+    setWindowTitle("Motion Capture Manager — Data Inspector");
+}
+
+void mocap_manager::on_btn_fake_mocap_clicked()
+{
+    auto *dlg = new FakeMocapDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose, true);
+    dlg->setModal(false);
+    dlg->setWindowModality(Qt::NonModal);
+    dlg->setSettings(fake_settings_);
+    connect(dlg, &FakeMocapDialog::settingsChanged, this, [this](const fake_mocap_settings& s){
+        fake_settings_ = s;
+        if (fake_mocap_thread_) fake_mocap_thread_->update_settings(fake_settings_);
+    });
+    dlg->show();
 }
 
 
@@ -893,6 +1015,7 @@ void mocap_manager::on_btn_connection_go_back_2_clicked()
 {
     terminate_visuals_thread();
     on_btn_connection_go_back_clicked();
+    setWindowTitle("Motion Capture Manager");
 }
 
 
@@ -931,24 +1054,56 @@ void mocap_manager::update_visuals_mocap_data(void)
 {
     mocap_data_t buff;
     int ID = ui->cmbx_frameid->currentText().toInt();
-    // mutex->lock();
     QVector<int> ids = mocap_data->get_ids();
-    // mutex->unlock();
     if (ids.contains(ID) && mocap_data->get_frame(ID, buff))
     {
-        // mutex->lock();
-        ui->txt_mocap_data_view->clear();
-        ui->txt_mocap_data_view->setText(buff.get_QString());
-        // mutex->unlock();
+        if (auto t = findChild<QLineEdit*>("fld_time")) t->setText(QString::number(buff.time_ms));
+        if (auto f = findChild<QLineEdit*>("fld_freq")) f->setText(QString::number(buff.freq_hz, 'f', 2));
+        // Drive valid indicator LED
+        if (auto led = findChild<QLabel*>("led_valid")) {
+            if (buff.trackingValid) {
+                led->setStyleSheet("background-color: #2ecc71; border-radius: 7px; border: 1px solid #666;");
+                led->setToolTip("Tracking Valid");
+            } else {
+                led->setStyleSheet("background-color: #e74c3c; border-radius: 7px; border: 1px solid #666;");
+                led->setToolTip("Tracking Invalid");
+            }
+        }
+        if (auto x = findChild<QLineEdit*>("fld_x")) x->setText(QString::number(buff.x, 'f', 6));
+        if (auto y = findChild<QLineEdit*>("fld_y")) y->setText(QString::number(buff.y, 'f', 6));
+        if (auto z = findChild<QLineEdit*>("fld_z")) z->setText(QString::number(buff.z, 'f', 6));
+        if (auto qx = findChild<QLineEdit*>("fld_qx")) qx->setText(QString::number(buff.qx, 'f', 6));
+        if (auto qy = findChild<QLineEdit*>("fld_qy")) qy->setText(QString::number(buff.qy, 'f', 6));
+        if (auto qz = findChild<QLineEdit*>("fld_qz")) qz->setText(QString::number(buff.qz, 'f', 6));
+        if (auto qw = findChild<QLineEdit*>("fld_qw")) qw->setText(QString::number(buff.qw, 'f', 6));
+        if (auto r = findChild<QLineEdit*>("fld_roll")) r->setText(QString::number(buff.roll * 180.0 / M_PI, 'f', 2));
+        if (auto p = findChild<QLineEdit*>("fld_pitch")) p->setText(QString::number(buff.pitch * 180.0 / M_PI, 'f', 2));
+        if (auto yw = findChild<QLineEdit*>("fld_yaw")) yw->setText(QString::number(buff.yaw * 180.0 / M_PI, 'f', 2));
     }
 }
 
 void mocap_manager::on_btn_refesh_clear_clicked()
 {
-    // mutex->lock();
-    ui->txt_mocap_data_view->clear();
+    auto setIf = [this](const char* name, const QString& val){ if (auto w = findChild<QLineEdit*>(name)) w->setText(val); };
+    setIf("fld_time", "0");
+    setIf("fld_freq", "0.00");
+    setIf("fld_x", "0.000000");
+    setIf("fld_y", "0.000000");
+    setIf("fld_z", "0.000000");
+    setIf("fld_qx", "0.000000");
+    setIf("fld_qy", "0.000000");
+    setIf("fld_qz", "0.000000");
+    setIf("fld_qw", "0.000000");
+    setIf("fld_roll", "0.00");
+    setIf("fld_pitch", "0.00");
+    setIf("fld_yaw", "0.00");
+    // Reset valid LED to red
+    if (auto led = findChild<QLabel*>("led_valid")) {
+        led->setStyleSheet("background-color: #e74c3c; border-radius: 7px; border: 1px solid #666;");
+        led->setToolTip("Tracking Invalid");
+    }
+
     QVector<int> IDs = mocap_data->get_ids();
-    // mutex->unlock();
     if (!IDs.isEmpty()) update_visuals_mocap_frame_ids(IDs);
     emit reset_visuals();
 }

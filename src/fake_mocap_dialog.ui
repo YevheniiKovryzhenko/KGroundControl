@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FakeMocapDialog</class>
+ <widget class="QDialog" name="FakeMocapDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>420</width>
+    <height>200</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Fake Mocap Object Settings</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_toggle">
+     <item>
+      <widget class="QPushButton" name="btn_toggle">
+       <property name="minimumSize">
+        <size>
+         <width>120</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Enable: OFF</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QFormLayout" name="formLayout">
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_period">
+       <property name="text">
+        <string>Period (s):</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLineEdit" name="txt_period"/>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="label_radius">
+       <property name="text">
+        <string>Radius (m):</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLineEdit" name="txt_radius"/>
+     </item>
+     <item row="2" column="0">
+      <widget class="QLabel" name="label_frame_id">
+       <property name="text">
+        <string>Frame ID:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QLineEdit" name="txt_frame_id"/>
+     </item>
+    </layout>
+   </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_buttons">
+      <item>
+        <widget class="QPushButton" name="btn_exit">
+         <property name="minimumSize">
+          <size>
+            <width>100</width>
+            <height>30</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Exit</string>
+         </property>
+        </widget>
+      </item>
+      <item>
+        <spacer name="horizontalSpacer_left">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Expanding</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+            <width>40</width>
+            <height>20</height>
+          </size>
+         </property>
+        </spacer>
+      </item>
+      <item>
+        <widget class="QPushButton" name="btn_reset">
+         <property name="minimumSize">
+          <size>
+            <width>100</width>
+            <height>30</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Reset</string>
+         </property>
+        </widget>
+      </item>
+      <item>
+        <spacer name="horizontalSpacer_right">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Expanding</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+            <width>40</width>
+            <height>20</height>
+          </size>
+         </property>
+        </spacer>
+      </item>
+      <item>
+        <widget class="QPushButton" name="btn_save">
+         <property name="minimumSize">
+          <size>
+            <width>100</width>
+            <height>30</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Save</string>
+         </property>
+        </widget>
+      </item>
+     </layout>
+    </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <slots>
+  <slot>on_btn_toggle_clicked()</slot>
+  <slot>on_btn_reset_clicked()</slot>
+  <slot>on_btn_save_clicked()</slot>
+  <slot>on_btn_exit_clicked()</slot>
+ </slots>
+ </ui>

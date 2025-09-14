@@ -46,6 +46,7 @@
 #include <QCloseEvent>
 #include <QStringList>
 #include <QDialog>
+#include <QFontDatabase>
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -56,6 +57,15 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     load_settings();
     ui->stackedWidget_main->setCurrentIndex(0);
+
+    // Apply loaded font settings
+    QFont loadedFont(settings.font_family, settings.font_point_size);
+    qApp->setFont(loadedFont);
+    
+    // Force complete UI update to reflect loaded font
+    updateAllWidgetsFont(this, loadedFont);
+    this->repaint();
+    qApp->processEvents();
 
     // disable experimental features:
     // ui->btn_joystick->setVisible(false);
@@ -172,6 +182,13 @@ KGroundControl::KGroundControl(QWidget *parent)
     QVector<QString> tmp = enum_helpers::get_all_keys_vec<mavlink_enums::mavlink_component_id>();//mavlink_enums::get_QString_all_mavlink_component_id();
     ui->cmbx_compid->addItems(tmp);
     // End of Settings Pannel //
+    // Initialize font controls
+    ui->font_combo->setCurrentFont(QFont(settings.font_family));
+    ui->font_size_combo->clear();
+    for (int sz : QFontDatabase::standardSizes()) ui->font_size_combo->addItem(QString::number(sz));
+    int sizeIndex = ui->font_size_combo->findText(QString::number(settings.font_point_size));
+    if (sizeIndex < 0) ui->font_size_combo->addItem(QString::number(settings.font_point_size)), sizeIndex = ui->font_size_combo->count() - 1;
+    ui->font_size_combo->setCurrentIndex(sizeIndex);
 
 
     // // Start of System Thread Configuration //
@@ -494,9 +511,33 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     int index_ = ui->cmbx_compid->currentIndex();
     QVector<mavlink_enums::mavlink_component_id> comp_id_list_ = enum_helpers::get_all_vals_vec<mavlink_enums::mavlink_component_id>();
     settings.compid = comp_id_list_[index_];
+    settings.font_family = ui->font_combo->currentFont().family();
+    settings.font_point_size = ui->font_size_combo->currentText().toInt();
     settings_mutex_->unlock();
 
     emit settings_updated(&settings);
+
+    // Apply font live
+    QFont newFont(settings.font_family, settings.font_point_size);
+    qApp->setFont(newFont);
+    
+    // Force complete UI update to reflect font change
+    this->repaint();
+    qApp->processEvents();
+    
+    // Update all widgets in the application recursively
+    updateAllWidgetsFont(this, newFont);
+    
+    // Update any open child windows
+    for (QWidget *widget : qApp->topLevelWidgets()) {
+        if (widget != this && widget->isVisible()) {
+            updateAllWidgetsFont(widget, newFont);
+            widget->repaint();
+        }
+    }
+    
+    // Final process events to ensure all updates are visible
+    qApp->processEvents();
 
     on_btn_settings_go_back_clicked();
     update_port_status_txt();
@@ -530,6 +571,11 @@ void KGroundControl::on_btn_settings_clicked()
             break;
         }
     }
+
+    // Sync font controls with current settings
+    ui->font_combo->setCurrentFont(QFont(settings.font_family));
+    int idx = ui->font_size_combo->findText(QString::number(settings.font_point_size));
+    if (idx >= 0) ui->font_size_combo->setCurrentIndex(idx);
 
 }
 
@@ -581,8 +627,23 @@ void KGroundControl::update_port_status_txt(void)
     }
 }
 
+void KGroundControl::updateAllWidgetsFont(QWidget* parent, const QFont& font)
+{
+    // Set font on the parent widget
+    parent->setFont(font);
+    parent->update();
+    
+    // Recursively update all child widgets
+    for (QObject* child : parent->children()) {
+        if (QWidget* childWidget = qobject_cast<QWidget*>(child)) {
+            updateAllWidgetsFont(childWidget, font);
+        }
+    }
+}
+
 void KGroundControl::mocap_closed(void)
 {
+    mocap_manager_ = nullptr;
     ui->btn_mocap->setVisible(true);
 }
 void KGroundControl::on_btn_mocap_clicked()
