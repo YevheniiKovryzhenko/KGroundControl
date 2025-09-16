@@ -7,88 +7,125 @@
   },
   "configurePresets": [
     {
-      "name": "vs2022-x64",
-      "displayName": "VS 2022 (x64) Multi-Config",
-      "description": "Visual Studio 2022 generator with standard configurations",
-      "generator": "Visual Studio 17 2022",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "binaryDir": "${sourceDir}/build/vs2022",
-      "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release;RelWithDebInfo;MinSizeRel"
-      }
+        "name": "windows-base",
+        "hidden": true,
+        "generator": "Visual Studio 17 2022",
+        "environment": {
+            "PATH": "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64;C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/VCPackages;C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow;C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/tools;C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/tools;C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/HostX64/x86;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/HostX86/x86;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/HostX86/x64;C:/Program Files (x86)/Windows Kits/10/bin/10.0.10240.0/x64;$penv{PATH}",
+            "INCLUDE": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/include;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/atlmfc/include;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/VS/include;C:/Program Files (x86)/Windows Kits/10/include/10.0.10240.0/ucrt;C:/Program Files (x86)/Windows Kits/10/include/10.0.10240.0/shared;C:/Program Files (x86)/Windows Kits/10/include/10.0.10240.0/um;C:/Program Files (x86)/Windows Kits/10/include/10.0.10240.0/winrt;C:/Program Files (x86)/Windows Kits/10/include/10.0.10240.0/cppwinrt",
+            "LIB": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/lib/x64;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/atlmfc/lib/x64;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/VS/lib/x64;C:/Program Files (x86)/Windows Kits/10/lib/10.0.10240.0/ucrt/x64;C:/Program Files (x86)/Windows Kits/10/lib/10.0.10240.0/um/x64",
+            "LIBPATH": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/lib/x64;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/atlmfc/lib/x64;C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/VS/lib/x64;C:/Program Files (x86)/Windows Kits/10/UnionMetadata/10.0.10240.0;C:/Program Files (x86)/Windows Kits/10/References/10.0.10240.0"
+        },
+        "cacheVariables": {
+          "CMAKE_C_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe",
+          "CMAKE_CXX_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"
+    }
     },
     {
-      "name": "ninja-multi",
-      "displayName": "Ninja Multi-Config (x64)",
-      "generator": "Ninja Multi-Config",
-      "binaryDir": "${sourceDir}/build/ninja-multi",
-      "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release;RelWithDebInfo;MinSizeRel"
-      }
+        "name": "linux-base",
+        "hidden": true,
+        "generator": "Ninja",
+        "cacheVariables": {
+          "CMAKE_MAKE_PROGRAM": "ninja",
+          "CMAKE_C_COMPILER": "gcc",
+          "CMAKE_CXX_COMPILER": "g++",
+          "CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE": "ON",
+          "CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL": "ON",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG -flto -fno-plt -ffunction-sections -fdata-sections -fomit-frame-pointer",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG -flto -fno-plt -ffunction-sections -fdata-sections -fomit-frame-pointer",
+          "CMAKE_EXE_LINKER_FLAGS_RELEASE": "-Wl,--gc-sections",
+          "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "-Wl,--gc-sections",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG -flto -ffunction-sections -fdata-sections -fomit-frame-pointer",
+          "CMAKE_CXX_FLAGS_MINSIZEREL": "-Os -DNDEBUG -flto -ffunction-sections -fdata-sections -fomit-frame-pointer",
+          "CMAKE_EXE_LINKER_FLAGS_MINSIZEREL": "-Wl,--gc-sections -s",
+          "CMAKE_SHARED_LINKER_FLAGS_MINSIZEREL": "-Wl,--gc-sections -s"
+    }
     },
     {
-      "name": "ninja-release",
-      "displayName": "Ninja (Release)",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/Release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "ninja-debug",
-      "displayName": "Ninja (Debug)",
-      "generator": "Ninja",
+      "name": "Debug (Windows)",
+      "inherits": ["windows-base"],
+      "displayName": "Debug (Windows)",
       "binaryDir": "${sourceDir}/build/Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "ninja-minsizerel",
-      "displayName": "Ninja (MinSizeRel)",
-      "generator": "Ninja",
+      "name": "MinSizeRel (Windows)",
+      "inherits": ["windows-base"],
+      "displayName": "MinSizeRel (Windows)",
       "binaryDir": "${sourceDir}/build/MinSizeRel",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    },
+    {
+      "name": "Release (Windows)",
+      "inherits": ["windows-base"],
+      "displayName": "Release (Windows)",
+      "binaryDir": "${sourceDir}/build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "Debug (Linux)",
+      "inherits": ["linux-base"],
+      "displayName": "Debug (Linux)",
+      "binaryDir": "${sourceDir}/build/Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "MinSizeRel (Linux)",
+      "inherits": ["linux-base"],
+      "displayName": "MinSizeRel (Linux)",
+      "binaryDir": "${sourceDir}/build/MinSizeRel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    },
+    {
+      "name": "Release (Linux)",
+      "inherits": ["linux-base"],
+      "displayName": "Release (Linux)",
+      "binaryDir": "${sourceDir}/build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "vs2022-Release",
-      "configurePreset": "vs2022-x64",
-      "configuration": "Release"
-    },
-    {
-      "name": "vs2022-Debug",
-      "configurePreset": "vs2022-x64",
+      "name": "Debug (Windows)",
+      "configurePreset": "Debug (Windows)",
       "configuration": "Debug"
     },
     {
-      "name": "ninja-multi-Release",
-      "configurePreset": "ninja-multi",
+      "name": "MinSizeRel (Windows)",
+      "configurePreset": "MinSizeRel (Windows)",
+      "configuration": "MinSizeRel"
+    },
+    {
+      "name": "Release (Windows)",
+      "configurePreset": "Release (Windows)",
       "configuration": "Release"
     },
     {
-      "name": "ninja-multi-Debug",
-      "configurePreset": "ninja-multi",
+      "name": "Debug (Linux)",
+      "configurePreset": "Debug (Linux)",
       "configuration": "Debug"
     },
     {
-      "name": "ninja-release",
-      "configurePreset": "ninja-release"
+      "name": "MinSizeRel (Linux)",
+      "configurePreset": "MinSizeRel (Linux)",
+      "configuration": "MinSizeRel"
     },
     {
-      "name": "ninja-debug",
-      "configurePreset": "ninja-debug"
-    },
-    {
-      "name": "ninja-minsizerel",
-      "configurePreset": "ninja-minsizerel"
+      "name": "Release (Linux)",
+      "configurePreset": "Release (Linux)",
+      "configuration": "Release"
     }
   ]
 }

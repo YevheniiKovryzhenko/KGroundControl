@@ -8,6 +8,7 @@ endif()
 project(KGroundControl VERSION 1.3 LANGUAGES CXX)
 
 set(QT_TARGET_VERSION 6.9.2)
+# set(QT_TARGET_VERSION 6.7.2)
 
 # Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)
 if(MSVC OR CMAKE_GENERATOR MATCHES "Multi-Config")
@@ -25,84 +26,27 @@ endif()
 # Option to force static Qt build (optional; usually auto-detected)
 option(FORCE_QT_STATIC "Force static Qt build even if dynamic is available" OFF)
 
-# Configure consistent MSVC runtime library usage
-if(MSVC)
-    if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
-        # For static Qt builds, use static runtime to avoid conflicts
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
-        message(STATUS "Using static runtime for static Qt build")
-    else()
-        # For dynamic Qt builds, use dynamic runtime
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
-        message(STATUS "Using dynamic runtime for dynamic Qt build")
-    endif()
-
-    # Ensure all subprojects use the same runtime
-    set(SDL_FORCE_STATIC_VCRT ON CACHE BOOL "" FORCE)
-
-    # Disable SDL_LIBC to allow RTC removal for MSVC compatibility
-    set(SDL_LIBC OFF CACHE BOOL "" FORCE)
-
-    # Filter out GCC-specific flags that MSVC doesn't understand
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Zc:__cplusplus")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
-
-    # Remove GCC-specific warning flags that MSVC doesn't understand
-    string(REPLACE "-Wno-address-of-packed-member" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-    string(REPLACE "-Wno-address-of-packed-member" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-endif()
-
 # Add cmake modules path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Cross-platform Qt path detection
 if(WIN32)
     # Try common Windows Qt installation paths
-    if(MSVC)
-        # For MSVC, check build type hint from VS Code CMake extension
-        if(CMAKE_BUILD_TYPE_HINT STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "Debug" OR "$ENV{CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-            # For Debug builds, prefer dynamic Qt libraries
-            set(QT_PATHS
-                "$ENV{QTDIR}"
-                # Dynamic Qt installations (preferred for Debug)
-                "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
-                # Static Qt installations (fallback for Debug)
-                "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
-                # Standard dynamic Qt installations (fallback)
-                "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
-                "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
-                # MinGW installations (last resort)
-                "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
-            )
-            message(STATUS "Debug build detected: Prioritizing dynamic Qt libraries")
-        else()
-            # For Release/MinSizeRel builds, prefer static Qt libraries
-            set(QT_PATHS
-                "$ENV{QTDIR}"
-                # Static Qt installations (preferred for Release to avoid DLL dependencies)
-                "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
-                # Dynamic Qt installations (fallback for Release)
-                "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
-                # Standard Qt installations (fallback)
-                "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
-                "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
-                # MinGW installations (last resort)
-                "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
-            )
-            message(STATUS "Release build detected: Prioritizing static Qt libraries")
-        endif()
-    else()
-        # For MinGW/other compilers, prefer static builds
-        set(QT_PATHS
-            "$ENV{QTDIR}"
-            # Static Qt installations (user's actual installation)
-            "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
-            "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"
-            # Standard dynamic Qt installations (fallback)            
-            "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
-            "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
-        )
-    endif()
+    set(QT_PATHS
+        "$ENV{QTDIR}"
+        # Static Qt installations
+        "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
+        # Dynamic Qt installations (fallback)
+        "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"        
+        # Standard dynamic Qt installations (fallback)
+        "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
+        "D:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
+        "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
+        "D:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
+        # MinGW installations (last resort)
+        "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
+        "D:/Qt/${QT_TARGET_VERSION}/mingw_64"
+    )
     foreach(QT_PATH ${QT_PATHS})
         if(EXISTS "${QT_PATH}")
             message(STATUS "Found Qt installation at: ${QT_PATH}")
@@ -159,20 +103,7 @@ if(NOT CMAKE_PREFIX_PATH)
     message(STATUS "No Qt installation found in common paths. CMake will search automatically.")
 endif()
 
-# Set the download URL based on the platform
-if(WIN32)
-    set(CQTDEPLOYER_URL "https://github.com/QuasarApp/CQtDeployer/releases/download/v1.6.2286/CQtDeployer_1.6.2286_Windows_x86_64.zip")
-    set(CQTDEPLOYER_ARCHIVE "CQtDeployer.zip")
-    set(CQTDEPLOYER_EXE "cqtdeployer.exe")
-elseif(APPLE)
-    set(CQTDEPLOYER_URL "https://github.com/QuasarApp/CQtDeployer/releases/download/v1.6.2286/CQtDeployer_1.6.2286_MacOS_x86_64.dmg")
-    set(CQTDEPLOYER_ARCHIVE "CQtDeployer.dmg")
-    set(CQTDEPLOYER_EXE "cqtdeployer")
-else() # Linux
-    set(CQTDEPLOYER_URL "https://github.com/QuasarApp/CQtDeployer/releases/download/v1.6.2286/CQtDeployer_1.6.2286_Linux_x86_64.deb")
-    set(CQTDEPLOYER_ARCHIVE "CQtDeployer.deb")
-    set(CQTDEPLOYER_EXE "cqtdeployer")
-endif()
+# Remove legacy deployer variables and complex packaging; we'll keep packaging simple.
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -424,6 +355,29 @@ set_target_properties(KGroundControl PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
+# Unify output directories across platforms
+set_target_properties(KGroundControl PROPERTIES
+    # Place executables and shared libs in build/bin
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin"
+
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin"
+
+    # Place static libraries in build/lib
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/lib"
+)
+
 include(GNUInstallDirs)
 install(TARGETS KGroundControl
     BUNDLE DESTINATION .
@@ -435,141 +389,50 @@ if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(KGroundControl)
 endif()
 
-
-# AppImage creation target
-find_program(LINUXDEPLOYQT_EXECUTABLE linuxdeployqt HINTS $ENV{HOME}/.local/bin $ENV{HOME}/.local/bin/ /usr/local/bin)
-if(LINUXDEPLOYQT_EXECUTABLE)
-    message(STATUS "Found linuxdeployqt: ${LINUXDEPLOYQT_EXECUTABLE}")
-    ADD_CUSTOM_TARGET(
-        appimage
-        DEPENDS KGroundControl
-        # Create AppDir structure
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/AppDir/usr/bin
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/AppDir/usr/share/applications
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/AppDir/usr/share/icons/hicolor/256x256/apps
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/AppDir/usr/share/KGroundControl
-        # Copy executable
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/KGroundControl ${CMAKE_BINARY_DIR}/AppDir/usr/bin/
-        # Copy resources
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/resources ${CMAKE_BINARY_DIR}/AppDir/usr/share/KGroundControl/
-        # Create desktop file using CMake file(WRITE)
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/AppDir/usr/share/applications/KGroundControl.desktop
-        COMMAND ${CMAKE_COMMAND} -D DESKTOP_FILE=${CMAKE_BINARY_DIR}/AppDir/usr/share/applications/KGroundControl.desktop -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteDesktop.cmake
-        # Copy icon (using existing logo)
-        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/resources/Images/Logo/KGC_Logo.png ${CMAKE_BINARY_DIR}/AppDir/usr/share/icons/hicolor/256x256/apps/KGroundControl.png
-        # Create AppRun script using CMake file(WRITE)
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/AppDir/AppRun
-        COMMAND ${CMAKE_COMMAND} -D APP_RUN_FILE=${CMAKE_BINARY_DIR}/AppDir/AppRun -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteAppRun.cmake
-        COMMAND chmod +x ${CMAKE_BINARY_DIR}/AppDir/AppRun
-        # Use linuxdeployqt to create AppImage with proper version
-        COMMAND ${CMAKE_COMMAND} -E env VERSION=${PROJECT_VERSION} ${LINUXDEPLOYQT_EXECUTABLE} ${CMAKE_BINARY_DIR}/AppDir/usr/share/applications/KGroundControl.desktop -appimage -no-translations
-        # Create distribution directory and copy AppImage
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/AppImage
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/*.AppImage ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/AppImage/
-        # Copy documentation files
-        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/docs/distribution/templates/AppImage/README.md ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/AppImage/
-        COMMENT "Creating AppImage for KGroundControl and copying to DistributionKit"
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+# 1) Always make debugging easy on Windows dynamic builds: copy Qt DLLs into the build folder next to the .exe
+if(WIN32 AND NOT (FORCE_QT_STATIC OR QT_STATIC_BUILD))
+    # Try to locate windeployqt from common Qt locations or PATH
+    find_program(WINDEPLOYQT_EXECUTABLE
+        NAMES windeployqt.exe windeployqt
+        HINTS
+            "${QT_PATH}/bin"
+            "$ENV{QTDIR}/bin"
     )
-else()
-    message(STATUS "linuxdeployqt not found - AppImage target will not be available")
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET KGroundControl POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                "$<TARGET_FILE:KGroundControl>"
+                --dir "$<TARGET_FILE_DIR:KGroundControl>"
+                --no-compiler-runtime
+            COMMENT "Deploying Qt runtime DLLs to build dir for debugging"
+            VERBATIM
+        )
+    else()
+        message(STATUS "windeployqt not found. Qt runtime DLLs will not be auto-copied to the build folder.")
+    endif()
 endif()
 
-# DEB package creation target
-find_program(DPKG_EXECUTABLE dpkg)
-if(DPKG_EXECUTABLE)
-    ADD_CUSTOM_TARGET(
-        deb
-        DEPENDS KGroundControl
-        # Create DEB directory structure
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/DEBIAN
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/bin
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/applications
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/icons/hicolor/256x256/apps
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/KGroundControl
-        # Copy executable
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/KGroundControl ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/bin/
-        # Copy resources
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/resources ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/KGroundControl/
-        # Create control file using CMake file(WRITE) for reliability
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/DEBIAN/control
-        COMMAND ${CMAKE_COMMAND} -D CONTROL_FILE=${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/DEBIAN/control -D PROJECT_VERSION=${PROJECT_VERSION} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteControl.cmake
-        # Create desktop file using CMake file(WRITE)
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/applications/KGroundControl.desktop
-        COMMAND ${CMAKE_COMMAND} -D DESKTOP_FILE=${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/applications/KGroundControl.desktop -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteDesktop.cmake
-        # Copy icon
-        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/resources/Images/Logo/KGC_Logo.png ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION}/usr/share/icons/hicolor/256x256/apps/KGroundControl.png
-        # Build DEB package
-        COMMAND dpkg-deb --build ${CMAKE_BINARY_DIR}/deb/KGroundControl-${PROJECT_VERSION} ${CMAKE_BINARY_DIR}/KGroundControl-${PROJECT_VERSION}.deb
-        # Create distribution directory and copy DEB
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/DEB
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/KGroundControl-${PROJECT_VERSION}.deb ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/DEB/
-        # Copy documentation files
-        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/docs/distribution/templates/DEB/README.md ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/DEB/
-        COMMENT "Creating DEB package for KGroundControl and copying to DistributionKit"
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    )
-endif()
+# 2) For Release/MinSizeRel, create a simple DistributionKit layout automatically
+#    Output: <ProjectRoot>/DistributionKit/<CONFIG>/<Static|Shared>
+set(_IS_STATIC_GENEX "$<OR:$<BOOL:${FORCE_QT_STATIC}>,$<BOOL:${QT_STATIC_BUILD}>>")
+set(_STATIC_OR_SHARED "$<IF:${_IS_STATIC_GENEX},Static,Shared>")
+# Determine config name at build time; fall back to CMAKE_BUILD_TYPE for single-config generators
+set(_CONFIG_GENEX "$<IF:$<STREQUAL:$<CONFIG>,>,${CMAKE_BUILD_TYPE},$<CONFIG>>")
+set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${_STATIC_OR_SHARED}")
 
-# Simple tar.gz archive target
-ADD_CUSTOM_TARGET(
-    tarball
-    DEPENDS KGroundControl
-    # Create architecture-specific directory structure first
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/bin
-    # Copy executable
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/KGroundControl ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/bin/
-    # Create architecture info file
-    COMMAND ${CMAKE_COMMAND} -E echo "Architecture: ${CMAKE_SYSTEM_PROCESSOR}" > ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -E echo "Build Date: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}" >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -E echo "CMake Generator: ${CMAKE_GENERATOR}" >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -E echo "Build Type: ${CMAKE_BUILD_TYPE}" >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -E echo "Qt Version: ${QT_VERSION}" >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -E echo "Build Timestamp: " >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    COMMAND ${CMAKE_COMMAND} -DARCH_FILE=${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Timestamp.cmake
-    COMMAND ${CMAKE_COMMAND} -E echo "Note: This tarball contains only the executable. For resources, use the AppImage or DEB package." >> ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/ARCHITECTURE.txt
-    # Create tarball from just the bin directory and ARCHITECTURE.txt
-    COMMAND cd ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR} && ${CMAKE_COMMAND} -E tar czf ${CMAKE_BINARY_DIR}/KGroundControl-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz bin ARCHITECTURE.txt
-    # Create distribution directory and copy tarball
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/Tarball
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/KGroundControl-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/Tarball/
-    # Copy documentation files
-    COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/docs/distribution/templates/README.md ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/
-    COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/docs/distribution/templates/Tarball/README.md ${PROJECT_SOURCE_DIR}/DistributionKit/${CMAKE_SYSTEM_PROCESSOR}/Tarball/
-    # Clean up the tarball from project root if it exists
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${PROJECT_SOURCE_DIR}/KGroundControl-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz
-    COMMENT "Creating tar.gz archive of the deployment package and copying to DistributionKit"
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+add_custom_command(TARGET KGroundControl POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DTARGET_FILE=$<TARGET_FILE:KGroundControl>
+        -DTARGET_FILE_DIR=$<TARGET_FILE_DIR:KGroundControl>
+        -DDEST_DIR=${_DEST_KIT}
+        -DIS_STATIC=${_IS_STATIC_GENEX}
+        -DIS_WINDOWS=$<IF:$<PLATFORM_ID:Windows>,1,0>
+        -DWINDEPLOYQT_EXECUTABLE=${WINDEPLOYQT_EXECUTABLE}
+        -DCONFIG=${_CONFIG_GENEX}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageDist.cmake
+    COMMENT "Packaging KGroundControl into DistributionKit for Release/MinSizeRel"
 )
 
-# Comprehensive distribution target that builds all available formats
-ADD_CUSTOM_TARGET(
-    dist
-    COMMENT "Building all available distribution formats"
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
 
-# Add dependencies to the dist target based on what's available
-if(LINUXDEPLOYQT_EXECUTABLE)
-    add_dependencies(dist appimage)
-endif()
-if(DPKG_EXECUTABLE)
-    add_dependencies(dist deb)
-endif()
-add_dependencies(dist tarball)
 
-# Unified deploy target that builds all formats and copies documentation
-ADD_CUSTOM_TARGET(
-    deploy
-    COMMENT "Building complete deployment package with documentation"
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
-
-# Add dependencies to the deploy target based on what's available
-if(LINUXDEPLOYQT_EXECUTABLE)
-    add_dependencies(deploy appimage)
-endif()
-if(DPKG_EXECUTABLE)
-    add_dependencies(deploy deb)
-endif()
-add_dependencies(deploy tarball)

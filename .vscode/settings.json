@@ -1,24 +1,9 @@
 {
+    "cmake.useCMakePresets": "always",
     "cmake.configureOnOpen": true,
     "cmake.configureOnEdit": true,
-    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
-    "cmake.installPrefix": "${workspaceFolder}/install",
-    // Ensure the CMake generator matches our tasks
-    "cmake.generator": "Ninja",
-    // Prevent stray build args from being injected (e.g. mistaken linker flags like -lm)
-    "cmake.buildArgs": [],
-    "cmake.buildToolArgs": [],
-    "cmake.configureSettings": {
-        // Let CMake find Qt automatically using system paths
-        // Set QTDIR environment variable if Qt is installed in a custom location
-        // Windows: C:/Qt/6.x.x/msvc2022_64 or C:/Qt/6.x.x/mingw_64
-        // Linux: /home/user/Qt/6.x.x/gcc_64 or /usr/lib/cmake/Qt6
-        // macOS: /Users/user/Qt/6.x.x/macos or /opt/homebrew/lib/cmake/Qt6
-    },
-    "cmake.configureArgs": [
-        "-DCMAKE_BUILD_TYPE_HINT=${buildType}"
-    ],
-    // Force C++ language detection and disable Python
+    "cmake.buildBeforeRun": true,
+    // Keep editor niceties
     "files.associations": {
         "*.cpp": "cpp",
         "*.hpp": "cpp",
@@ -27,8 +12,8 @@
     },
     "C_Cpp.default.cppStandard": "c++20",
     "C_Cpp.default.cStandard": "c11",
-    // Disable Python debugging by default
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    // Keep Python disabled in this workspace
     "python.terminal.activateEnvironment": false,
-    "python.terminal.activateEnvInCurrentTerminal": false,
-    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+    "python.terminal.activateEnvInCurrentTerminal": false
 }

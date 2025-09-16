@@ -1,116 +1,62 @@
 {
     "version": "0.2.0",
     "configurations": [
+        // Windows
         {
-            "name": "MinSizeRel - Windows",
+            "name": "Run: Debug (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/MinSizeRel/KGroundControl.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/MinSizeRel",
-            "environment": [
-                {
-                    "name": "PATH",
-                    "value": "${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;C:/Qt/6.8.0/msvc2022_64/bin;C:/Qt/6.7.0/msvc2022_64/bin;C:/Qt/6.6.0/msvc2022_64/bin;${env:PATH}"
-                }
-            ],
-            "console": "integratedTerminal",
-            "preLaunchTask": "CMake: Configure and Build MinSizeRel",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Configure+Build (Preset) - Debug (Windows)"
         },
         {
-            "name": "MinSizeRel - Linux/macOS",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/MinSizeRel/KGroundControl",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/MinSizeRel",
-            "environment": [
-                {
-                    "name": "LD_LIBRARY_PATH",
-                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
-                }
-            ],
-            "preLaunchTask": "Configure and Build MinSizeRel (Linux)",
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Debug - Windows",
+            "name": "Run: MinSizeRel (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/Debug/KGroundControl.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Debug",
-            "environment": [
-                {
-                    "name": "PATH",
-                    "value": "C:/Qt_Static/v6.9.2/install/bin;${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;${env:PATH}"
-                }
-            ],
-            "console": "integratedTerminal",
-            "preLaunchTask": "CMake: Configure and Build Debug",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Windows)"
         },
         {
-            "name": "Debug - Linux/macOS",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/KGroundControl",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Debug",
-            "environment": [
-                {
-                    "name": "LD_LIBRARY_PATH",
-                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
-                }
-            ],
-            "preLaunchTask": "Configure and Build Debug (Linux)",
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Release - Windows",
+            "name": "Run: Release (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Release/KGroundControl.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Release",
-            "environment": [
-                {
-                    "name": "PATH",
-                    "value": "${env:QTDIR}/bin;C:/Qt/6.9.2/msvc2022_64/bin;C:/Qt/6.8.0/msvc2022_64/bin;C:/Qt/6.7.0/msvc2022_64/bin;C:/Qt/6.6.0/msvc2022_64/bin;${env:PATH}"
-                }
-            ],
-            "console": "integratedTerminal",
-            "preLaunchTask": "CMake: Configure and Build Release",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Configure+Build (Preset) - Release (Windows)"
         },
+
+        // Linux
         {
-            "name": "Release - Linux/macOS",
+            "name": "Run: Debug (Linux)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Release/KGroundControl",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Release",
-            "environment": [
-                {
-                    "name": "LD_LIBRARY_PATH",
-                    "value": "${env:QTDIR}/lib:/opt/Qt/6.9.2/gcc_64/lib:/opt/Qt/6.8.0/gcc_64/lib:/opt/Qt/6.7.0/gcc_64/lib:/usr/lib/x86_64-linux-gnu:${env:LD_LIBRARY_PATH}"
-                }
-            ],
-            "preLaunchTask": "Configure and Build Release (Linux)",
             "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/917c30b5354a8b8a6ec06b609220f708/tonka3000.qtvsctools/qt.natvis.xml"
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": true,
+            "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)"
+        },
+        {
+            "name": "Run: MinSizeRel (Linux)",
+            "type": "cppdbg",
+            "request": "launch",
+            "MIMode": "gdb",
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": true,
+            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)"
+        },
+        {
+            "name": "Run: Release (Linux)",
+            "type": "cppdbg",
+            "request": "launch",
+            "MIMode": "gdb",
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": true,
+            "preLaunchTask": "Configure+Build (Preset) - Release (Linux)"
         }
     ]
 }

@@ -1,340 +1,144 @@
 {
     "version": "2.0.0",
     "tasks": [
+        // Windows presets
         {
-            "label": "Configure Debug (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "-S", "${workspaceFolder}",
-                "-B", "${workspaceFolder}/build/Debug",
-                "-G", "Ninja",
-                "-DCMAKE_BUILD_TYPE=Debug"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" }
+            "label": "Configure (Preset) - Debug (Windows)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "Debug (Windows)"
         },
         {
-            "label": "Build Debug (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build", "${workspaceFolder}/build/Debug",
-                "--parallel"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" },
-            "group": { "kind": "build", "isDefault": true }
+            "label": "Build (Preset) - Debug (Windows)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "Debug (Windows)",
+            "group": { "kind": "build", "isDefault": false }
         },
         {
-            "label": "Configure and Build Debug (Linux)",
-            "dependsOn": ["Configure Debug (Linux)", "Build Debug (Linux)"],
+            "label": "Configure+Build (Preset) - Debug (Windows)",
+            "dependsOn": [
+                "Configure (Preset) - Debug (Windows)",
+                "Build (Preset) - Debug (Windows)"
+            ],
             "dependsOrder": "sequence",
-            "linux": {},
             "group": "build"
         },
 
         {
-            "label": "Configure Release (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "-S", "${workspaceFolder}",
-                "-B", "${workspaceFolder}/build/Release",
-                "-G", "Ninja",
-                "-DCMAKE_BUILD_TYPE=Release"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" }
+            "label": "Configure (Preset) - MinSizeRel (Windows)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "MinSizeRel (Windows)"
         },
         {
-            "label": "Build Release (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build", "${workspaceFolder}/build/Release",
-                "--parallel"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" },
+            "label": "Build (Preset) - MinSizeRel (Windows)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "MinSizeRel (Windows)",
             "group": "build"
         },
         {
-            "label": "Configure and Build Release (Linux)",
-            "dependsOn": ["Configure Release (Linux)", "Build Release (Linux)"],
+            "label": "Configure+Build (Preset) - MinSizeRel (Windows)",
+            "dependsOn": [
+                "Configure (Preset) - MinSizeRel (Windows)",
+                "Build (Preset) - MinSizeRel (Windows)"
+            ],
             "dependsOrder": "sequence",
-            "linux": {},
             "group": "build"
         },
 
         {
-            "label": "Configure MinSizeRel (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "-S", "${workspaceFolder}",
-                "-B", "${workspaceFolder}/build/MinSizeRel",
-                "-G", "Ninja",
-                "-DCMAKE_BUILD_TYPE=MinSizeRel"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" }
+            "label": "Configure (Preset) - Release (Windows)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "Release (Windows)"
         },
         {
-            "label": "Build MinSizeRel (Linux)",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build", "${workspaceFolder}/build/MinSizeRel",
-                "--parallel"
-            ],
-            "linux": {},
-            "problemMatcher": ["$gcc"],
-            "options": { "cwd": "${workspaceFolder}" },
+            "label": "Build (Preset) - Release (Windows)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "Release (Windows)",
             "group": "build"
         },
         {
-            "label": "Configure and Build MinSizeRel (Linux)",
-            "dependsOn": ["Configure MinSizeRel (Linux)", "Build MinSizeRel (Linux)"],
+            "label": "Configure+Build (Preset) - Release (Windows)",
+            "dependsOn": [
+                "Configure (Preset) - Release (Windows)",
+                "Build (Preset) - Release (Windows)"
+            ],
             "dependsOrder": "sequence",
-            "linux": {},
+            "group": "build"
+        },
+
+        // Linux presets
+        {
+            "label": "Configure (Preset) - Debug (Linux)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "Debug (Linux)"
+        },
+        {
+            "label": "Build (Preset) - Debug (Linux)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "Debug (Linux)",
             "group": "build"
         },
         {
-            "type": "cmake",
-            "label": "CMake: Configure Debug",
-            "command": "configure",
-            "options": {
-                "cwd": "${workspaceFolder}/build/Debug"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Configure Release",
-            "command": "configure",
-            "options": {
-                "cwd": "${workspaceFolder}/build/Release"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Configure MinSizeRel",
-            "command": "configure",
-            "options": {
-                "cwd": "${workspaceFolder}/build/MinSizeRel"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Build",
-            "command": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": [
-                "$gcc",
-                "$msCompile"
-            ]
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Clean",
-            "command": "clean",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Clean Rebuild",
-            "command": "cleanRebuild",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Build Debug",
-            "command": "build",
-            "options": {
-                "cwd": "${workspaceFolder}/build/Debug"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": [
-                "$gcc",
-                "$msCompile"
-            ]
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Build Release",
-            "command": "build",
-            "options": {
-                "cwd": "${workspaceFolder}/build/Release"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": [
-                "$gcc",
-                "$msCompile"
-            ]
-        },
-        {
-            "type": "cmake",
-            "label": "CMake: Build MinSizeRel",
-            "command": "build",
-            "options": {
-                "cwd": "${workspaceFolder}/build/MinSizeRel"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": [
-                "$gcc",
-                "$msCompile"
-            ]
-        },
-        {
-            "label": "CMake: Configure and Build MinSizeRel",
+            "label": "Configure+Build (Preset) - Debug (Linux)",
             "dependsOn": [
-                "CMake: Configure MinSizeRel",
-                "CMake: Build MinSizeRel"
+                "Configure (Preset) - Debug (Linux)",
+                "Build (Preset) - Debug (Linux)"
             ],
             "dependsOrder": "sequence",
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
+            "group": "build"
+        },
+
+        {
+            "label": "Configure (Preset) - MinSizeRel (Linux)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "MinSizeRel (Linux)"
         },
         {
-            "label": "CMake: Configure and Build Debug",
-            "dependsOn": [
-                "CMake: Configure Debug",
-                "CMake: Build Debug"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "CMake: Configure and Build Release",
-            "dependsOn": [
-                "CMake: Configure Release",
-                "CMake: Build Release"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "Deploy Qt Libraries (Windows)",
-            "type": "shell",
-            "command": "windeployqt",
-            "args": [
-                "--no-translations",
-                "--no-system-d3d-compiler",
-                "--no-opengl-sw",
-                "${workspaceFolder}/build/${input:buildType}/KGroundControl.exe"
-            ],
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "problemMatcher": [],
+            "label": "Build (Preset) - MinSizeRel (Linux)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "MinSizeRel (Linux)",
             "group": "build"
         },
         {
-            "label": "Build and Deploy Qt (Windows)",
+            "label": "Configure+Build (Preset) - MinSizeRel (Linux)",
             "dependsOn": [
-                "CMake: Build ${input:buildType}",
-                "Deploy Qt Libraries (Windows)"
+                "Configure (Preset) - MinSizeRel (Linux)",
+                "Build (Preset) - MinSizeRel (Linux)"
             ],
             "dependsOrder": "sequence",
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        }
-    ],
-    "inputs": [
+            "group": "build"
+        },
+
         {
-            "id": "buildType",
-            "description": "Select build type",
-            "default": "Debug",
-            "type": "pickString",
-            "options": [
-                "Debug",
-                "Release",
-                "MinSizeRel"
-            ]
+            "label": "Configure (Preset) - Release (Linux)",
+            "type": "cmake",
+            "command": "configure",
+            "preset": "Release (Linux)"
+        },
+        {
+            "label": "Build (Preset) - Release (Linux)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "Release (Linux)",
+            "group": "build"
+        },
+        {
+            "label": "Configure+Build (Preset) - Release (Linux)",
+            "dependsOn": [
+                "Configure (Preset) - Release (Linux)",
+                "Build (Preset) - Release (Linux)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build"
         }
     ]
 }
