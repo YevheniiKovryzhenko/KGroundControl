@@ -1,14 +1,14 @@
 {
     "version": "0.2.0",
     "configurations": [
-        // Windows
         {
             "name": "Run: Debug (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - Debug (Windows)"
+            "preLaunchTask": "Configure+Build (Preset) - Debug (Windows)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
         {
             "name": "Run: MinSizeRel (Windows)",
@@ -16,7 +16,8 @@
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Windows)"
+            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Windows)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
         {
             "name": "Run: Release (Windows)",
@@ -24,10 +25,9 @@
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - Release (Windows)"
+            "preLaunchTask": "Configure+Build (Preset) - Release (Windows)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
-
-        // Linux
         {
             "name": "Run: Debug (Linux)",
             "type": "cppdbg",
@@ -36,7 +36,8 @@
             "program": "${workspaceFolder}/build/Debug/bin/KGroundControl",
             "cwd": "${workspaceFolder}/build/Debug/bin",
             "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)"
+            "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
         {
             "name": "Run: MinSizeRel (Linux)",
@@ -46,7 +47,8 @@
             "program": "${workspaceFolder}/build/MinSizeRel/bin/KGroundControl",
             "cwd": "${workspaceFolder}/build/MinSizeRel/bin",
             "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)"
+            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         },
         {
             "name": "Run: Release (Linux)",
@@ -56,7 +58,8 @@
             "program": "${workspaceFolder}/build/Release/bin/KGroundControl",
             "cwd": "${workspaceFolder}/build/Release/bin",
             "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - Release (Linux)"
+            "preLaunchTask": "Configure+Build (Preset) - Release (Linux)",
+            "visualizerFile": "c:\\Users\\thesa\\AppData\\Roaming\\Code\\User\\workspaceStorage\\2f5b1b171059eb0662e7afa8087f1b34\\tonka3000.qtvsctools\\qt.natvis.xml"
         }
     ]
 }

@@ -155,6 +155,33 @@ else()
     message(STATUS "Configuring for dynamic Qt build")
 endif()
 
+# If building Debug and using static Qt, optionally align MSVC runtime with Release if no debug Qt libs exist
+if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
+    # Heuristic: look for a debug-suffixed Qt6Core*d.lib under prefix path
+    set(_qt_debug_core_lib_found FALSE)
+    if(CMAKE_PREFIX_PATH)
+        file(GLOB _qt_core_debug_candidates
+            LIST_DIRECTORIES FALSE
+            "${CMAKE_PREFIX_PATH}/lib/Qt6Cored.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core_debug.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core*d.lib")
+        if(_qt_core_debug_candidates)
+            set(_qt_debug_core_lib_found TRUE)
+        endif()
+    endif()
+    if(NOT _qt_debug_core_lib_found)
+        message(WARNING "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to avoid LNK2038 with release-only Qt.")
+        # Force multi-threaded DLL runtime (Release) for all configs so this target matches Qt objects
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+        # Remove /MDd from existing flags (CMake might have already applied it before policy CMP0091)
+        foreach(_flag_var CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
+            if(${_flag_var} MATCHES "/MDd")
+                string(REGEX REPLACE "/MDd" "/MD" ${_flag_var} "${${_flag_var}}")
+            endif()
+        endforeach()
+        # Disable iterator debugging for this target to match release Qt libs (iterator debug level 0)
+        add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+    endif()
+endif()
+
 set(PROJECT_HEADERS
     include/connection_manager.h
     include/generic_port.h
