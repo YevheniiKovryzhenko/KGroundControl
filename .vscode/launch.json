@@ -33,9 +33,9 @@
             "type": "cppdbg",
             "request": "launch",
             "MIMode": "gdb",
-            "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "externalConsole": true,
+            "program": "${workspaceFolder}/build/Debug/bin/KGroundControl",
+            "cwd": "${workspaceFolder}/build/Debug/bin",
+            "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)"
         },
         {
@@ -43,9 +43,9 @@
             "type": "cppdbg",
             "request": "launch",
             "MIMode": "gdb",
-            "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "externalConsole": true,
+            "program": "${workspaceFolder}/build/MinSizeRel/bin/KGroundControl",
+            "cwd": "${workspaceFolder}/build/MinSizeRel/bin",
+            "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)"
         },
         {
@@ -53,9 +53,9 @@
             "type": "cppdbg",
             "request": "launch",
             "MIMode": "gdb",
-            "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "externalConsole": true,
+            "program": "${workspaceFolder}/build/Release/bin/KGroundControl",
+            "cwd": "${workspaceFolder}/build/Release/bin",
+            "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - Release (Linux)"
         }
     ]
