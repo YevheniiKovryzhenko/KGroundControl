@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>467</width>
-    <height>588</height>
+    <height>521</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -144,6 +144,12 @@
          <layout class="QHBoxLayout" name="horizontalLayout_13">
           <item>
            <widget class="QPushButton" name="btn_add_comm">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
+            </property>
             <property name="text">
              <string>Add</string>
             </property>
@@ -151,6 +157,12 @@
           </item>
           <item>
            <widget class="QPushButton" name="btn_remove_comm">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
+            </property>
             <property name="text">
              <string>Remove</string>
             </property>
@@ -159,7 +171,7 @@
           <item>
            <spacer name="horizontalSpacer_27">
             <property name="orientation">
-             <enum>Qt::Horizontal</enum>
+             <enum>Qt::Orientation::Horizontal</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -178,13 +190,13 @@
             <item>
              <widget class="QListWidget" name="list_connections">
               <property name="editTriggers">
-               <set>QAbstractItemView::NoEditTriggers</set>
+               <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
               </property>
               <property name="showDropIndicator" stdset="0">
                <bool>true</bool>
               </property>
               <property name="selectionBehavior">
-               <enum>QAbstractItemView::SelectRows</enum>
+               <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
               </property>
              </widget>
             </item>
@@ -206,6 +218,12 @@
               <layout class="QVBoxLayout" name="verticalLayout_5">
                <item>
                 <widget class="QCheckBox" name="checkBox_emit_system_heartbeat">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>30</height>
+                  </size>
+                 </property>
                  <property name="text">
                   <string>Emit System Heartbeat</string>
                  </property>
@@ -213,6 +231,12 @@
                </item>
                <item>
                 <widget class="QPushButton" name="btn_relay">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>30</height>
+                  </size>
+                 </property>
                  <property name="text">
                   <string>Relay</string>
                  </property>
@@ -224,7 +248,7 @@
             <item>
              <spacer name="verticalSpacer">
               <property name="orientation">
-               <enum>Qt::Vertical</enum>
+               <enum>Qt::Orientation::Vertical</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -236,6 +260,12 @@
             </item>
             <item>
              <widget class="QPushButton" name="btn_c2t_go_back_comms">
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
               <property name="text">
                <string>Go Back</string>
               </property>
@@ -256,7 +286,7 @@
             <item>
              <spacer name="horizontalSpacer_3">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -268,6 +298,12 @@
             </item>
             <item>
              <widget class="QRadioButton" name="btn_c2t_serial">
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
               <property name="text">
                <string>Serial</string>
               </property>
@@ -282,10 +318,10 @@
             <item>
              <spacer name="horizontalSpacer_26">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeType">
-               <enum>QSizePolicy::Preferred</enum>
+               <enum>QSizePolicy::Policy::Preferred</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -298,7 +334,7 @@
             <item>
              <widget class="QTextBrowser" name="textBrowser_17">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+               <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -306,7 +342,13 @@
               <property name="minimumSize">
                <size>
                 <width>90</width>
-                <height>0</height>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
                </size>
               </property>
               <property name="sizeIncrement">
@@ -316,13 +358,13 @@
                </size>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -339,21 +381,21 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <widget class="QLineEdit" name="txt_port_name">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
+               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                <horstretch>30</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
               <property name="minimumSize">
                <size>
                 <width>100</width>
-                <height>0</height>
+                <height>30</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
                 <width>300</width>
-                <height>16777215</height>
+                <height>30</height>
                </size>
               </property>
               <property name="inputMask">
@@ -370,10 +412,10 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_2">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeType">
-               <enum>QSizePolicy::Preferred</enum>
+               <enum>QSizePolicy::Policy::Preferred</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -388,6 +430,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <property name="enabled">
                <bool>true</bool>
               </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
               <property name="text">
                <string>UDP</string>
               </property>
@@ -399,7 +447,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_4">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -423,7 +471,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_13">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -436,7 +484,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_2">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -450,7 +498,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>85</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -466,28 +514,28 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="layoutDirection">
-                   <enum>Qt::LeftToRight</enum>
+                   <enum>Qt::LayoutDirection::LeftToRight</enum>
                   </property>
                   <property name="autoFillBackground">
                    <bool>false</bool>
                   </property>
                   <property name="frameShape">
-                   <enum>QFrame::NoFrame</enum>
+                   <enum>QFrame::Shape::NoFrame</enum>
                   </property>
                   <property name="frameShadow">
-                   <enum>QFrame::Plain</enum>
+                   <enum>QFrame::Shadow::Plain</enum>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="lineWrapMode">
-                   <enum>QTextEdit::WidgetWidth</enum>
+                   <enum>QTextEdit::LineWrapMode::WidgetWidth</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -518,7 +566,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>500</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="baseSize">
@@ -534,18 +582,18 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>50</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="text">
-                   <string>update</string>
+                   <string>Update</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <spacer name="horizontalSpacer_12">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -562,7 +610,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_14">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -575,7 +623,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_7">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -589,7 +637,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>85</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -599,13 +647,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -636,7 +684,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>556</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                  </widget>
@@ -644,7 +692,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_18">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -661,7 +709,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_15">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -674,7 +722,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_8">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -682,17 +730,17 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>85</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -723,7 +771,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>556</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                  </widget>
@@ -731,7 +779,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_19">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -748,7 +796,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_16">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -761,7 +809,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_10">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -769,17 +817,17 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>85</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -810,7 +858,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>556</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                  </widget>
@@ -818,7 +866,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_20">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -835,7 +883,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_17">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -848,7 +896,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_11">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -856,17 +904,17 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>85</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -897,7 +945,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="maximumSize">
                    <size>
                     <width>556</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                  </widget>
@@ -905,7 +953,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_21">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -922,7 +970,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_10">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -948,10 +996,10 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_9">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeType">
-                   <enum>QSizePolicy::Maximum</enum>
+                   <enum>QSizePolicy::Policy::Maximum</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -974,7 +1022,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_11">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -989,10 +1037,10 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <item>
                <spacer name="verticalSpacer_3">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::MinimumExpanding</enum>
+                 <enum>QSizePolicy::Policy::MinimumExpanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -1011,7 +1059,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_22">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1024,7 +1072,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_15">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                   <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -1032,7 +1080,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="minimumSize">
                    <size>
                     <width>110</width>
-                    <height>0</height>
+                    <height>30</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -1042,13 +1096,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1065,21 +1119,21 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QLineEdit" name="txt_host_port">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-                    <horstretch>0</horstretch>
+                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                    <horstretch>30</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
                   </property>
                   <property name="minimumSize">
                    <size>
-                    <width>110</width>
-                    <height>0</height>
+                    <width>140</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="maximumSize">
                    <size>
                     <width>300</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="inputMask">
@@ -1095,21 +1149,33 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </item>
                 <item>
                  <widget class="QPushButton" name="btn_host_update">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                    <horstretch>30</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>60</width>
+                    <height>30</height>
+                   </size>
+                  </property>
                   <property name="maximumSize">
                    <size>
-                    <width>50</width>
-                    <height>16777215</height>
+                    <width>100</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="text">
-                   <string>update</string>
+                   <string>Update</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <spacer name="horizontalSpacer_23">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1126,12 +1192,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_24">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
                     <width>300</width>
-                    <height>0</height>
+                    <height>20</height>
                    </size>
                   </property>
                  </spacer>
@@ -1139,7 +1205,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_16">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Fixed" vsizetype="Minimum">
+                   <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -1147,7 +1213,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="minimumSize">
                    <size>
                     <width>110</width>
-                    <height>0</height>
+                    <height>30</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -1157,13 +1229,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1187,14 +1259,14 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   </property>
                   <property name="minimumSize">
                    <size>
-                    <width>165</width>
-                    <height>0</height>
+                    <width>200</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="maximumSize">
                    <size>
-                    <width>355</width>
-                    <height>16777215</height>
+                    <width>400</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="baseSize">
@@ -1208,12 +1280,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_25">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
                     <width>300</width>
-                    <height>0</height>
+                    <height>20</height>
                    </size>
                   </property>
                  </spacer>
@@ -1225,7 +1297,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_31">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1238,7 +1310,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_18">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -1246,7 +1318,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="minimumSize">
                    <size>
                     <width>110</width>
-                    <height>0</height>
+                    <height>30</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -1256,13 +1334,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1279,21 +1357,21 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QLineEdit" name="txt_local_port">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-                    <horstretch>0</horstretch>
+                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                    <horstretch>30</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
                   </property>
                   <property name="minimumSize">
                    <size>
-                    <width>110</width>
-                    <height>0</height>
+                    <width>140</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="maximumSize">
                    <size>
                     <width>300</width>
-                    <height>16777215</height>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="inputMask">
@@ -1309,21 +1387,33 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </item>
                 <item>
                  <widget class="QPushButton" name="btn_local_update">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                    <horstretch>30</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>60</width>
+                    <height>30</height>
+                   </size>
+                  </property>
                   <property name="maximumSize">
                    <size>
-                    <width>50</width>
-                    <height>16777215</height>
+                    <width>100</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="text">
-                   <string>update</string>
+                   <string>Update</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <spacer name="horizontalSpacer_32">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1340,7 +1430,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_33">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1353,7 +1443,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QTextBrowser" name="textBrowser_19">
                   <property name="sizePolicy">
-                   <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                     <horstretch>0</horstretch>
                     <verstretch>0</verstretch>
                    </sizepolicy>
@@ -1361,7 +1451,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="minimumSize">
                    <size>
                     <width>110</width>
-                    <height>0</height>
+                    <height>30</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="sizeIncrement">
@@ -1371,13 +1467,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </size>
                   </property>
                   <property name="verticalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="horizontalScrollBarPolicy">
-                   <enum>Qt::ScrollBarAlwaysOff</enum>
+                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
                   </property>
                   <property name="sizeAdjustPolicy">
-                   <enum>QAbstractScrollArea::AdjustToContents</enum>
+                   <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
                   </property>
                   <property name="html">
                    <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1401,14 +1497,14 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   </property>
                   <property name="minimumSize">
                    <size>
-                    <width>165</width>
-                    <height>0</height>
+                    <width>200</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="maximumSize">
                    <size>
-                    <width>355</width>
-                    <height>16777215</height>
+                    <width>400</width>
+                    <height>30</height>
                    </size>
                   </property>
                   <property name="baseSize">
@@ -1422,7 +1518,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <spacer name="horizontalSpacer_34">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1437,10 +1533,10 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <item>
                <spacer name="verticalSpacer_4">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::MinimumExpanding</enum>
+                 <enum>QSizePolicy::Policy::MinimumExpanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -1459,7 +1555,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_5">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1472,7 +1568,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <widget class="QTextBrowser" name="textBrowser_9">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+               <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1480,7 +1576,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <property name="minimumSize">
                <size>
                 <width>125</width>
-                <height>0</height>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
                </size>
               </property>
               <property name="sizeIncrement">
@@ -1490,13 +1592,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1513,21 +1615,21 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <widget class="QLineEdit" name="txt_read_rate">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
+               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
+                <horstretch>30</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
               <property name="minimumSize">
                <size>
                 <width>100</width>
-                <height>0</height>
+                <height>30</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
                 <width>300</width>
-                <height>16777215</height>
+                <height>30</height>
                </size>
               </property>
               <property name="inputMask">
@@ -1544,7 +1646,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <widget class="QTextBrowser" name="textBrowser_13">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Ignored">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1552,13 +1654,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <property name="minimumSize">
                <size>
                 <width>40</width>
-                <height>0</height>
+                <height>30</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
                 <width>40</width>
-                <height>16777215</height>
+                <height>30</height>
                </size>
               </property>
               <property name="sizeIncrement">
@@ -1568,13 +1670,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1591,7 +1693,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_6">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1608,7 +1710,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_7">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1619,33 +1721,23 @@ li.checked::marker { content: &quot;\2612&quot;; }
              </spacer>
             </item>
             <item>
-             <spacer name="horizontalSpacer_28">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Fixed</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>55</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-            <item>
              <widget class="QTextBrowser" name="textBrowser_12">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Minimum" vsizetype="Ignored">
+               <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
               <property name="minimumSize">
                <size>
-                <width>65</width>
-                <height>0</height>
+                <width>125</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
                </size>
               </property>
               <property name="sizeIncrement">
@@ -1655,13 +1747,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1677,10 +1769,22 @@ li.checked::marker { content: &quot;\2612&quot;; }
             </item>
             <item>
              <widget class="QComboBox" name="cmbx_priority">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>30</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
                 <width>140</width>
-                <height>0</height>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>340</width>
+                <height>30</height>
                </size>
               </property>
              </widget>
@@ -1688,7 +1792,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer_8">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1704,6 +1808,24 @@ li.checked::marker { content: &quot;\2612&quot;; }
            <layout class="QHBoxLayout" name="horizontalLayout_2">
             <item>
              <widget class="QPushButton" name="btn_c2t_go_back">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
+              </property>
               <property name="text">
                <string>Go Back</string>
               </property>
@@ -1712,7 +1834,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="horizontalSpacer">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1724,6 +1846,24 @@ li.checked::marker { content: &quot;\2612&quot;; }
             </item>
             <item>
              <widget class="QPushButton" name="btn_c2t_confirm">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
+              </property>
               <property name="text">
                <string>Confirm</string>
               </property>
@@ -1740,7 +1880,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
         <item>
          <layout class="QHBoxLayout" name="horizontalLayout_15">
           <property name="sizeConstraint">
-           <enum>QLayout::SetDefaultConstraint</enum>
+           <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
           </property>
           <item>
            <layout class="QVBoxLayout" name="verticalLayout_12">
@@ -1748,12 +1888,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
              <number>6</number>
             </property>
             <property name="sizeConstraint">
-             <enum>QLayout::SetDefaultConstraint</enum>
+             <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
             </property>
             <item>
              <widget class="QTextBrowser" name="textBrowser_3">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1783,28 +1923,28 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="layoutDirection">
-               <enum>Qt::LeftToRight</enum>
+               <enum>Qt::LayoutDirection::LeftToRight</enum>
               </property>
               <property name="autoFillBackground">
                <bool>false</bool>
               </property>
               <property name="frameShape">
-               <enum>QFrame::NoFrame</enum>
+               <enum>QFrame::Shape::NoFrame</enum>
               </property>
               <property name="frameShadow">
-               <enum>QFrame::Plain</enum>
+               <enum>QFrame::Shadow::Plain</enum>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="lineWrapMode">
-               <enum>QTextEdit::WidgetWidth</enum>
+               <enum>QTextEdit::LineWrapMode::WidgetWidth</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1817,14 +1957,14 @@ li.checked::marker { content: &quot;\2612&quot;; }
 &lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'Ubuntu Sans'; font-size:11pt;&quot;&gt;System Id:&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
               </property>
               <property name="textInteractionFlags">
-               <set>Qt::NoTextInteraction</set>
+               <set>Qt::TextInteractionFlag::NoTextInteraction</set>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QLineEdit" name="txt_sysid">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1846,7 +1986,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <spacer name="verticalSpacer_5">
               <property name="orientation">
-               <enum>Qt::Vertical</enum>
+               <enum>Qt::Orientation::Vertical</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1863,7 +2003,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
             <item>
              <widget class="QTextBrowser" name="textBrowser_4">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1893,28 +2033,28 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="layoutDirection">
-               <enum>Qt::LeftToRight</enum>
+               <enum>Qt::LayoutDirection::LeftToRight</enum>
               </property>
               <property name="autoFillBackground">
                <bool>false</bool>
               </property>
               <property name="frameShape">
-               <enum>QFrame::NoFrame</enum>
+               <enum>QFrame::Shape::NoFrame</enum>
               </property>
               <property name="frameShadow">
-               <enum>QFrame::Plain</enum>
+               <enum>QFrame::Shadow::Plain</enum>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="lineWrapMode">
-               <enum>QTextEdit::WidgetWidth</enum>
+               <enum>QTextEdit::LineWrapMode::WidgetWidth</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1929,12 +2069,31 @@ li.checked::marker { content: &quot;\2612&quot;; }
              </widget>
             </item>
             <item>
-             <widget class="QComboBox" name="cmbx_compid"/>
+             <widget class="QComboBox" name="cmbx_compid">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
+              </property>
+             </widget>
             </item>
             <item>
              <widget class="QTextBrowser" name="lbl_font_family">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1952,16 +2111,16 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="frameShape">
-               <enum>QFrame::NoFrame</enum>
+               <enum>QFrame::Shape::NoFrame</enum>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -1976,12 +2135,31 @@ li.checked::marker { content: &quot;\2612&quot;; }
              </widget>
             </item>
             <item>
-             <widget class="QFontComboBox" name="font_combo"/>
+             <widget class="QFontComboBox" name="font_combo">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
+              </property>
+             </widget>
             </item>
             <item>
              <widget class="QTextBrowser" name="lbl_font_size">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -1999,16 +2177,16 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </size>
               </property>
               <property name="frameShape">
-               <enum>QFrame::NoFrame</enum>
+               <enum>QFrame::Shape::NoFrame</enum>
               </property>
               <property name="verticalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="horizontalScrollBarPolicy">
-               <enum>Qt::ScrollBarAlwaysOff</enum>
+               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
               </property>
               <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
+               <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
               </property>
               <property name="html">
                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
@@ -2023,12 +2201,31 @@ li.checked::marker { content: &quot;\2612&quot;; }
              </widget>
             </item>
             <item>
-             <widget class="QComboBox" name="font_size_combo"/>
+             <widget class="QComboBox" name="font_size_combo">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
+              </property>
+             </widget>
             </item>
             <item>
              <spacer name="verticalSpacer_6">
               <property name="orientation">
-               <enum>Qt::Vertical</enum>
+               <enum>Qt::Orientation::Vertical</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -2043,10 +2240,10 @@ li.checked::marker { content: &quot;\2612&quot;; }
           <item>
            <spacer name="horizontalSpacer_29">
             <property name="orientation">
-             <enum>Qt::Horizontal</enum>
+             <enum>Qt::Orientation::Horizontal</enum>
             </property>
             <property name="sizeType">
-             <enum>QSizePolicy::Expanding</enum>
+             <enum>QSizePolicy::Policy::Expanding</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -2060,6 +2257,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
         </item>
         <item>
          <widget class="QCheckBox" name="settings_hard_reset_on_exit">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>30</height>
+           </size>
+          </property>
           <property name="text">
            <string>Reset ALL settings do defaults on application exit</string>
           </property>
@@ -2068,7 +2271,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
         <item>
          <spacer name="verticalSpacer_2">
           <property name="orientation">
-           <enum>Qt::Vertical</enum>
+           <enum>Qt::Orientation::Vertical</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -2082,6 +2285,24 @@ li.checked::marker { content: &quot;\2612&quot;; }
          <layout class="QHBoxLayout" name="horizontalLayout_16">
           <item>
            <widget class="QPushButton" name="btn_settings_go_back">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>30</height>
+             </size>
+            </property>
             <property name="text">
              <string>Go Back</string>
             </property>
@@ -2090,7 +2311,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
           <item>
            <spacer name="horizontalSpacer_30">
             <property name="orientation">
-             <enum>Qt::Horizontal</enum>
+             <enum>Qt::Orientation::Horizontal</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -2102,6 +2323,24 @@ li.checked::marker { content: &quot;\2612&quot;; }
           </item>
           <item>
            <widget class="QPushButton" name="btn_settings_confirm">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>30</height>
+             </size>
+            </property>
             <property name="text">
              <string>Confirm</string>
             </property>
