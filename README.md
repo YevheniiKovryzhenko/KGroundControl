@@ -1,64 +1,51 @@
 # KGroundControl (KGC) - Ground Control and Monitoring Software
 
-# ![Logo](resources/Images/Logo/KGC_Logo.png)
+<p align="center">
+  <img src="resources/Images/Logo/KGC_Logo.png" alt="KGroundControl logo" width="220">
+</p>
 
 ## Hello there 👋
 
-KGroundControl is a cross-platform ground control station software I have developed for my research purposes. 
-My initial goal for this was to combine multiple ground control stations I have previously written
-and implement a graphical interface for obvious reasons. This is my first app written in Qt and 
-developing a UI. I have found QGroundControl to be insufficient for my purposes, so KGroundControl
-was originally written as a support application that should work together with QGroundControl.
-KGroundControl is standalone and supports Mavlink communication via serial and UDP, 
-which can relay/bridge data streams to/from single to/from multiple ports. Data forwarding and the ability
-to talk with multiple devices through a single port was one major aspect I needed for my research, 
-so the entire app is written from scratch with that in mind
+KGroundControl is cross-platform ground control station software I developed for research purposes.
+My initial goal was to combine multiple ground control stations I had previously written
+and implement a graphical interface. I found QGroundControl insufficient for my purposes, so KGroundControl
+was originally written as a support application that works together with QGroundControl.
+KGroundControl is standalone and supports Mavlink communication via serial and UDP,
+which can relay/bridge data streams between a single port and multiple ports. Data forwarding and the ability
+to communicate with multiple devices through a single port were major requirements,
+so the app was written from scratch with that in mind
 
 Additionally, it supports the Optitrack Motion Capture System and can stream data to multiple UAVs.
 
 Check out my videos using KGC on [YouTube](https://www.youtube.com/playlist?list=PLgxIoIw6ONulUfYvzxfoZNM6QXrcRqKkV)!
 
-# Cross-Platform Features
+## Cross-Platform Features
 KGroundControl is designed to work across multiple platforms with minimal configuration:
 
-* **Automatic Qt Detection**: The build system automatically detects Qt installations in common locations
-* **Cross-Platform Deployment**: Uses CMake-based deployment that works on Windows, macOS, and Linux
-* **Architecture-Specific Builds**: Automatically creates deployment packages for different CPU architectures
-* **SDL2 Integration**: Cross-platform multimedia support for joysticks and other input devices
-* **MAVLink Protocol**: Platform-independent drone communication protocol
+* Automatic Qt detection: The build system detects Qt installations in common locations.
+* Cross-platform deployment: Uses CMake-based deployment on Windows and Linux.
+* [To be completed] SDL2 integration: Cross-platform multimedia support for joysticks and other input devices.
+* MAVLink protocol: Platform-independent drone communication protocol
 
-# Tested Architectures and Platforms
+## Tested Architectures and Platforms
 * x86-64:
-  - Windows 10/11 - build from source
-  - Ubuntu 20.04+ - build from source
-  - Arch Linux - build from source
-  - macOS 10.15+ - build from source
+  - Windows 10/11
+  - Ubuntu 20.04+
 * ARM64:
-  - Raspbian - build from source
-  - macOS (Apple Silicon) - build from source
+  - Raspbian (build from source)
 
-> [!NOTE]
-> The project now includes automatic Qt path detection for cross-platform builds. The build system will automatically search for Qt installations in common locations on Windows, macOS, and Linux.
+## Installation
+### Binary
+You can use the standalone binary (executable) without installation. The most recent version is always available through the Releases tab.
+It is built with statically linked Qt and should be the most optimized version performance-wise, but it may take longer to start. On Linux,
+you may still need some external libraries depending on your distribution.
+The executable may need to be recompiled for your specific platform (see “Compiling from source”).
 
-# Installation
-## Installer
-Use one of the installers, which are available under the releases tab. All instructions are 
-included as part of the installation walkthrough. The installer will create a shortcut on your desktop
-and an uninstaller in the same directory to properly remove the program.
-
-## Binary
-You can use the standalone binary (executable) file as is, without any installation. 
-It is compiled with statically built Qt and should be the most optimized 
-version of the app (performance-wise), but it may take longer to start. If using Linux, 
-you may still have to download some external libraries, but this highly depends on your distribution
-. The executable may need to be recompiled for your specific platform (see Compiling from source). 
-
-## Compiling from source
+### Compiling from source
 Requirements:
 * Qt 6.2+
-* CMake 3.5+
-* C++20 compatible compiler
-* For installer creation, you should install [cqtdeployer](https://github.com/QuasarApp/CQtDeployer)
+* CMake 3.18+
+* C++20-compatible compiler
 
 ### Windows
 1. Install Qt 6.2+ using the [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html)
@@ -76,35 +63,16 @@ Requirements:
    cmake --build . --config Release
    ```
 
-### macOS
-1. Install Qt 6.2+ using the [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) or Homebrew
-2. Install Xcode command line tools:
-   ```bash
-   xcode-select --install
-   ```
-3. Install CMake via Homebrew or download from official site
-4. Clone the repository and navigate to the project directory
-5. Configure the build:
-   ```bash
-   mkdir build
-   cd build
-   cmake .. -DCMAKE_PREFIX_PATH="/opt/homebrew/lib/cmake/Qt6"  # Adjust path as needed
-   ```
-6. Build the project:
-   ```bash
-   cmake --build . --config Release
-   ```
-
 ### Linux
-#### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Commercial License Required)
-This is, perhaps, the easiest option. You just need to install Qt using the official online installer, get the source code for KGroundControl,
-and compile. This will not be sufficient to generate a standalone executable so you will either have to use a deployment tool (like cqtdeployer),
-create your own installer, or compile a static version of Qt from the source.
+#### With [Qt online installer](https://doc.qt.io/qt-6/get-and-install-qt.html) (Open Source or Commercial)
+This is usually the easiest option. Install Qt using the official online installer, get the KGroundControl source code,
+and compile. This will not produce a fully standalone executable; you will need to use a deployment tool (like cqtdeployer),
+create your own installer, or compile a static version of Qt from source.
 
-### With the static version of Qt (open-source)
+#### With the static version of Qt (open-source)
 > [!NOTE]
-> Keep in mind, that this is a very time-consuming process and you may have to restart it a couple of times if something was done incorrectly.
-> You need a lot of storage space for this, get yourself at least 128Gb or better 256Gb of free space before you start.
+> Keep in mind that this is time-consuming and may require restarts if something is misconfigured.
+> Ensure you have plenty of disk space (at least 128 GB, preferably 256 GB).
 
 Here is a quick example of compiling everything on the target Linux device:
 1. Make sure you have all the dependencies:
@@ -134,41 +102,41 @@ Here is a quick example of compiling everything on the target Linux device:
     cd build-static
     ../src/configure -static -no-feature-accessibility -release -opensource -prefix ~/Qt/6.7.2/install-static/ -nomake examples -nomake tests -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
     ```
-  * Compile Qt (give it 10x more of what it took you to get here)
+  * Compile Qt (this can take a long time)
     ```bash
     cmake --build . --parallel
     ```
 > [!TIP]
-> You can usually restart this building process from the point it was interrupted by running the same command.
+> You can usually restart the build from where it stopped by running the same command again.
 
   * If you have somehow made it here, you can proceed to install Qt:
     ```bash
     cmake --install .
     ```
-3. Install QtCreator IDE:
+3. Install Qt Creator IDE:
    ```bash
    sudo apt install qtcreator -y
    ```
-4. Configure QtCreator to use the Qt 6.7.2 library we have just compiled and installed.
+4. Configure Qt Creator to use the Qt 6.7.2 library we have just compiled and installed.
 5. Compile KGroundControl.
 
 > [!TIP]
-> If you want to deploy KGC to RPi or similar devices, I would recommend [cross-compiling](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi) everything using a powerful host machine
-> instead of attempting to dirrectly compile on the target device.
+> If you want to deploy KGC to RPi or similar devices, cross-compile everything using a powerful host machine
+> instead of attempting to directly compile on the target device.
 
 ### With the cross-compiled static version of Qt (open-source)
 > [!WARNING]
-> This is a very advanced topic, and you must have prior experience in cross-compiling for embedded platforms.
+> This is an advanced topic; prior cross-compilation experience is recommended.
 
 > [!WARNING]
-> This section is still a work in progress, I will update it once I figure out why this does not work as expected.
+> This section is still a work in progress; behavior may vary by setup.
 
 I am using an Arch Linux host machine for cross-compilation for RPi 5 target. Refer to the [official documentation](https://wiki.qt.io/Cross-Compile_Qt_6_for_Raspberry_Pi),
 since it is far more detailed and you are probably not using Arch. For now, I will leave some of my notes on the process I have gone through.
 
 1. Prepare the target:
-    1. Install the official Raspbian image for the RPi 5 and do all the setup you need. I recommend using a wired ethernet connection and work remotely though ssh.
-         If you are actually setting up a brand new OS, don't forget to do a sull system upgrade first:
+    1. Install the official Raspbian image for the RPi 5 and do the initial setup. A wired Ethernet connection with SSH is recommended.
+         If you are setting up a brand-new OS, don't forget to do a full system upgrade first:
          ```bash
           sudo apt update
           sudo apt full-upgrade
@@ -216,42 +184,42 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
                 ```bash
                 cmake --install .
                 ```
-          3. Install QtCreator IDE:
+          3. Install Qt Creator IDE:
              ```bash
              sudo pacman -S qtcreator
              ```
-          4. Run and configure QtCreator to use the Qt 6.7.2 library we have just compiled and installed.
+          4. Run and configure Qt Creator to use the Qt 6.7.2 library we have just compiled and installed.
           5. Compile KGroundControl.
 
     2. Create a sysroot directly on your host and synchronize it with the target.
-         * Choose the storrage location. I used my second hard drive for this:
+         * Choose the storage location. For example:
              ```bash
                cd /run/media/jack/HDD/
                mkdir RPi5
                cd RPi5
              ```
-         * Create sysroot:
+         * Create the sysroot:
              ```bash
                mkdir sysroot
                cd sysroot
-               mkdir lib usr opt
+               mkdir -p lib usr opt
              ```
-         * Start copying all the required files from RPi (username is **pi** and **raspberrypi.local** is the ip address for me):
+         * Copy required files from the RPi (username is pi and raspberrypi.local is the hostname here):
              ```bash
-              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/lib/* ./lib
-              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/include/* ./usr/include
-              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/lib/* ./usr/lib
-              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/opt/vc rpi-sysroot/opt/vc
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/lib/ ./lib
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/include/ ./usr/include
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/usr/lib/ ./usr/lib
+              rsync -avzS --rsync-path="rsync" --delete pi@raspberrypi.local:/opt/vc ./opt/vc
              ```
-         * I did not have it, but you may need to also copy the following folder from RPi:
+         * If needed, you may also copy the following folder from the RPi:
              ```bash
-              rsync -avzS --rsync-path="rsync" --delete <pi_username>@<pi_ip_address>:/opt/vc rpi-sysroot/opt/vc
+              rsync -avzS --rsync-path="rsync" --delete <pi_username>@<pi_ip_address>:/opt/vc ./opt/vc
              ```
-         * Don't forget to update the symbolic links:
+         * Update symbolic links:
              ```bash
-               cd /run/media/jack/HDD/RPi
+               cd /run/media/jack/HDD/RPi5
                symlinks -rc sysroot
-             ```           
+             ```
             
     3. Install the toolchain:
           ```bash
@@ -264,75 +232,68 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
            mkdir Qt-raspi  Qt-raspi-build
          ``` 
     5. Configure toolchain CMake file:
-         * Open a new file:
-           ```bash
-              nano toolchain.cmake
-           ```
          * Configure toolchain for your case:
            ```
             cmake_minimum_required(VERSION 3.18)
             include_guard(GLOBAL)
-            
+
             set(CMAKE_SYSTEM_NAME Linux)
-            set(CMAKE_SYSTEM_PROCESSOR arm)
-            
+            set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
             set(TARGET_SYSROOT /run/media/jack/HDD/RPi5/sysroot)
             set(CMAKE_SYSROOT ${TARGET_SYSROOT})
-            
+
             set(ENV{PKG_CONFIG_PATH} $PKG_CONFIG_PATH:/usr/lib/aarch64-linux-gnu/pkgconfig)
             set(ENV{PKG_CONFIG_LIBDIR} /usr/lib/pkgconfig:/usr/share/pkgconfig/:${TARGET_SYSROOT}/usr/lib/aarch64-linux-gnu/pkgconfig:${TARGET_SYSROOT}/usr/lib/pkgconfig)
             set(ENV{PKG_CONFIG_SYSROOT_DIR} ${CMAKE_SYSROOT})
-            
-            # if you use other version of gcc and g++, you must change the following variables
+
             set(CMAKE_C_COMPILER /usr/bin/aarch64-linux-gnu-gcc)
             set(CMAKE_CXX_COMPILER /usr/bin/aarch64-linux-gnu-g++)
-            
+
             set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${TARGET_SYSROOT}/usr/include")
             set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
-            
+
             set(QT_COMPILER_FLAGS "-march=armv8-a")
             set(QT_COMPILER_FLAGS_RELEASE "-O2 -pipe")
             set(QT_LINKER_FLAGS "-Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed")
-            
+
             set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
             set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
             set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
             set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
             set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
             set(CMAKE_BUILD_RPATH ${TARGET_SYSROOT})
-            
-            
+
             include(CMakeInitializeConfigs)
-            
+
             function(cmake_initialize_per_config_variable _PREFIX _DOCSTRING)
               if (_PREFIX MATCHES "CMAKE_(C|CXX|ASM)_FLAGS")
                 set(CMAKE_${CMAKE_MATCH_1}_FLAGS_INIT "${QT_COMPILER_FLAGS}")
-            
+
                 foreach (config DEBUG RELEASE MINSIZEREL RELWITHDEBINFO)
                   if (DEFINED QT_COMPILER_FLAGS_${config})
                     set(CMAKE_${CMAKE_MATCH_1}_FLAGS_${config}_INIT "${QT_COMPILER_FLAGS_${config}}")
                   endif()
                 endforeach()
               endif()
-            
-            
+
               if (_PREFIX MATCHES "CMAKE_(SHARED|MODULE|EXE)_LINKER_FLAGS")
                 foreach (config SHARED MODULE EXE)
                   set(CMAKE_${config}_LINKER_FLAGS_INIT "${QT_LINKER_FLAGS}")
                 endforeach()
               endif()
-            
+
               _cmake_initialize_per_config_variable(${ARGV})
             endfunction()
-            
+
             set(XCB_PATH_VARIABLE ${TARGET_SYSROOT})
-            
+
             set(GL_INC_DIR ${TARGET_SYSROOT}/usr/include)
             set(GL_LIB_DIR ${TARGET_SYSROOT}:${TARGET_SYSROOT}/usr/lib/aarch64-linux-gnu/:${TARGET_SYSROOT}/usr:${TARGET_SYSROOT}/usr/lib)
-            
+
             set(EGL_INCLUDE_DIR ${GL_INC_DIR})
             set(EGL_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libEGL.so)
-            
+
             set(OPENGL_INCLUDE_DIR ${GL_INC_DIR})
             set(OPENGL_opengl_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libOpenGL.so)
            
@@ -348,10 +309,10 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
             set(XCB_XCB_INCLUDE_DIR ${GL_INC_DIR})
             set(XCB_XCB_LIBRARY ${XCB_PATH_VARIABLE}/usr/lib/aarch64-linux-gnu/libxcb.so)
            ```
-    6. Configure your host Qt installation for the cross-compiling the RPi-Qt:
+    6. Configure your host Qt installation for cross-compiling the RPi Qt:
          ```bash
            cd Qt-raspi-build
-            /home/jack/Qt/v6.7.2/src/configure -static -release -opengl es2 -nomake examples -nomake tests -qt-host-path /home/jack/Qt/v6.7.2/build/ -extprefix /run/media/jack/HDD/RPi5/Qt-raspi -prefix $HOME/Qt/6.7.2-RPi5-Static -device linux-rasp-pi4-aarch64 -device-option CROSS_COMPILE=aarch64-linux-gnu- -DCMAKE_TOOLCHAIN_FILE=/run/media/jack/HDD/RPi5/toolchain.cmake -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
+           /home/jack/Qt/v6.7.2/src/configure -static -release -opengl es2 -nomake examples -nomake tests -qt-host-path /home/jack/Qt/v6.7.2/build/ -extprefix /run/media/jack/HDD/RPi5/Qt-raspi -prefix $HOME/Qt/6.7.2-RPi5-Static -device linux-rasp-pi4-aarch64 -device-option CROSS_COMPILE=aarch64-linux-gnu- -DCMAKE_TOOLCHAIN_FILE=/run/media/jack/HDD/RPi5/toolchain.cmake -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
          ```
     7. Compile:
         ```bash
@@ -376,18 +337,15 @@ since it is far more detailed and you are probably not using Arch. For now, I wi
        ```bash           
         cmake --build . --parallel
        ```
-4. If you have compiled everything statically, you can not copy the executable to the RPi5 and test it.
-   
+4. If you have compiled everything statically, you can now copy the executable to the RPi5 and test it.
 
-# Optitrack Motion Capture System
-Although KGroundControl is cross-platform and works on different operating systems, watch out for the OS-specific limitations.
-Windows thread scheduling is not as accurate/consistent as in Linux. If you plan to use motion capture, make sure you are ok with <15ms 
-scheduling precision truncation. I had to resort to running KGC in WSL2 (Ubuntu) to get more consistent streaming rates. 
+## Optitrack Motion Capture System
+KGroundControl is designed to work with Optitrack Motive (v2.3.0) data streaming application.
 
-# Contact
+## Contact
 If you have any questions, please feel free to contact me, Yevhenii (Jack) Kovryzhenko, at yzk0058@auburn.edu.
 
-# Credit
+## Credit
 This work started during my Ph.D. at [ACELAB](https://etaheri0.wixsite.com/acelabauburnuni) at Auburn University, under the supervision of Dr. Ehsan Taheri.
 Part of this work has been used during my participation in the STTR Phase II project with Transcend Air Co. to support the ground station and related activities.
 For more details, check out my [PX4 Simulink IO Framework](https://github.com/YevheniiKovryzhenko/PX4_SIMULINK_IO_Framework.git) and [RRTV TiltWing](https://github.com/YevheniiKovryzhenko/RRTV_TiltWing.git) repositories that
