@@ -646,6 +646,11 @@ void KGroundControl::mocap_closed(void)
     mocap_manager_ = nullptr;
     ui->btn_mocap->setVisible(true);
 }
+
+void KGroundControl::mocap_window_hidden(void)
+{
+    ui->btn_mocap->setVisible(true);
+}
 void KGroundControl::on_btn_mocap_clicked()
 {
     // Check if mocap_manager already exists
@@ -655,6 +660,7 @@ void KGroundControl::on_btn_mocap_clicked()
             mocap_manager_->show();
             mocap_manager_->raise();
             mocap_manager_->activateWindow();
+            ui->btn_mocap->setVisible(false);  // Hide button when reopening
         } else {
             // If it's already visible, bring it to front
             mocap_manager_->raise();
@@ -683,6 +689,7 @@ void KGroundControl::on_btn_mocap_clicked()
     connect(mocap_manager_, &mocap_manager::get_compids, mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
 
     connect(mocap_manager_, &mocap_manager::closed, this, &KGroundControl::mocap_closed);
+    connect(mocap_manager_, &mocap_manager::windowHidden, this, &KGroundControl::mocap_window_hidden);
     ui->btn_mocap->setVisible(false);
     mocap_manager_->show();
 }

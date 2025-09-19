@@ -208,6 +208,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 public slots:
 
@@ -232,6 +233,7 @@ signals:
     bool get_port_pointer(QString Port_Name, Generic_Port **port_ptr);
 
     void closed(void);
+    void windowHidden(void);
 
 private slots:
 

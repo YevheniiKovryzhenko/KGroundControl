@@ -130,6 +130,7 @@ private slots:
 
 
     void mocap_closed(void);
+    void mocap_window_hidden(void);
 
     void on_btn_joystick_clicked();
 

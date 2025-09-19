@@ -35,6 +35,7 @@
 #include <QMessageBox>
 #include <QErrorMessage>
 #include <QCloseEvent>
+#include <QShowEvent>
 
 #include "mocap_manager.h"
 #include "ui_mocap_manager.h"
@@ -44,6 +45,7 @@
 #include <QtMath>
 #include <QGraphicsOpacityEffect>
 #include <QScrollBar>
+#include <QHeaderView>
 
 //IPv4 RegEx
 QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
@@ -609,6 +611,21 @@ mocap_manager::mocap_manager(QWidget *parent)
     setWindowTitle("Motion Capture Manager");
     ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
 
+    // Make display fields non-interactive and set minimum widths
+    QStringList displayFields = {"fld_time", "fld_freq", "fld_x", "fld_y", "fld_z", "fld_qx", "fld_qy", "fld_qz", "fld_qw", "fld_roll", "fld_pitch", "fld_yaw"};
+    QFontMetrics fm(font());
+    int minWidth = fm.horizontalAdvance("-000.000000") + 20; // Padding for negative numbers and decimals
+    for (const QString& name : displayFields) {
+        if (auto field = findChild<QLineEdit*>(name)) {
+            field->setFocusPolicy(Qt::NoFocus);
+            field->setReadOnly(true);
+            field->setMinimumWidth(minWidth);
+        }
+    }
+
+    // Set minimum window size to accommodate content
+    setMinimumSize(900, 700);
+
     // mutex = new QMutex;
     mocap_data = new mocap_data_aggegator(this);
 
@@ -730,10 +747,37 @@ void mocap_manager::closeEvent(QCloseEvent *event)
 {
     // Hide the window instead of closing it
     hide();
-    // Emit the closed signal so the main app knows it was "closed"
-    emit closed();
+    emit windowHidden();
     // Accept the event to prevent the default close behavior
     event->accept();
+}
+
+void mocap_manager::showEvent(QShowEvent *event)
+{
+    // Check if mocap thread is running and update UI state accordingly
+    if (mocap_thread_ != nullptr && mocap_thread_->isRunning())
+    {
+        // Mocap is active
+        ui->groupBox_not_active->setEnabled(false);
+        ui->groupBox_active->setEnabled(true);
+        if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+        if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+        // dimming refresh
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(0.4);
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(1.0);
+    }
+    else
+    {
+        // Mocap is not active
+        ui->groupBox_not_active->setEnabled(true);
+        ui->groupBox_active->setEnabled(false);
+        if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+        if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+        // dimming refresh
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(1.0);
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(0.4);
+    }
+    QWidget::showEvent(event);
 }
 
 void mocap_manager::remove_all(bool remove_settings)
@@ -1062,10 +1106,10 @@ void mocap_manager::update_visuals_mocap_data(void)
         // Drive valid indicator LED
         if (auto led = findChild<QLabel*>("led_valid")) {
             if (buff.trackingValid) {
-                led->setStyleSheet("background-color: #2ecc71; border-radius: 7px; border: 1px solid #666;");
+                led->setStyleSheet("background-color: #2ecc71; border-radius: 10px; border: 1px solid #666;");
                 led->setToolTip("Tracking Valid");
             } else {
-                led->setStyleSheet("background-color: #e74c3c; border-radius: 7px; border: 1px solid #666;");
+                led->setStyleSheet("background-color: #e74c3c; border-radius: 10px; border: 1px solid #666;");
                 led->setToolTip("Tracking Invalid");
             }
         }
@@ -1099,7 +1143,7 @@ void mocap_manager::on_btn_refesh_clear_clicked()
     setIf("fld_yaw", "0.00");
     // Reset valid LED to red
     if (auto led = findChild<QLabel*>("led_valid")) {
-        led->setStyleSheet("background-color: #e74c3c; border-radius: 7px; border: 1px solid #666;");
+        led->setStyleSheet("background-color: #e74c3c; border-radius: 10px; border: 1px solid #666;");
         led->setToolTip("Tracking Invalid");
     }
 
@@ -1165,6 +1209,12 @@ void mocap_manager::repopulate_relay_table()
         ui->btn_relay_delete->setVisible(true);
     } else {
         ui->btn_relay_delete->setVisible(false);
+    }
+
+    // Set header resize modes: first 6 columns resize to contents, last column stretches
+    for (int i = 0; i < 6; ++i) {
+        ui->tableWidget_mocap_relay->horizontalHeader()->setSectionResizeMode(i, QHeaderView::ResizeToContents);
+        ui->tableWidget_mocap_relay->horizontalHeader()->setSectionResizeMode(i, QHeaderView::Stretch);
     }
 }
 
