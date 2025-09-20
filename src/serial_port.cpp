@@ -127,19 +127,11 @@ bool Serial_Port::read_message(void* message, int mavlink_channel_)
         for (i = 0; i < bytearray.size(); i++)
         {
             // the parsing
-            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), bytearray[i], static_cast<mavlink_message_t*>(message), &status));
-
-
-
-
-            if (msgReceived)
-            {
-                i++;
-                break;
-            }
+            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), static_cast<uint8_t>(bytearray[i]), static_cast<mavlink_message_t*>(message), &status));
+            if (msgReceived) break;
         }
-        if (i < bytearray.size()) bytearray.remove(0, i+1); //keep data for next parsing run
-        else bytearray.clear(); //start fresh next time
+        if (msgReceived) bytearray.remove(0, i + 1);
+        else bytearray.clear();
     }
     lastStatus = status;
     mutex->unlock();
@@ -193,33 +185,36 @@ int Serial_Port::write_to_port(QByteArray message)
  */
 char Serial_Port::start(void)
 {
-
     // --------------------------------------------------------------------------
     //   SETUP PORT AND OPEN PORT
     // --------------------------------------------------------------------------
+    if (!Port)
+    {
+        Port = new QSerialPort(this);
+    }
 
-    Port = new QSerialPort(this);
     Port->setPortName(settings->uart_name);
     Port->setBaudRate(settings->baudrate);
     Port->setDataBits(settings->DataBits);
     Port->setParity(settings->Parity);
     Port->setStopBits(settings->StopBits);
     Port->setFlowControl(settings->FlowControl);
+
     if (!Port->open(QIODevice::ReadWrite))
     {
         (new QErrorMessage)->showMessage(Port->errorString());
-        // delete Port;
         return -1;
     }
+
     Port->flush();
+
     // --------------------------------------------------------------------------
     //   CONNECTED!
-    // --------------------------------------------------------------------------    
+    // --------------------------------------------------------------------------
     lastStatus.packet_rx_drop_count = 0;
     connect(Port, &QSerialPort::readyRead, this, &Serial_Port::read_port);
 
     return 0;
-
 }
 
 
@@ -278,7 +273,8 @@ QString Serial_Port::get_settings_QString(void)
 }
 void Serial_Port::get_settings(void* input_settings)
 {
-    memcpy((serial_settings*)input_settings, &settings, sizeof(serial_settings));
+    // Copy the actual settings struct, not the pointer address
+    memcpy(static_cast<serial_settings*>(input_settings), settings, sizeof(serial_settings));
 }
 connection_type Serial_Port::get_type(void)
 {

@@ -37,6 +37,14 @@
 #include <QDateTime>
 #include <QErrorMessage>
 #include <QShortcut>
+#include <cmath>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QHeaderView>
+#include <QMutexLocker>
+#include <QSet>
+#include <QPalette>
+#include <functional>
 
 #include "mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
@@ -60,7 +68,7 @@ mavlink_processor<mav_type_in>::~mavlink_processor()
 template <typename mav_type_in>
 bool mavlink_processor<mav_type_in>::exists(void)
 {
-    return msg == NULL;
+    return msg != NULL;
 }
 
 template <typename mav_type_in>
@@ -175,7 +183,7 @@ QString mavlink_data_aggregator::print_field(mavlink_message_t* msg, const mavli
             txt += "[ ";
             for (i = 0; i < f->array_length; i++) {
                 txt += print_one_field(msg, f, i);
-                if (i < f->array_length) {
+                if (i < f->array_length - 1) {
                     txt += ", ";
                 }
             }
@@ -376,7 +384,7 @@ bool mavlink_data_aggregator::get_all(QVector<CQueue<qint64>*> &timestamps_out)
 }
 bool mavlink_data_aggregator::get_all(QVector<QString> &names_out)
 {
-    if (names_out.empty()) return false;
+    if (names.empty()) return false;
     mutex->lock();
     names_out = QVector<QString>(names);
     names_out.detach();
@@ -524,7 +532,8 @@ bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
         }
 
         mavlink_data_aggregator* new_msg_aggregator = new mavlink_data_aggregator(this, msg_cast_->sysid, mavlink_enums::mavlink_component_id(msg_cast_->compid));
-        connect(new_msg_aggregator, &mavlink_data_aggregator::updated, this, &mavlink_manager::relay_updated, Qt::DirectConnection);
+    // Aggregator may live in different thread; relay via queued connection
+    connect(new_msg_aggregator, &mavlink_data_aggregator::updated, this, &mavlink_manager::relay_updated, Qt::QueuedConnection);
 
         if (new_msg_aggregator->update(message, msg_time_stamp))
         {
@@ -639,6 +648,9 @@ MavlinkInspectorMSG::MavlinkInspectorMSG(QWidget *parent, uint8_t sysid_in, mavl
     ui->pushButton->setStyleSheet("text-align:left;");
     QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(0.0,-6, 'f', 1, ' ').arg(name, 30, ' '), 30 + 3 + 5, ' ');
     ui->pushButton->setText(tmp_name);
+
+    // No inline tree under each message anymore; toggling just marks selection
+    connect(ui->pushButton, &QPushButton::toggled, this, [this](bool){ emit updated(); });
 }
 
 MavlinkInspectorMSG::~MavlinkInspectorMSG()
@@ -658,9 +670,10 @@ bool MavlinkInspectorMSG::update(void* mavlink_msg_in, double update_rate_hz)
     {        
         memcpy(&msg, &tmp_msg, sizeof(tmp_msg));
         update_rate_hz_last = update_rate_hz;
-        QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(update_rate_hz,-6, 'f', 1, ' ').arg(name, 30, ' '), 30 + 3 + 5, ' ');
+    QString tmp_name = QString("%1").arg(QString("%1Hz %2").arg(update_rate_hz,-6, 'f', 1, ' ').arg(name, 30, ' '), 30 + 3 + 5, ' ');
         ui->pushButton->setText(tmp_name);
         update_scheduled = false;
+    // Row-only update; detailed view is rendered in the bottom panel
         mutex->unlock();
         emit updated();
         return true;
@@ -714,6 +727,122 @@ QString MavlinkInspectorMSG::get_QString(void)
     return txt;
 }
 
+// Build a stable path for a tree item based on its ancestry
+static QString itemPath(QTreeWidgetItem* item)
+{
+    QStringList parts;
+    for (QTreeWidgetItem* it = item; it; it = it->parent()) {
+        parts.prepend(it->text(0));
+    }
+    return parts.join("/");
+}
+
+// Snapshot expanded state
+static void collectExpanded(QTreeWidget* tree, QSet<QString>& out)
+{
+    out.clear();
+    const int top = tree->topLevelItemCount();
+    QList<QTreeWidgetItem*> stack;
+    for (int i = 0; i < top; ++i) stack.push_back(tree->topLevelItem(i));
+    while (!stack.isEmpty()) {
+        QTreeWidgetItem* it = stack.takeLast();
+        if (!it) continue;
+        if (it->isExpanded()) out.insert(itemPath(it));
+        for (int i = 0; i < it->childCount(); ++i) stack.push_back(it->child(i));
+    }
+}
+
+// Restore expanded state
+static void restoreExpanded(QTreeWidget* tree, const QSet<QString>& in)
+{
+    const int top = tree->topLevelItemCount();
+    QList<QTreeWidgetItem*> stack;
+    for (int i = 0; i < top; ++i) stack.push_back(tree->topLevelItem(i));
+    while (!stack.isEmpty()) {
+        QTreeWidgetItem* it = stack.takeLast();
+        if (!it) continue;
+        if (in.contains(itemPath(it))) it->setExpanded(true);
+        for (int i = 0; i < it->childCount(); ++i) stack.push_back(it->child(i));
+    }
+}
+
+// Populate a QTreeWidget with hierarchical fields for one or more MAVLink messages
+static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavlink_message_t>>& entries)
+{
+    if (!tree) return;
+    QSet<QString> expanded;
+    collectExpanded(tree, expanded);
+    tree->setUpdatesEnabled(false);
+    tree->clear();
+    QStringList headers; headers << "Field" << "Value";
+    tree->setHeaderLabels(headers);
+
+    // Brush for message header rows only (top-level group items) — use theme's default alternate gray
+    const QPalette pal = tree->palette();
+    const QBrush headerBrush = pal.alternateBase();
+
+    auto addMessage = [&](const QString& title, const mavlink_message_t& m) {
+        const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(&m));
+        if (!mi) return;
+        QTreeWidgetItem* root = nullptr;
+        // Always create a header item for consistency (even single message)
+        root = new QTreeWidgetItem(tree);
+        root->setText(0, title);
+        QTreeWidget* parentTree = tree;
+        QTreeWidgetItem* parentItem = root;
+
+        for (unsigned i = 0; i < mi->num_fields; ++i)
+        {
+            const mavlink_field_info_t* f = &mi->fields[i];
+            QTreeWidgetItem* item = parentItem ? new QTreeWidgetItem(parentItem)
+                                               : new QTreeWidgetItem(parentTree);
+            item->setText(0, QString::fromLatin1(f->name));
+
+            if (f->array_length == 0)
+            {
+                QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, 0);
+                item->setText(1, v);
+            }
+            else
+            {
+                for (int idx = 0; idx < f->array_length; ++idx)
+                {
+                    QTreeWidgetItem* child = new QTreeWidgetItem(item);
+                    child->setText(0, QString("[%1]").arg(idx));
+                    QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, idx);
+                    child->setText(1, v);
+                }
+            }
+        }
+
+    // Coloring is handled after building each group
+    };
+
+    // Build messages; color only the header rows (no alternating scheme)
+    for (const auto& p : entries) {
+        // Build subtree
+        addMessage(p.first, p.second);
+        // Color header row gray (always present now)
+        QTreeWidgetItem* root = tree->topLevelItem(tree->topLevelItemCount() - 1);
+        if (root) {
+            const int cols = tree->columnCount();
+            for (int c = 0; c < cols; ++c) root->setBackground(c, headerBrush);
+        }
+    }
+
+    // Start collapsed by default; if user had expansions, restore them
+    if (!expanded.isEmpty()) {
+        restoreExpanded(tree, expanded);
+    }
+    tree->resizeColumnToContents(0);
+    if (tree->header()) {
+        tree->header()->setStretchLastSection(true);
+        tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
+    tree->setUpdatesEnabled(true);
+}
+
 
 MavlinkInspector::MavlinkInspector(QWidget *parent)
     : QWidget(parent)
@@ -734,11 +863,28 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
     mavlink_inspector_settings_.priority = QThread::NormalPriority;
     mavlink_inspector_thread_ = new mavlink_inspector_thread(this, &mavlink_inspector_settings_);
 
-    connect(mavlink_inspector_thread_, &mavlink_inspector_thread::update_all_visuals, this, &MavlinkInspector::update_all_visuals, Qt::DirectConnection);
+    // Ensure UI updates happen on the GUI thread
+    connect(mavlink_inspector_thread_, &mavlink_inspector_thread::update_all_visuals,
+            this, &MavlinkInspector::update_all_visuals,
+            Qt::QueuedConnection);
 
     on_btn_refresh_port_names_clicked();
-    connect(this, &MavlinkInspector::heartbeat_updated, this, &MavlinkInspector::update_arm_state);
-    connect(this, &MavlinkInspector::request_update_msg_browser, this, &MavlinkInspector::update_msg_browser);
+    // Self-signal -> self-slot that touch UI must also be queued because signals may be emitted from worker thread
+    connect(this, &MavlinkInspector::heartbeat_updated,
+        this, &MavlinkInspector::update_arm_state,
+        Qt::QueuedConnection);
+    connect(this, &MavlinkInspector::request_update_msg_browser,
+        this, &MavlinkInspector::update_msg_browser,
+        Qt::QueuedConnection);
+
+    // Configure the bottom detail tree header behavior
+    if (ui->tree_msg_browser && ui->tree_msg_browser->header()) {
+        ui->tree_msg_browser->setUniformRowHeights(true);
+        ui->tree_msg_browser->setAlternatingRowColors(false); // we color by group ourselves
+        ui->tree_msg_browser->header()->setStretchLastSection(true);
+        ui->tree_msg_browser->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        ui->tree_msg_browser->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
 }
 
 MavlinkInspector::~MavlinkInspector()
@@ -850,7 +996,7 @@ void MavlinkInspector::addbutton(uint8_t sysid_, mavlink_enums::mavlink_componen
     emit request_get_msg(sysid_, compid_, msg_name, static_cast<void*>(&msg_), timestamps_);
     MavlinkInspectorMSG* button = new MavlinkInspectorMSG(main_container, sysid_, compid_, msg_name);
     button->update(static_cast<void*>(&msg_), 0.0);
-    connect(this, &MavlinkInspector::seen_msg_processed, button, &MavlinkInspectorMSG::schedule_update, Qt::DirectConnection);    
+    connect(this, &MavlinkInspector::seen_msg_processed, button, &MavlinkInspectorMSG::schedule_update, Qt::QueuedConnection);
     main_layout->addWidget(button);
 }
 
@@ -858,122 +1004,195 @@ void MavlinkInspector::addbutton(uint8_t sysid_, mavlink_enums::mavlink_componen
 bool MavlinkInspector::update_msg_list_visuals(void)
 {
     bool res = false, detailed_data_printed = false;
-    QString details_txt_;
+    QVector<QPair<QString, mavlink_message_t>> detail_entries;
     mutex->lock();
 
+    // Sliding-window estimator + adaptive smoothing and decay
+    const double window_min_s = 0.5;   // small for responsiveness at high rates
+    const double window_max_s = 30.0;  // large enough to cover < 1 Hz
+    const int min_intervals = 5;       // aim to average across at least 5 intervals
+    const double dt_update_s = 1.0 / sample_rate_hz; // UI/update tick period
 
-    //now check if there are any buttons not yet created:
-    for (int i__ = 0; i__ < main_layout->count(); i__++) //only update what is already there
+    const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+
+    // Update all existing message widgets every tick
+    for (int i__ = 0; i__ < main_layout->count(); i__++)
     {
         QLayoutItem* layout_item = main_layout->itemAt(i__);
-        if (layout_item == NULL) //makes no sence...
-        {
-            //not normal!
-            qDebug() << "Layout item is somehow NULL, trying to fix...";
-            on_btn_clear_clicked(); //hopefully this fixes whatever this is...
-            mutex->unlock();
-            return false;
-        }
-        if(layout_item->isEmpty())
-        {
-            //kinda normal...?
-            //qDebug() << "Layout item is still empty...";
-            continue;
-        }
+        if (!layout_item || layout_item->isEmpty()) continue;
 
         MavlinkInspectorMSG* item = qobject_cast<MavlinkInspectorMSG*>(layout_item->widget());
-        if (item == NULL) //makes no sence, but we can try adding again...
+        if (!item)
         {
-            //not normal!
-            qDebug() << "MavlinkInspectorMSG is somehow NULL, trying to fix...";
-            on_btn_clear_clicked(); //hopefully this fixes whatever this is...
+            qDebug() << "MavlinkInspectorMSG is NULL, resetting...";
+            on_btn_clear_clicked();
             mutex->unlock();
             return false;
         }
 
-        if (item->is_update_scheduled()) //don't bother if not updated yet
+        // Pull latest timestamps (and current stored message). If unavailable, fall back to
+        // the cached message in the widget so we can still decay the displayed rate.
+        mavlink_message_t msg_;
+        CQueue<qint64> timestamps_(mavlink_data_aggregator::time_buffer_size);
+        const bool got_fresh = emit request_get_msg(item->sysid, item->compid, item->name, static_cast<void*>(&msg_), timestamps_);
+        if (!got_fresh)
         {
-            mavlink_message_t msg_;
-            CQueue<qint64> timestamps_(mavlink_data_aggregator::time_buffer_size);
-            if (! emit request_get_msg(item->sysid, item->compid, item->name, static_cast<void*>(&msg_), timestamps_)) //can't do much, something is screwed
-            {
-                mutex->unlock();
+            // No fresh message/timestamps from aggregator; use the item's last cached message
+            item->get_msg(static_cast<void*>(&msg_));
+            timestamps_.clear();
+        }
 
-                qDebug() << "Failed to get msg! Reseting...";
-                on_btn_clear_clicked(); //hopefully this fixes whatever this is...
-                mutex->unlock();
-                return false;
-            }
-            //ok, we are done for now, let't finally update visuals:
-            // LowPassFilter lowpass = LowPassFilter(sample_rate_hz, cutoff_frequency_hz);
-            if (timestamps_.count() > 1) //don't bother updating rate yet, need more samples
+        // Build a stable key per message to track last-seen time
+        const QString key = QString::number(item->sysid) + "|" + QString::number(static_cast<int>(item->compid)) + "|" + item->name;
+        if (!last_seen_ms_by_key.contains(key))
+        {
+            last_seen_ms_by_key.insert(key, now_ms); // initialize to now so first frame doesn't instantly decay
+        }
+        // If we have at least one timestamp, update last seen to the last message time
+        if (timestamps_.count() >= 1)
+        {
+            const qint64 t_last = timestamps_.data()[timestamps_.count() - 1];
+            last_seen_ms_by_key[key] = t_last;
+        }
+
+        // Compute base rate over an adaptive time window ending at 'now'
+        double base_rate_hz = 0.0;
+        bool have_intervals = false;
+        qint64 t_last_ms = 0;
+        const int n = timestamps_.count();
+        if (n >= 1) t_last_ms = timestamps_.data()[n - 1];
+        if (n >= 2)
+        {
+            // Grow window until we have at least 'min_intervals' intervals or hit window_max_s
+            double W_s = window_min_s;
+            int i0 = n - 1; // start index (will move earlier)
+            auto ts = timestamps_.data();
+            while (W_s <= window_max_s)
             {
-                qint64 current_time_stamp = QDateTime::currentMSecsSinceEpoch();
-                double avg_update_time_s = 0.0;
-                uint num_valid_samples = 0;
-                // qint64 last_valid_time_stamp_ms = 0;
-                for (int ii = 0; ii < timestamps_.count() - 1; ii++)
+                const qint64 window_start_ms = now_ms - static_cast<qint64>(W_s * 1000.0);
+                // move i0 back to include timestamps within [window_start_ms, now]
+                while (i0 > 0 && ts[i0] >= window_start_ms) { --i0; }
+                // after loop, i0 points to the last element BEFORE the window (or 0)
+                int first_in_window = i0;
+                if (ts[first_in_window] < window_start_ms)
                 {
-                    if ((current_time_stamp - timestamps_.data()[ii]) < 5.0E3)
-                    {
-                        double tmp_diff = static_cast<double>(timestamps_.data()[ii+1] - timestamps_.data()[ii])*1.0E-3;
+                    // advance to first index inside window
+                    while (first_in_window < n && ts[first_in_window] < window_start_ms) { ++first_in_window; }
+                }
 
-                        if (!isnan(tmp_diff) && !isinf(tmp_diff) && tmp_diff > 0.0)
+                const int last_in_window = n - 1;
+                const int samples_in_window = (first_in_window <= last_in_window) ? (last_in_window - first_in_window + 1) : 0;
+                const int intervals_in_window = (samples_in_window > 0) ? (samples_in_window - 1) : 0;
+
+                if (intervals_in_window >= min_intervals || W_s >= window_max_s)
+                {
+                    if (intervals_in_window >= 1)
+                    {
+                        const double span_s = static_cast<double>(ts[last_in_window] - ts[first_in_window]) * 1.0e-3;
+                        if (span_s > 0.0)
                         {
-                            avg_update_time_s += tmp_diff;
-                            num_valid_samples++;
+                            base_rate_hz = static_cast<double>(intervals_in_window) / span_s;
+                            have_intervals = true;
                         }
                     }
+                    break; // window adequate (or maxed), compute with what we have
                 }
-                // double update_rate_hz = 0.0;
-                if (num_valid_samples > 0)
-                {
-                    avg_update_time_s /= static_cast<double>(num_valid_samples);
-                    item->update(static_cast<void*>(&msg_), 1.0 / avg_update_time_s);
-                }
-                else
-                {
-                    // update_rate_hz = lowpass.update(0.0);
-                    if (item->get_last_hz() > 0.0) item->update(static_cast<void*>(&msg_), 0.0);
-                }
-                res = true;
-            }
 
-            //handle special cases:
-
-            switch (msg_.msgid)
-            {
-            case MAVLINK_MSG_ID_HEARTBEAT:
-                if (ui->scrollArea_cmds->isVisible())
-                {
-                    mavlink_heartbeat_t heartbeat;
-                    mavlink_msg_heartbeat_decode(&msg_, &heartbeat);                    
-                    old_heartbeat = heartbeat;
-                    emit heartbeat_updated();
-                }
-                break;
-            case MAVLINK_MSG_ID_COMMAND_ACK:
-            {
-                mavlink_command_ack_t ack;
-                mavlink_msg_command_ack_decode(&msg_, &ack);
-                switch (ack.command)
-                {
-                case MAV_CMD::MAV_CMD_COMPONENT_ARM_DISARM:
-                {
-                    //do something
-                    break;
-                }
-                }
-                break;
-            }
+                // not enough intervals yet, expand window (exponentially for efficiency)
+                W_s = qMin(window_max_s, W_s * 2.0);
+                i0 = n - 1; // reset search origin for widened window
             }
         }
 
-        //now, we can also update data output:
+        // Adaptive smoothing and graceful staleness decay
+        const double prev_rate = item->get_last_hz();
+
+        // Adaptive smoothing time constant: smoother for high rates, more responsive for low rates
+        auto adapt_tau = [](double rate_hz) -> double {
+            const double tau_low = 0.15;  // s, at ~1 Hz
+            const double tau_high = 0.8;  // s, at >= 50 Hz
+            if (rate_hz <= 1.0) return tau_low;
+            if (rate_hz >= 50.0) return tau_high;
+            const double t = (rate_hz - 1.0) / (50.0 - 1.0);
+            return tau_low + t * (tau_high - tau_low);
+        };
+
+        // Decay time constant based on current displayed rate's period; ensures slow signals decay smoothly
+        auto decay_tau = [](double last_rate_hz) -> double {
+            if (last_rate_hz <= 1.0e-6) return 0.3; // small default when already near zero
+            const double period_s = 1.0 / last_rate_hz;
+            // decay roughly over ~0.75 periods, bounded for stability
+            double tau = 0.75 * period_s;
+            if (tau < 0.15) tau = 0.15;
+            if (tau > 1.8)  tau = 1.8;
+            return tau;
+        };
+
+        // Adaptive display with timeout + linear decay for sporadic signals
+        const qint64 last_seen_ms = last_seen_ms_by_key.value(key, now_ms);
+        const qint64 stale_ms = now_ms - last_seen_ms;
+        const qint64 timeout_ms = 2500;          // start artificial decay after 2.5s without new messages
+        const double linear_decay_hz_per_s = 1.0; // drop 1.0 Hz per second
+
+        double new_rate = prev_rate;
+        if (stale_ms > timeout_ms)
+        {
+            // Apply linear decay after timeout regardless of base intervals
+            new_rate = prev_rate - linear_decay_hz_per_s * dt_update_s;
+        }
+        else if (have_intervals)
+        {
+            // Fresh data available — apply adaptive EMA smoothing
+            const double tau = adapt_tau(base_rate_hz);
+            const double alpha = dt_update_s / (tau + dt_update_s);
+            new_rate = alpha * base_rate_hz + (1.0 - alpha) * prev_rate;
+        }
+        else
+        {
+            // Before timeout and without new intervals — hold the current display steady
+            new_rate = prev_rate;
+        }
+
+        // Cleanly clamp tiny values to zero
+        if (new_rate < 0.05) new_rate = 0.0;
+
+        // Update the item UI every tick
+        item->update(static_cast<void*>(&msg_), new_rate);
+        res = true;
+
+        // Heartbeat / ACK handling
+        switch (msg_.msgid)
+        {
+        case MAVLINK_MSG_ID_HEARTBEAT:
+            if (ui->scrollArea_cmds->isVisible())
+            {
+                mavlink_heartbeat_t heartbeat;
+                mavlink_msg_heartbeat_decode(&msg_, &heartbeat);
+                old_heartbeat = heartbeat;
+                emit heartbeat_updated();
+            }
+            break;
+        case MAVLINK_MSG_ID_COMMAND_ACK:
+        {
+            mavlink_command_ack_t ack;
+            mavlink_msg_command_ack_decode(&msg_, &ack);
+            switch (ack.command)
+            {
+            case MAV_CMD::MAV_CMD_COMPONENT_ARM_DISARM:
+                break;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+
+        // Detailed view selection aggregation
         if (item->is_button_checked())
         {
             detailed_data_printed = true;
-            details_txt_ += item->get_QString() + "\n";
+            mavlink_message_t mcache; item->get_msg(&mcache);
+            detail_entries.append(qMakePair(item->name, mcache));
         }
     }
     mutex->unlock();
@@ -981,11 +1200,13 @@ bool MavlinkInspector::update_msg_list_visuals(void)
     if (detailed_data_printed)
     {
         ui->groupBox_msg_browser->setVisible(true);
-        emit request_update_msg_browser(details_txt_);
+        // Populate the bottom detail tree with the selected message(s)
+        fillDetailTree(ui->tree_msg_browser, detail_entries);
     }
     else
     {
         ui->groupBox_msg_browser->setVisible(false);
+        if (ui->tree_msg_browser) ui->tree_msg_browser->clear();
     }
 
     return res;
@@ -1000,14 +1221,18 @@ void MavlinkInspector::update_arm_state(void)
     //mutex->unlock();
 }
 
-void MavlinkInspector::update_msg_browser(QString txt_in)
+void MavlinkInspector::update_msg_browser(QString)
 {
-    //ui->txt_msg_browser->clear();
-    ui->txt_msg_browser->setText(txt_in);
+    // No-op: detailed tree is updated directly in update_msg_list_visuals
 }
 
 void MavlinkInspector::update_all_visuals(void)
 {
+    // This slot is invoked via QueuedConnection from the worker thread; ensure we are on GUI thread
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, [this]{ update_msg_list_visuals(); }, Qt::QueuedConnection);
+        return;
+    }
     update_msg_list_visuals();
 }
 
@@ -1055,6 +1280,7 @@ void MavlinkInspector::clear_msg_list_container(void)
         main_container = nullptr;
     }
     names.clear();
+    last_seen_ms_by_key.clear();
 
     //start fresh:    
     main_container = new QWidget();

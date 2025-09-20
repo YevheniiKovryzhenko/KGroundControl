@@ -41,6 +41,7 @@
 #include <QListWidget>
 #include <QQueue>
 #include <QShortcut>
+#include <QHash>
 
 #define MAVLINK_USE_MESSAGE_INFO
 #include "all/mavlink.h"
@@ -321,6 +322,9 @@ private:
     mavlink_inspector_thread* mavlink_inspector_thread_ = nullptr;
 
     QShortcut *arm_key_bind = nullptr, *disarm_key_bind = nullptr;
+
+    // Track last time a message of a given (sysid,compid,name) was seen
+    QHash<QString, qint64> last_seen_ms_by_key;
 };
 
 #endif // MAVLINK_INSPECTOR_H

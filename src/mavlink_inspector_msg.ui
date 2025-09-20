@@ -16,7 +16,7 @@
   <property name="locale">
    <locale language="English" country="UnitedStates"/>
   </property>
-  <layout class="QHBoxLayout" name="horizontalLayout">
+ <layout class="QVBoxLayout" name="verticalLayout">
    <property name="leftMargin">
     <number>0</number>
    </property>
@@ -29,7 +29,7 @@
    <property name="bottomMargin">
     <number>0</number>
    </property>
-   <item>
+    <item>
     <widget class="QPushButton" name="pushButton">
      <property name="enabled">
       <bool>true</bool>
@@ -48,6 +48,7 @@
      </property>
     </widget>
    </item>
+    
   </layout>
  </widget>
  <resources/>

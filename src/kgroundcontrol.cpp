@@ -174,6 +174,12 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->cmbx_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
     // End of Add New Connection Pannel //
 
+    // Ensure first column fits labels and middle column expands across key grids
+    if (ui->gridLayout_4) { ui->gridLayout_4->setColumnStretch(0, 0); ui->gridLayout_4->setColumnStretch(1, 1); ui->gridLayout_4->setColumnStretch(2, 0); }
+    if (ui->gridLayout_5) { ui->gridLayout_5->setColumnStretch(0, 0); ui->gridLayout_5->setColumnStretch(1, 1); ui->gridLayout_5->setColumnStretch(2, 0); }
+    if (ui->gridLayout_6) { ui->gridLayout_6->setColumnStretch(0, 0); ui->gridLayout_6->setColumnStretch(1, 1); ui->gridLayout_6->setColumnStretch(2, 0); }
+    if (ui->gridLayout_8) { ui->gridLayout_8->setColumnStretch(0, 0); ui->gridLayout_8->setColumnStretch(1, 1); }
+
     // Start of Settings Pannel //
     ui->txt_sysid->setMaxLength(3);
     ui->txt_sysid->setValidator(new QIntValidator(0, 255));

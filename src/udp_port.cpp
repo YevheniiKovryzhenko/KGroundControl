@@ -115,15 +115,10 @@ bool UDP_Port::read_message(void* message, int mavlink_channel_)
         {
             // the parsing
             msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), bytearray[i], static_cast<mavlink_message_t*>(message), &status));
-
-            if (msgReceived)
-            {
-                i++;
-                break;
-            }
+            if (msgReceived) break;
         }
-        if (i < bytearray.size()) bytearray.remove(0, i+1); //keep data for next parsing run
-        else bytearray.clear(); //start fresh next time
+        if (msgReceived) bytearray.remove(0, i + 1);
+        else bytearray.clear();
     }
     lastStatus = status;
     mutex->unlock();
