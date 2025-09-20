@@ -1179,7 +1179,7 @@
           </spacer>
          </item>
          <item>
-          <widget class="QPushButton" name="btn_refesh_clear">
+          <widget class="QPushButton" name="btn_refresh_clear">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -2083,7 +2083,7 @@
             <x>0</x>
             <y>0</y>
             <width>840</width>
-            <height>161</height>
+            <height>528</height>
            </rect>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_14">

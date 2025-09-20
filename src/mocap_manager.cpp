@@ -1016,6 +1016,7 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
     thread_settings_.update_rate_hz = 30;
     ui->cmbx_refresh_priority->setCurrentIndex(6);
     ui->txt_refresh_rate->setText("30");
+    ui->btn_refresh_clear->click(); //reset display
 
     terminate_visuals_thread();
 
@@ -1131,7 +1132,7 @@ void mocap_manager::update_visuals_mocap_data(void)
     }
 }
 
-void mocap_manager::on_btn_refesh_clear_clicked()
+void mocap_manager::on_btn_refresh_clear_clicked()
 {
     auto setIf = [this](const char* name, const QString& val){ if (auto w = findChild<QLineEdit*>(name)) w->setText(val); };
     setIf("fld_time", "0");

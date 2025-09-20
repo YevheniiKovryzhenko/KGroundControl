@@ -260,7 +260,7 @@ private slots:
     void terminate_mocap_processing_thread(void);
     void terminate_mocap_relay_thread(void);
 
-    void on_btn_refesh_clear_clicked();
+    void on_btn_refresh_clear_clicked();
 
     void on_btn_configure_data_bridge_clicked();
 
