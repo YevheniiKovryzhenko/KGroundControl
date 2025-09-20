@@ -41,6 +41,7 @@
 #include <QMutex>
 
 #define MULTICAST_ADDRESS   "239.255.42.99"     // IANA, local network
+// #define MULTICAST_ADDRESS_REMOTE   "224.0.0.1"         // if streaming outside of local network
 #define MULTICAST_ADDRESS_6 "0:0:0:0:0:FFFF:EFFF:2A63"	// ipv6 of above
 #define PORT_COMMAND        1510
 #define PORT_DATA           1511

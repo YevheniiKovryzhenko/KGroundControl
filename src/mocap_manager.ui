@@ -367,7 +367,7 @@
             </widget>
            </item>
            <item>
-            <widget class="QLineEdit" name="txt_multicast_address">
+            <widget class="QComboBox" name="cmbx_multicast_address">
              <property name="sizePolicy">
               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
                <horstretch>30</horstretch>
@@ -386,14 +386,11 @@
                <height>16777215</height>
               </size>
              </property>
-             <property name="inputMask">
-              <string notr="true"/>
+             <property name="editable">
+              <bool>true</bool>
              </property>
-             <property name="text">
-              <string notr="true"/>
-             </property>
-             <property name="maxLength">
-              <number>15</number>
+             <property name="sizeAdjustPolicy">
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>

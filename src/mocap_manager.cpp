@@ -639,14 +639,16 @@ mocap_manager::mocap_manager(QWidget *parent)
         connect(fake_mocap_thread_, &fake_mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
     }
 
-    // Start of Open Data Socket Pannel //
     ui->cmbx_host_address->setEditable(true);
     ui->cmbx_local_address->setEditable(true);
     ui->cmbx_local_port->setEditable(true);
+    ui->cmbx_multicast_address->setEditable(true);
 
     ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
     ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
-    ui->txt_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+    ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+
+    ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS, "224.0.0.1"}));
 
     ui->cmbx_local_port->setValidator(new QIntValidator(0, 65535));
     ui->cmbx_local_port->addItems(QStringList(\
@@ -819,13 +821,14 @@ void mocap_manager::on_btn_open_data_socket_clicked()
 
 void mocap_manager::on_btn_connection_local_update_clicked()
 {
-    ui->txt_multicast_address->clear();
+    ui->cmbx_multicast_address->clear();
+    ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS, "224.0.0.1"}));
     ui->cmbx_host_address->clear();
     ui->cmbx_local_address->clear();
 
     if (ui->btn_connection_ipv4->isChecked() == 0)
     {
-        ui->txt_multicast_address->setText(MULTICAST_ADDRESS);
+        ui->cmbx_multicast_address->setCurrentText(MULTICAST_ADDRESS);
         const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHost);
         const QHostAddress &anyhost = QHostAddress(QHostAddress::Any);
         ui->cmbx_host_address->addItem(localhost.toString());
@@ -844,7 +847,9 @@ void mocap_manager::on_btn_connection_local_update_clicked()
     }
     else
     {
-        ui->txt_multicast_address->setText(MULTICAST_ADDRESS_6);
+        ui->cmbx_multicast_address->clear();
+        ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS_6, "0:0:0:0:0:FFFF:E000:0001"}));
+        ui->cmbx_multicast_address->setCurrentText(MULTICAST_ADDRESS_6);
         const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHostIPv6);
         const QHostAddress &anyhost = QHostAddress(QHostAddress::AnyIPv6);
         ui->cmbx_host_address->addItem(localhost.toString());
@@ -885,7 +890,7 @@ void mocap_manager::on_btn_connection_confirm_clicked()
     else if (rotation_type.compare("Y-UP to NED") == 0) udp_settings_.data_rotation =  YUP2NED;
     else if (rotation_type.compare("Z-UP to NED") == 0) udp_settings_.data_rotation =  ZUP2NED;
 
-    udp_settings_.multicast_address = ui->txt_multicast_address->text();
+    udp_settings_.multicast_address = ui->cmbx_multicast_address->currentText();
     udp_settings_.host_address = (ui->cmbx_host_address->currentText());
 
     udp_settings_.local_address = (ui->cmbx_local_address->currentText());
@@ -928,13 +933,13 @@ void mocap_manager::on_btn_connection_ipv6_toggled(bool checked)
     {
         ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
         ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
-        ui->txt_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
+        ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
     }
     else
     {
         ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
         ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
-        ui->txt_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+        ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
     }
     on_btn_connection_local_update_clicked();
 }
