@@ -41,6 +41,7 @@
 #include "connection_manager.h"
 #include "mavlink_inspector.h"
 #include "joystick_manager.h"
+#include "plotting_manager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -134,6 +135,8 @@ private slots:
 
     void on_btn_joystick_clicked();
 
+    void on_btn_plotting_manager_clicked();
+
 private:
     Ui::KGroundControl *ui;
     QMutex *settings_mutex_ = nullptr;
@@ -142,6 +145,7 @@ private:
     connection_manager* connection_manager_ = nullptr;
 
     mavlink_manager* mavlink_manager_ = nullptr;
+    // no persistent plotting manager; each click spawns a new window
     // system_status_thread* systhread_ = nullptr;
     // mocap_thread* mocap_thread_ = nullptr;
 

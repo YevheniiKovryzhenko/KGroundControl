@@ -249,6 +249,9 @@ public:
     QString font_family = "Ubuntu Sans";
     int font_point_size = 11;
 
+    // Plotting buffer (seconds)
+    double plot_buffer_duration_sec = 60.0;
+
 
     QString get_QString(void);
     void printf(void);

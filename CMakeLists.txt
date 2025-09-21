@@ -202,6 +202,9 @@ set(PROJECT_HEADERS
     include/joystick_manager.h
     include/remote_control_manager.h
     include/fake_mocap_dialog.h
+    include/plotting_manager.h
+    include/plot_signal_registry.h
+    include/plot_canvas.h
 )
 
 set(PROJECT_SOURCES
@@ -223,6 +226,9 @@ set(PROJECT_SOURCES
     src/joystick_manager.cpp
     src/remote_control_manager.cpp
     src/fake_mocap_dialog.cpp
+    src/plotting_manager.cpp
+    src/plot_signal_registry.cpp
+    src/plot_canvas.cpp
 )
 
 set(PROJECT_UI
@@ -235,6 +241,7 @@ set(PROJECT_UI
     # src/cartography.ui
     src/joystick_manager.ui
     src/fake_mocap_dialog.ui
+    src/plotting_manager.ui
 )
 
 set(PROJECT_RESOURCES

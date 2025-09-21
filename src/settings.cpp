@@ -291,6 +291,7 @@ void kgroundcontrol_settings::save(QSettings &settings)
     settings.setValue("compid", static_cast<int32_t>(compid));
     settings.setValue("font_family", font_family);
     settings.setValue("font_point_size", font_point_size);
+    settings.setValue("plot_buffer_duration_sec", plot_buffer_duration_sec);
     settings.endGroup();
 }
 bool kgroundcontrol_settings::load(QSettings &settings)
@@ -306,6 +307,7 @@ bool kgroundcontrol_settings::load(QSettings &settings)
     // Optional values with defaults
     font_family = settings.value("font_family", font_family).toString();
     font_point_size = settings.value("font_point_size", font_point_size).toInt();
+    plot_buffer_duration_sec = settings.value("plot_buffer_duration_sec", plot_buffer_duration_sec).toDouble();
     settings.endGroup();
     return true;
 }

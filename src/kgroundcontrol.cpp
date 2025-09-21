@@ -38,6 +38,7 @@
 #include "settings.h"
 #include "relaydialog.h"
 #include "default_ui_config.h"
+#include "plot_signal_registry.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -56,6 +57,8 @@ KGroundControl::KGroundControl(QWidget *parent)
     setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
 
     load_settings();
+    // Apply plotting buffer duration globally
+    PlotSignalRegistry::instance().setBufferDurationSec(settings.plot_buffer_duration_sec);
     ui->stackedWidget_main->setCurrentIndex(0);
 
     // Apply loaded font settings
@@ -195,6 +198,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     int sizeIndex = ui->font_size_combo->findText(QString::number(settings.font_point_size));
     if (sizeIndex < 0) ui->font_size_combo->addItem(QString::number(settings.font_point_size)), sizeIndex = ui->font_size_combo->count() - 1;
     ui->font_size_combo->setCurrentIndex(sizeIndex);
+    // Initialize plotting buffer control
+    if (ui->spin_plot_buffer)
+        ui->spin_plot_buffer->setValue(settings.plot_buffer_duration_sec);
 
 
     // // Start of System Thread Configuration //
@@ -519,6 +525,8 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     settings.compid = comp_id_list_[index_];
     settings.font_family = ui->font_combo->currentFont().family();
     settings.font_point_size = ui->font_size_combo->currentText().toInt();
+    if (ui->spin_plot_buffer)
+        settings.plot_buffer_duration_sec = ui->spin_plot_buffer->value();
     settings_mutex_->unlock();
 
     emit settings_updated(&settings);
@@ -544,6 +552,9 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     
     // Final process events to ensure all updates are visible
     qApp->processEvents();
+
+    // Propagate plotting buffer duration to registry
+    PlotSignalRegistry::instance().setBufferDurationSec(settings.plot_buffer_duration_sec);
 
     on_btn_settings_go_back_clicked();
     update_port_status_txt();
@@ -729,5 +740,13 @@ void KGroundControl::on_btn_joystick_clicked()
     joystick_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     connect(this, &KGroundControl::about2close, joystick_manager_, &Joystick_manager::close, Qt::DirectConnection);
     joystick_manager_->show();
+}
+
+void KGroundControl::on_btn_plotting_manager_clicked()
+{
+    PlottingManager* w = new PlottingManager(); // independent window
+    w->setAttribute(Qt::WA_DeleteOnClose, true);
+    connect(this, &KGroundControl::about2close, w, &PlottingManager::close, Qt::DirectConnection);
+    w->show();
 }
 

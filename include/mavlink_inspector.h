@@ -325,6 +325,9 @@ private:
 
     // Track last time a message of a given (sysid,compid,name) was seen
     QHash<QString, qint64> last_seen_ms_by_key;
+
+    // Temporarily pause detail tree rebuilds while user interacts with checkboxes
+    bool suspendDetailRefresh_ = false;
 };
 
 #endif // MAVLINK_INSPECTOR_H

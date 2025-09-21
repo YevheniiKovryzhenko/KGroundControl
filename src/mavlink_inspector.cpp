@@ -45,12 +45,16 @@
 #include <QSet>
 #include <QPalette>
 #include <functional>
+#include <QCheckBox>
+#include <QScrollBar>
 
 #include "mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
 #include "ui_mavlink_inspector_msg.h"
 #include "keybinddialog.h"
 #include "default_ui_config.h"
+// Plotting registry for globally tagged signals
+#include "plot_signal_registry.h"
 
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()
@@ -421,6 +425,84 @@ mavlink_manager::~mavlink_manager()
     delete mutex;
 }
 
+// Extract a numeric field value as double; return true if extracted
+static bool mav_extract_numeric_field(const mavlink_message_t* msg, const mavlink_field_info_t* f, int idx, double& out)
+{
+    if (!msg || !f) return false;
+    switch (f->type) {
+    case MAVLINK_TYPE_UINT8_T:    out = static_cast<double>(_MAV_RETURN_uint8_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 1)); return true;
+    case MAVLINK_TYPE_INT8_T:     out = static_cast<double>(_MAV_RETURN_int8_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 1)); return true;
+    case MAVLINK_TYPE_UINT16_T:   out = static_cast<double>(_MAV_RETURN_uint16_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 2)); return true;
+    case MAVLINK_TYPE_INT16_T:    out = static_cast<double>(_MAV_RETURN_int16_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 2)); return true;
+    case MAVLINK_TYPE_UINT32_T:   out = static_cast<double>(_MAV_RETURN_uint32_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 4)); return true;
+    case MAVLINK_TYPE_INT32_T:    out = static_cast<double>(_MAV_RETURN_int32_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 4)); return true;
+    case MAVLINK_TYPE_UINT64_T:   out = static_cast<double>(_MAV_RETURN_uint64_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 8)); return true;
+    case MAVLINK_TYPE_INT64_T:    out = static_cast<double>(_MAV_RETURN_int64_t(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 8)); return true;
+    case MAVLINK_TYPE_FLOAT:      out = static_cast<double>(_MAV_RETURN_float(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 4)); return true;
+    case MAVLINK_TYPE_DOUBLE:     out = static_cast<double>(_MAV_RETURN_double(const_cast<mavlink_message_t*>(msg), f->wire_offset + idx * 8)); return true;
+    default: return false;
+    }
+}
+
+// Append samples for any currently tagged signals that match this message
+static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 msg_time_ms)
+{
+    if (!msg) return;
+    const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(msg));
+    if (!mi) return;
+
+    const QString base = QString("mavlink/%1/%2/%3/")
+            .arg(msg->sysid)
+            .arg(msg->compid)
+            .arg(msg->msgid);
+
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    if (defs.isEmpty()) return;
+
+    for (const auto& def : defs)
+    {
+        if (!def.id.startsWith(base)) continue;
+        const QString fieldPath = def.id.mid(base.size()); // e.g., "x" or "x[2]"
+
+        // Parse name and optional index
+        QString fieldName = fieldPath;
+        int idx = 0;
+        bool hasIndex = false;
+        int lb = fieldPath.indexOf('[');
+        if (lb >= 0) {
+            int rb = fieldPath.indexOf(']', lb + 1);
+            if (rb > lb) {
+                fieldName = fieldPath.left(lb);
+                bool ok = false;
+                idx = fieldPath.mid(lb + 1, rb - lb - 1).toInt(&ok);
+                hasIndex = ok;
+            }
+        }
+
+        // Locate field by name
+        const mavlink_field_info_t* fMatch = nullptr;
+        for (unsigned i = 0; i < mi->num_fields; ++i) {
+            if (QString::fromLatin1(mi->fields[i].name) == fieldName) { fMatch = &mi->fields[i]; break; }
+        }
+        if (!fMatch) continue;
+
+        // Validate index
+        if (fMatch->array_length == 0) {
+            if (hasIndex) continue; // scalar has no index
+            idx = 0;
+        } else {
+            if (!hasIndex) continue; // arrays require index
+            if (idx < 0 || idx >= fMatch->array_length) continue;
+        }
+
+        double value = 0.0;
+        if (!mav_extract_numeric_field(msg, fMatch, idx, value)) continue;
+
+        const qint64 t_ns = msg_time_ms * 1000000LL;
+        PlotSignalRegistry::instance().appendSample(def.id, t_ns, value);
+    }
+}
+
 void mavlink_manager::clear(void)
 {
     mutex->lock();
@@ -537,6 +619,8 @@ bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
 
         if (new_msg_aggregator->update(message, msg_time_stamp))
         {
+            // Append samples for any tagged fields from this message
+            appendTaggedSamplesFromMessage(msg_cast_, msg_time_stamp);
             mutex->lock();
             msgs.push_back(new_msg_aggregator);            
             mutex->unlock();
@@ -552,7 +636,9 @@ bool mavlink_manager::update(void* message, qint64 msg_time_stamp)
     }
     else
     {
-        bool res = msgs[matching_entry]->update(msg_cast_, msg_time_stamp);
+    // Existing aggregator updated; also append any tagged samples
+    bool res = msgs[matching_entry]->update(msg_cast_, msg_time_stamp);
+    appendTaggedSamplesFromMessage(msg_cast_, msg_time_stamp);
         delete msg_cast_;
         return res;
     }
@@ -767,15 +853,76 @@ static void restoreExpanded(QTreeWidget* tree, const QSet<QString>& in)
 }
 
 // Populate a QTreeWidget with hierarchical fields for one or more MAVLink messages
+// Helper to check numeric types (excluding char)
+static inline bool isNumericMavType(uint8_t t)
+{
+    switch (t) {
+    case MAVLINK_TYPE_UINT8_T:
+    case MAVLINK_TYPE_INT8_T:
+    case MAVLINK_TYPE_UINT16_T:
+    case MAVLINK_TYPE_INT16_T:
+    case MAVLINK_TYPE_UINT32_T:
+    case MAVLINK_TYPE_INT32_T:
+    case MAVLINK_TYPE_UINT64_T:
+    case MAVLINK_TYPE_INT64_T:
+    case MAVLINK_TYPE_FLOAT:
+    case MAVLINK_TYPE_DOUBLE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Fast path: update only Value cells, keep Plot checkbox widgets intact
+static void updateDetailTreeValues(QTreeWidget* tree, const QVector<QPair<QString, mavlink_message_t>>& entries)
+{
+    if (!tree) return;
+    if (tree->topLevelItemCount() != entries.size()) return;
+    for (int mIdx = 0; mIdx < entries.size(); ++mIdx) {
+        QTreeWidgetItem* root = tree->topLevelItem(mIdx);
+        if (!root) continue;
+        const mavlink_message_t& m = entries[mIdx].second;
+        const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(&m));
+        if (!mi) continue;
+        for (unsigned i = 0; i < mi->num_fields; ++i) {
+            const mavlink_field_info_t* f = &mi->fields[i];
+            QTreeWidgetItem* item = root->child(static_cast<int>(i));
+            if (!item) continue;
+            if (f->array_length == 0) {
+                const QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, 0);
+                if (item->text(1) != v) item->setText(1, v);
+            } else {
+                for (int idx = 0; idx < f->array_length; ++idx) {
+                    QTreeWidgetItem* child = item->child(idx);
+                    if (!child) continue;
+                    const QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, idx);
+                    if (child->text(1) != v) child->setText(1, v);
+                }
+            }
+        }
+    }
+}
+
+// Populate a QTreeWidget with hierarchical fields for one or more MAVLink messages, with a Plot checkbox column
 static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavlink_message_t>>& entries)
 {
     if (!tree) return;
+    // If titles match, only update Value cells and return (preserve checkboxes & scroll)
+    QStringList oldTitles; for (int i = 0; i < tree->topLevelItemCount(); ++i) oldTitles << tree->topLevelItem(i)->text(0);
+    QStringList newTitles; for (const auto& p : entries) newTitles << p.first;
+    if (!oldTitles.isEmpty() && oldTitles == newTitles) { updateDetailTreeValues(tree, entries); return; }
+
+    // Save expanded state and scroll position
     QSet<QString> expanded;
     collectExpanded(tree, expanded);
+    int vScroll = tree->verticalScrollBar() ? tree->verticalScrollBar()->value() : 0;
     tree->setUpdatesEnabled(false);
+    tree->blockSignals(true);
     tree->clear();
-    QStringList headers; headers << "Field" << "Value";
+    QStringList headers; headers << "Field" << "Value" << "Plot";
     tree->setHeaderLabels(headers);
+    tree->setSelectionMode(QAbstractItemView::NoSelection);
+    tree->setFocusPolicy(Qt::NoFocus);
 
     // Brush for message header rows only (top-level group items) — use theme's default alternate gray
     const QPalette pal = tree->palette();
@@ -802,15 +949,73 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
             {
                 QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, 0);
                 item->setText(1, v);
+                // Add checkbox for numeric scalars via widget for reliable interaction
+                if (isNumericMavType(f->type)) {
+                    const QString fieldPath = QString::fromLatin1(f->name);
+                    const QString id = QString("mavlink/%1/%2/%3/%4")
+                            .arg(m.sysid)
+                            .arg(m.compid)
+                            .arg(m.msgid)
+                            .arg(fieldPath);
+                    const QString label = QString("%1/%2 %3.%4")
+                            .arg(m.sysid)
+                            .arg(m.compid)
+                            .arg(QString::fromLatin1(mi->name))
+                            .arg(fieldPath);
+                    QCheckBox* cb = new QCheckBox(tree);
+                    cb->setText(QString());
+                    cb->setProperty("plotId", id);
+                    cb->setProperty("plotLabel", label);
+                    bool checked = false;
+                    const auto defs = PlotSignalRegistry::instance().listSignals();
+                    for (const auto& d : defs) { if (d.id == id) { checked = true; break; } }
+                    cb->setChecked(checked);
+                    QObject::connect(cb, &QCheckBox::toggled, tree, [cb](bool on){
+                        const QString id = cb->property("plotId").toString();
+                        const QString label = cb->property("plotLabel").toString();
+                        if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
+                        else    PlotSignalRegistry::instance().untagSignal(id);
+                    });
+                    tree->setItemWidget(item, 2, cb);
+                }
             }
             else
             {
+                // For arrays: no checkbox on the group, but add on each numeric element
                 for (int idx = 0; idx < f->array_length; ++idx)
                 {
                     QTreeWidgetItem* child = new QTreeWidgetItem(item);
                     child->setText(0, QString("[%1]").arg(idx));
                     QString v = mavlink_data_aggregator::print_one_field(const_cast<mavlink_message_t*>(&m), f, idx);
                     child->setText(1, v);
+                    if (isNumericMavType(f->type)) {
+                        const QString fieldPath = QString::fromLatin1(f->name) + QString("[%1]").arg(idx);
+                        const QString id = QString("mavlink/%1/%2/%3/%4")
+                                .arg(m.sysid)
+                                .arg(m.compid)
+                                .arg(m.msgid)
+                                .arg(fieldPath);
+                        const QString label = QString("%1/%2 %3.%4")
+                                .arg(m.sysid)
+                                .arg(m.compid)
+                                .arg(QString::fromLatin1(mi->name))
+                                .arg(fieldPath);
+                        QCheckBox* cb = new QCheckBox(tree);
+                        cb->setText(QString());
+                        cb->setProperty("plotId", id);
+                        cb->setProperty("plotLabel", label);
+                        bool checked = false;
+                        const auto defs = PlotSignalRegistry::instance().listSignals();
+                        for (const auto& d : defs) { if (d.id == id) { checked = true; break; } }
+                        cb->setChecked(checked);
+                        QObject::connect(cb, &QCheckBox::toggled, tree, [cb](bool on){
+                            const QString id = cb->property("plotId").toString();
+                            const QString label = cb->property("plotLabel").toString();
+                            if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
+                            else    PlotSignalRegistry::instance().untagSignal(id);
+                        });
+                        tree->setItemWidget(child, 2, cb);
+                    }
                 }
             }
         }
@@ -839,8 +1044,11 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
         tree->header()->setStretchLastSection(true);
         tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     }
+    tree->blockSignals(false);
     tree->setUpdatesEnabled(true);
+    if (tree->verticalScrollBar()) tree->verticalScrollBar()->setValue(vScroll);
 }
 
 
@@ -877,13 +1085,38 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
         this, &MavlinkInspector::update_msg_browser,
         Qt::QueuedConnection);
 
-    // Configure the bottom detail tree header behavior
-    if (ui->tree_msg_browser && ui->tree_msg_browser->header()) {
+    // Configure the bottom detail tree behavior
+    if (ui->tree_msg_browser) {
         ui->tree_msg_browser->setUniformRowHeights(true);
         ui->tree_msg_browser->setAlternatingRowColors(false); // we color by group ourselves
-        ui->tree_msg_browser->header()->setStretchLastSection(true);
-        ui->tree_msg_browser->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-        ui->tree_msg_browser->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        ui->tree_msg_browser->setSelectionMode(QAbstractItemView::NoSelection); // disable row selection/highlight
+        ui->tree_msg_browser->setFocusPolicy(Qt::NoFocus); // don't draw focus rectangle
+        if (ui->tree_msg_browser->header()) {
+            ui->tree_msg_browser->header()->setStretchLastSection(true);
+            ui->tree_msg_browser->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+            ui->tree_msg_browser->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        }
+        // Clicking group rows toggles expand/collapse for easier interaction
+        connect(ui->tree_msg_browser, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* it, int){
+            if (!it) return;
+            if (it->childCount() > 0 && it->parent() == nullptr) it->setExpanded(!it->isExpanded());
+        });
+        // Pause refresh while user interacts with checkboxes to avoid flicker/swallow
+        connect(ui->tree_msg_browser, &QTreeWidget::itemPressed, this, [this](QTreeWidgetItem*, int){ suspendDetailRefresh_ = true; });
+        connect(ui->tree_msg_browser, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem*, int){ suspendDetailRefresh_ = false; });
+        connect(ui->tree_msg_browser, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem*, int){ suspendDetailRefresh_ = false; });
+    }
+
+    // Prefer left pane over right pane in the top splitter
+    if (ui->splitter_mid) {
+        ui->splitter_mid->setChildrenCollapsible(false);
+        ui->splitter_mid->setStretchFactor(0, 4); // left grows more
+        ui->splitter_mid->setStretchFactor(1, 1); // right grows less
+        // Relax right pane minimum width so left can expand naturally
+        if (ui->scrollArea_cmds) ui->scrollArea_cmds->setMinimumWidth(140);
+        // Provide an initial size ratio (will adapt with stretch factors on resize)
+        QList<int> sizes; sizes << 400 << 240; // left, right
+        ui->splitter_mid->setSizes(sizes);
     }
 }
 
@@ -1200,8 +1433,10 @@ bool MavlinkInspector::update_msg_list_visuals(void)
     if (detailed_data_printed)
     {
         ui->groupBox_msg_browser->setVisible(true);
-        // Populate the bottom detail tree with the selected message(s)
-        fillDetailTree(ui->tree_msg_browser, detail_entries);
+        // Populate the bottom detail tree with the selected message(s) unless user is interacting
+        if (!suspendDetailRefresh_) {
+            fillDetailTree(ui->tree_msg_browser, detail_entries);
+        }
     }
     else
     {
