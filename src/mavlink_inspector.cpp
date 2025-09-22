@@ -957,11 +957,11 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                             .arg(m.compid)
                             .arg(m.msgid)
                             .arg(fieldPath);
-                    const QString label = QString("%1/%2 %3.%4")
-                            .arg(m.sysid)
-                            .arg(m.compid)
-                            .arg(QString::fromLatin1(mi->name))
-                            .arg(fieldPath);
+                    const QString label = QString("MAVLink | %1/%2 %3.%4")
+                        .arg(m.sysid)
+                        .arg(m.compid)
+                        .arg(QString::fromLatin1(mi->name))
+                        .arg(fieldPath);
                     QCheckBox* cb = new QCheckBox(tree);
                     cb->setText(QString());
                     cb->setProperty("plotId", id);
@@ -995,11 +995,11 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                                 .arg(m.compid)
                                 .arg(m.msgid)
                                 .arg(fieldPath);
-                        const QString label = QString("%1/%2 %3.%4")
-                                .arg(m.sysid)
-                                .arg(m.compid)
-                                .arg(QString::fromLatin1(mi->name))
-                                .arg(fieldPath);
+                        const QString label = QString("MAVLink | %1/%2 %3.%4")
+                            .arg(m.sysid)
+                            .arg(m.compid)
+                            .arg(QString::fromLatin1(mi->name))
+                            .arg(fieldPath);
                         QCheckBox* cb = new QCheckBox(tree);
                         cb->setText(QString());
                         cb->setProperty("plotId", id);
@@ -1106,6 +1106,31 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
         connect(ui->tree_msg_browser, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem*, int){ suspendDetailRefresh_ = false; });
         connect(ui->tree_msg_browser, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem*, int){ suspendDetailRefresh_ = false; });
     }
+
+    // Sync Plot checkboxes with Plotting Manager actions (e.g., when a tag is removed there)
+    connect(&PlotSignalRegistry::instance(), &PlotSignalRegistry::signalsChanged, this, [this]{
+        if (!ui->tree_msg_browser) return;
+        // Build a fast lookup set of currently tagged ids
+        QSet<QString> tagged;
+        const auto defs = PlotSignalRegistry::instance().listSignals();
+        for (const auto& d : defs) tagged.insert(d.id);
+        // Walk all checkbox widgets in column 2 and set their checked state
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item){
+            if (!item) return;
+            if (QWidget* w = ui->tree_msg_browser->itemWidget(item, 2)) {
+                if (auto* cb = qobject_cast<QCheckBox*>(w)) {
+                    const QString id = cb->property("plotId").toString();
+                    const bool shouldBeChecked = tagged.contains(id);
+                    if (cb->isChecked() != shouldBeChecked) {
+                        QSignalBlocker b(cb);
+                        cb->setChecked(shouldBeChecked);
+                    }
+                }
+            }
+            for (int i = 0; i < item->childCount(); ++i) visit(item->child(i));
+        };
+        for (int i = 0; i < ui->tree_msg_browser->topLevelItemCount(); ++i) visit(ui->tree_msg_browser->topLevelItem(i));
+    });
 
     // Prefer left pane over right pane in the top splitter
     if (ui->splitter_mid) {

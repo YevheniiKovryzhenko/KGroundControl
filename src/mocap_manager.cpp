@@ -46,6 +46,16 @@
 #include <QGraphicsOpacityEffect>
 #include <QScrollBar>
 #include <QHeaderView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QCheckBox>
+#include <QGridLayout>
+#include <QLabel>
+#include <QComboBox>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include "plot_signal_registry.h"
 
 //IPv4 RegEx
 QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
@@ -692,6 +702,35 @@ mocap_manager::mocap_manager(QWidget *parent)
     connect(ui->groupBox_not_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
     connect(ui->groupBox_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
     // End of MOCAP Data Inspector Pannel //
+    // Mocap inspector tree is now defined in the UI file
+    if (ui->tree_mocap_detail) {
+        mocapTree_ = ui->tree_mocap_detail;
+        mocapTree_->header()->setStretchLastSection(true);
+        mocapTree_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        mocapTree_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        mocapTree_->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        mocapTree_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        // Ensure column 0 (Name) never shrinks below its header text width
+        QFontMetrics fm(mocapTree_->font());
+        int headerMin = fm.horizontalAdvance(mocapTree_->headerItem()->text(0)) + 24; // padding
+        mocapTree_->header()->setMinimumSectionSize(headerMin);
+        mocapTree_->setColumnWidth(0, headerMin);
+    }
+
+    // Ensure scroll area resizes properly
+    if (auto scroll = findChild<QScrollArea*>("scrollArea")) {
+        scroll->setWidgetResizable(true);
+    }
+
+    // Keep mocap inspector checkboxes in sync with Plotting Manager deletions
+    auto* reg = &PlotSignalRegistry::instance();
+    connect(reg, &PlotSignalRegistry::signalsChanged, this, &mocap_manager::onRegistrySignalsChanged);
+
+    // Always append samples for tagged mocap signals in the background,
+    // regardless of whether the inspector view is visible
+    connect(mocap_data, &mocap_data_aggegator::frames_updated,
+        this, &mocap_manager::onFramesUpdatedBackground,
+        Qt::QueuedConnection);
 
     // Start of MOCAP Relay Pannel //
     ui->cmbx_relay_priority->addItems(default_ui_config::Priority::keys);
@@ -1107,8 +1146,8 @@ void mocap_manager::update_visuals_mocap_data(void)
     QVector<int> ids = mocap_data->get_ids();
     if (ids.contains(ID) && mocap_data->get_frame(ID, buff))
     {
-        if (auto t = findChild<QLineEdit*>("fld_time")) t->setText(QString::number(buff.time_ms));
-        if (auto f = findChild<QLineEdit*>("fld_freq")) f->setText(QString::number(buff.freq_hz, 'f', 2));
+        if (auto t = findChild<QLineEdit*>("fld_time")) t->setVisible(false);
+        if (auto f = findChild<QLineEdit*>("fld_freq")) f->setVisible(false);
         // Drive valid indicator LED
         if (auto led = findChild<QLabel*>("led_valid")) {
             if (buff.trackingValid) {
@@ -1119,21 +1158,14 @@ void mocap_manager::update_visuals_mocap_data(void)
                 led->setToolTip("Tracking Invalid");
             }
         }
-        if (auto x = findChild<QLineEdit*>("fld_x")) x->setText(QString::number(buff.x, 'f', 6));
-        if (auto y = findChild<QLineEdit*>("fld_y")) y->setText(QString::number(buff.y, 'f', 6));
-        if (auto z = findChild<QLineEdit*>("fld_z")) z->setText(QString::number(buff.z, 'f', 6));
-        if (auto qx = findChild<QLineEdit*>("fld_qx")) qx->setText(QString::number(buff.qx, 'f', 6));
-        if (auto qy = findChild<QLineEdit*>("fld_qy")) qy->setText(QString::number(buff.qy, 'f', 6));
-        if (auto qz = findChild<QLineEdit*>("fld_qz")) qz->setText(QString::number(buff.qz, 'f', 6));
-        if (auto qw = findChild<QLineEdit*>("fld_qw")) qw->setText(QString::number(buff.qw, 'f', 6));
-        if (auto r = findChild<QLineEdit*>("fld_roll")) r->setText(QString::number(buff.roll * 180.0 / M_PI, 'f', 2));
-        if (auto p = findChild<QLineEdit*>("fld_pitch")) p->setText(QString::number(buff.pitch * 180.0 / M_PI, 'f', 2));
-        if (auto yw = findChild<QLineEdit*>("fld_yaw")) yw->setText(QString::number(buff.yaw * 180.0 / M_PI, 'f', 2));
+        update_mocap_tree();
     }
 }
 
 void mocap_manager::on_btn_refresh_clear_clicked()
 {
+    // Guard against updates firing mid-reset
+    mocapTreeResetting_ = true;
     auto setIf = [this](const char* name, const QString& val){ if (auto w = findChild<QLineEdit*>(name)) w->setText(val); };
     setIf("fld_time", "0");
     setIf("fld_freq", "0.00");
@@ -1156,6 +1188,159 @@ void mocap_manager::on_btn_refresh_clear_clicked()
     QVector<int> IDs = mocap_data->get_ids();
     if (!IDs.isEmpty()) update_visuals_mocap_frame_ids(IDs);
     emit reset_visuals();
+    if (mocapTree_) {
+        // Safely clear maps and rebuild
+        mocapItemMap_.clear();
+        mocapCheckMap_.clear();
+        mocapTree_->clear();
+        // Force a refresh once to recreate items for current frame
+        update_mocap_tree();
+    }
+    mocapTreeResetting_ = false;
+}
+
+void mocap_manager::update_mocap_tree()
+{
+    if (!mocapTree_ || mocapTreeResetting_) return;
+    mocap_data_t buff;
+    const QString frameId = ui->cmbx_frameid->currentText();
+    const int ID = frameId.toInt();
+    if (!mocap_data->get_frame(ID, buff)) return;
+
+    mocapTree_->setUpdatesEnabled(false);
+
+    // If frame ID changed, clear caches but keep tree
+    if (mocapCurrentFrameId_ != frameId) {
+        mocapCurrentFrameId_ = frameId;
+        mocapItemMap_.clear();
+        mocapCheckMap_.clear();
+        mocapTree_->clear();
+    }
+
+    auto ensureGroup = [this](const QString& key, const QString& title) -> QTreeWidgetItem* {
+        QTreeWidgetItem* item = mocapItemMap_.value(key, nullptr);
+        if (!item) {
+            item = new QTreeWidgetItem(mocapTree_);
+            item->setText(0, title);
+            mocapItemMap_[key] = item;
+            mocapTree_->expandItem(item);
+        }
+        return item;
+    };
+
+    auto ensureLeaf = [this, &frameId](QTreeWidgetItem* parent, const QString& name, const QString& path) -> QTreeWidgetItem* {
+        const QString key = path;
+        QTreeWidgetItem* item = mocapItemMap_.value(key, nullptr);
+        if (!item) {
+            item = new QTreeWidgetItem(parent);
+            item->setText(0, name);
+            mocapItemMap_[key] = item;
+            // Create or reuse checkbox
+            QCheckBox* cb = mocapCheckMap_.value(key, nullptr);
+            if (!cb) {
+                cb = new QCheckBox(mocapTree_);
+                mocapCheckMap_[key] = cb;
+                const QString plotId = QString("mocap/%1/%2").arg(frameId).arg(path);
+                cb->setProperty("plotId", plotId);
+                cb->setProperty("plotLabel", QString("Mocap | %1 %2").arg(frameId).arg(name));
+                // initialize from registry
+                bool checked = false;
+                const auto defs = PlotSignalRegistry::instance().listSignals();
+                for (const auto& d : defs) { if (d.id == plotId) { checked = true; break; } }
+                cb->blockSignals(true);
+                cb->setChecked(checked);
+                cb->blockSignals(false);
+                QObject::connect(cb, &QCheckBox::toggled, mocapTree_, [cb](bool on){
+                    const QString id = cb->property("plotId").toString();
+                    const QString label = cb->property("plotLabel").toString();
+                    if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
+                    else    PlotSignalRegistry::instance().untagSignal(id);
+                });
+            }
+            mocapTree_->setItemWidget(item, 2, cb);
+        }
+        return item;
+    };
+
+    // Ensure groups
+    QTreeWidgetItem* gBasic = ensureGroup("group/basic", QString("Frame %1").arg(ID));
+    QTreeWidgetItem* gPos   = ensureGroup("group/pos",   "Position (m)");
+    QTreeWidgetItem* gQuat  = ensureGroup("group/quat",  "Quaternion");
+    QTreeWidgetItem* gEul   = ensureGroup("group/eul",   "Euler (rad)");
+
+    // Ensure leaves
+    auto setValue = [](QTreeWidgetItem* it, const QString& val){ if (it) it->setText(1, val); };
+
+    setValue(ensureLeaf(gBasic, "Time (ms)",        "time_ms"),        QString::number(buff.time_ms));
+    setValue(ensureLeaf(gBasic, "Frequency (Hz)",   "freq_hz"),        QString::number(buff.freq_hz, 'f', 2));
+    setValue(ensureLeaf(gBasic, "Tracking Valid",   "trackingValid"),  buff.trackingValid?"YES":"NO");
+
+    setValue(ensureLeaf(gPos,   "x",                "pos/x"),          QString::number(buff.x, 'f', 6));
+    setValue(ensureLeaf(gPos,   "y",                "pos/y"),          QString::number(buff.y, 'f', 6));
+    setValue(ensureLeaf(gPos,   "z",                "pos/z"),          QString::number(buff.z, 'f', 6));
+
+    setValue(ensureLeaf(gQuat,  "qx",               "quat/qx"),        QString::number(buff.qx, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qy",               "quat/qy"),        QString::number(buff.qy, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qz",               "quat/qz"),        QString::number(buff.qz, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qw",               "quat/qw"),        QString::number(buff.qw, 'f', 6));
+
+    setValue(ensureLeaf(gEul,   "roll",             "euler/roll"),     QString::number(buff.roll, 'f', 6));
+    setValue(ensureLeaf(gEul,   "pitch",            "euler/pitch"),    QString::number(buff.pitch, 'f', 6));
+    setValue(ensureLeaf(gEul,   "yaw",              "euler/yaw"),      QString::number(buff.yaw, 'f', 6));
+
+    mocapTree_->setUpdatesEnabled(true);
+
+    // No per-frame appends here: handled by onFramesUpdatedBackground()
+}
+
+void mocap_manager::onRegistrySignalsChanged() {
+    // Sync checkboxes with current registry: uncheck any that were removed
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    QSet<QString> keep; for (const auto& d : defs) keep.insert(d.id);
+    // Update existing checkboxes
+    for (auto it = mocapCheckMap_.begin(); it != mocapCheckMap_.end(); ++it) {
+        QCheckBox* cb = it.value();
+        if (!cb) continue;
+        const QString id = cb->property("plotId").toString();
+        const bool shouldBeChecked = keep.contains(id);
+        if (cb->isChecked() != shouldBeChecked) {
+            cb->blockSignals(true);
+            cb->setChecked(shouldBeChecked);
+            cb->blockSignals(false);
+        }
+    }
+}
+
+void mocap_manager::onFramesUpdatedBackground(QVector<mocap_data_t> frames)
+{
+    // Append samples for tagged mocap signals independent of UI visibility
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    if (defs.isEmpty()) return;
+
+    for (const auto& buff : frames) {
+        const QString base = QString("mocap/%1/").arg(buff.id);
+        const qint64 t_ns = static_cast<qint64>(buff.time_ms) * 1000000LL;
+        for (const auto& d : defs) {
+            if (!d.id.startsWith(base)) continue;
+            double value = 0.0;
+            const QString path = d.id.mid(base.size());
+            if      (path == "time_ms")       value = static_cast<double>(buff.time_ms);
+            else if (path == "freq_hz")       value = buff.freq_hz;
+            else if (path == "trackingValid") value = buff.trackingValid ? 1.0 : 0.0;
+            else if (path == "pos/x")         value = buff.x;
+            else if (path == "pos/y")         value = buff.y;
+            else if (path == "pos/z")         value = buff.z;
+            else if (path == "quat/qx")       value = buff.qx;
+            else if (path == "quat/qy")       value = buff.qy;
+            else if (path == "quat/qz")       value = buff.qz;
+            else if (path == "quat/qw")       value = buff.qw;
+            else if (path == "euler/roll")    value = buff.roll; // radians
+            else if (path == "euler/pitch")   value = buff.pitch;
+            else if (path == "euler/yaw")     value = buff.yaw;
+            else continue;
+            PlotSignalRegistry::instance().appendSample(d.id, t_ns, value);
+        }
+    }
 }
 
 

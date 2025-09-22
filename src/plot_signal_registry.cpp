@@ -14,6 +14,7 @@ void PlotSignalRegistry::tagSignal(const PlotSignalDef& def) {
     if (!defs_.contains(def.id)) {
         defs_.insert(def.id, def);
         data_.insert(def.id, {});
+        order_.push_back(def.id);
         guard.unlock();
         emit signalsChanged();
     }
@@ -21,8 +22,11 @@ void PlotSignalRegistry::tagSignal(const PlotSignalDef& def) {
 
 void PlotSignalRegistry::untagSignal(const QString& id) {
     QWriteLocker guard(&lock_);
-    if (defs_.remove(id) > 0) {
+    if (defs_.contains(id)) {
+        defs_.remove(id);
         data_.remove(id);
+        int idx = order_.indexOf(id);
+        if (idx >= 0) order_.remove(idx);
         guard.unlock();
         emit signalsChanged();
     }
@@ -52,7 +56,11 @@ QVector<PlotSignalDef> PlotSignalRegistry::listSignals() const {
     QReadLocker guard(&lock_);
     QVector<PlotSignalDef> out;
     out.reserve(defs_.size());
-    for (const auto& v : defs_) out.push_back(v);
+    // return in insertion order to ensure stable UI append-at-bottom behavior
+    for (const auto& id : order_) {
+        auto it = defs_.find(id);
+        if (it != defs_.end()) out.push_back(it.value());
+    }
     return out;
 }
 

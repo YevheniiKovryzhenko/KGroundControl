@@ -39,16 +39,29 @@
 #include <QNetworkInterface>
 #include <QDateTime>
 #include <QCloseEvent>
+#include <QString>
+#include <QVector>
+#include <QHash>
+#include <QMutex>
+#include <QByteArray>
 
 #include "threads.h"
 #include "optitrack.hpp"
 #include "generic_port.h"
 #include "settings.h"
-#include "fake_mocap_dialog.h"
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
 #include <QLineEdit>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QCheckBox>
 
+class QTreeWidget;
+
+
+// Forward declarations for classes referenced by pointer
+class fake_mocap_thread;
+class mocap_relay_thread;
 
 class mocap_data_t: public optitrack_message_t
 {
@@ -194,9 +207,7 @@ private:
     QElapsedTimer timer_;
 };
 
-namespace Ui {
-class mocap_manager;
-}
+namespace Ui { class mocap_manager; }
 
 class mocap_manager : public QWidget
 {
@@ -214,6 +225,7 @@ public slots:
 
     void update_visuals_mocap_frame_ids(QVector<int> frame_ids);
     void update_visuals_mocap_data(void);
+    void update_mocap_tree();
 
     void update_relay_mocap_frame_ids(QVector<int> frame_ids);
     void update_relay_port_list(QVector<QString> new_port_names);
@@ -291,6 +303,18 @@ private:
     // Fake mocap node (independent of hardware)
     fake_mocap_thread* fake_mocap_thread_ = nullptr;
     fake_mocap_settings fake_settings_;
+
+    // UI elements for inspector tree
+    QTreeWidget* mocapTree_ = nullptr; // Name | Value | Plot
+    // Persistent item/checkbox maps to avoid rebuild flicker
+    QHash<QString, QTreeWidgetItem*> mocapItemMap_;   // key: path like "pos/x"
+    QHash<QString, QCheckBox*>       mocapCheckMap_;  // key: same path
+    QString mocapCurrentFrameId_;
+    bool mocapTreeResetting_ = false; // guard against updates during reset/clear
+
+private slots:
+    void onRegistrySignalsChanged();
+    void onFramesUpdatedBackground(QVector<mocap_data_t> frames);
 };
 
 

@@ -9,6 +9,7 @@
 #include <QSpinBox>
 #include <QCheckBox>
 #include <QToolButton>
+#include <QTimer>
 
 namespace Ui { class PlottingManager; }
 class PlotSignalRegistry;
@@ -41,11 +42,23 @@ private:
     QDoubleSpinBox* doubleTimeSpan = nullptr;
     QSpinBox*       spinMaxRate    = nullptr;
     QComboBox*      cmbTimeUnits   = nullptr;
+    QCheckBox*      chkForceUpdate = nullptr;
+    QCheckBox*      chkPause       = nullptr;
+    // X axis extras
+    QSpinBox*       spinXTicks     = nullptr;
+    QCheckBox*      chkShowXTicks  = nullptr;
+    QCheckBox*      chkSciX        = nullptr;
+    QLineEdit*      txtXLabel      = nullptr;
 
     QComboBox*      cmbYType       = nullptr;
-    QCheckBox*      checkYAuto     = nullptr;
+    QCheckBox*      checkYAutoExpand = nullptr;
+    QCheckBox*      checkYAutoShrink = nullptr;
     QDoubleSpinBox* doubleYMin     = nullptr;
     QDoubleSpinBox* doubleYMax     = nullptr;
+    // Y axis extras
+    QSpinBox*       spinYTicks     = nullptr;
+    QCheckBox*      chkShowYTicks  = nullptr;
+    QCheckBox*      chkSciY        = nullptr;
 
     QComboBox*      cmbLineStyle   = nullptr;
     QSpinBox*       spinLineWidth  = nullptr;
@@ -60,4 +73,7 @@ private:
     // Ordering state
     QVector<QString> signalOrder_;    // All tagged signals in desired vertical order
     QVector<QString> enabledOrdered_; // Enabled (shown) signals in display/legend order
+
+    // Force update timer to animate plot with no data
+    QTimer          forceTimer_;
 };

@@ -57,6 +57,7 @@ private:
     PlotSignalRegistry();
     mutable QReadWriteLock lock_;
     QHash<QString, PlotSignalDef> defs_;         // id -> def
+    QVector<QString> order_;                     // insertion order of ids
     QHash<QString, QVector<PlotSignalSample>> data_; // id -> samples (append-only)
     double bufferDurationSec_ = 60.0; // default 60 seconds
     qint64 epoch_ns_ = -1; // first-sample time or reset time; -1 if unset

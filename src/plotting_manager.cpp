@@ -2,6 +2,7 @@
 #include "ui_plotting_manager.h"
 #include "plot_signal_registry.h"
 #include "plot_canvas.h"
+#include "sci_doublespinbox.h"
 
 #include <QTimer>
 #include <QColorDialog>
@@ -48,21 +49,34 @@ void PlottingManager::connectSignals() {
 
     buildSettingsTree();
 
-    // X Axis
+    // X Axis & Plot Update
     connect(doubleTimeSpan, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &PlottingManager::onXAxisChanged);
     connect(spinMaxRate,    qOverload<int>(&QSpinBox::valueChanged),         this, &PlottingManager::onXAxisChanged);
     connect(cmbTimeUnits,   &QComboBox::currentTextChanged,                  this, &PlottingManager::onXAxisChanged);
+    // Force update tick (animated scroll without data)
+    connect(&forceTimer_, &QTimer::timeout, this, [this]{
+        if (chkPause && chkPause->isChecked()) return; // paused stops UI updates
+        ui->plotCanvas->requestRepaint();
+    });
+    // If defaults created chkForceUpdate as checked, start timer now
+    if (chkForceUpdate && chkForceUpdate->isChecked() && spinMaxRate) {
+        const int hz = spinMaxRate->value();
+        const int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
+        forceTimer_.start(ms);
+    }
 
     // Y Axis
     connect(cmbYType,    &QComboBox::currentTextChanged, this, &PlottingManager::onYAxisChanged);
-    connect(checkYAuto,  &QCheckBox::toggled,            this, &PlottingManager::onYAxisChanged);
+    if (checkYAutoExpand) connect(checkYAutoExpand, &QCheckBox::toggled, this, &PlottingManager::onYAxisChanged);
+    if (checkYAutoShrink) connect(checkYAutoShrink, &QCheckBox::toggled, this, &PlottingManager::onYAxisChanged);
     connect(doubleYMin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, &PlottingManager::onYAxisChanged);
     connect(doubleYMax,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, &PlottingManager::onYAxisChanged);
     // Live-update min/max when autoscale is on
     connect(ui->plotCanvas, &PlotCanvas::yAutoRangeUpdated, this, [this](double mn, double mx){
-        if (!checkYAuto || !checkYAuto->isChecked()) return;
+        if ((!checkYAutoExpand || !checkYAutoExpand->isChecked()) && (!checkYAutoShrink || !checkYAutoShrink->isChecked())) return;
         if (doubleYMin) { doubleYMin->blockSignals(true); doubleYMin->setValue(mn); doubleYMin->blockSignals(false); }
         if (doubleYMax) { doubleYMax->blockSignals(true); doubleYMax->setValue(mx); doubleYMax->blockSignals(false); }
+        // SciDoubleSpinBox will format itself when scientific is on
     });
 
     // Style
@@ -113,6 +127,69 @@ void PlottingManager::buildSettingsTree() {
         return sec;
     };
 
+    // Plot Update section (first)
+    QTreeWidgetItem* upsec = addSection("Plot Update");
+    {
+        auto* cont = new QWidget(tree);
+        auto* v = new QVBoxLayout(cont);
+        v->setContentsMargins(4,4,4,4);
+        v->setSpacing(6);
+        // Max plot rate
+        spinMaxRate = new QSpinBox(cont);
+        spinMaxRate->setRange(1, 240);
+        spinMaxRate->setValue(60);
+        spinMaxRate->setToolTip("Upper bound on plot refresh frequency. UI updates won’t exceed this rate.");
+        // Force update and Pause
+        chkForceUpdate = new QCheckBox("Force Max Update Rate", cont);
+        chkForceUpdate->setChecked(true);
+        chkForceUpdate->setToolTip("When enabled, the plot advances at the Max Plot Rate even if no new samples arrive (time window slides left).");
+        chkPause = new QCheckBox("Pause", cont);
+        chkPause->setChecked(false);
+        chkPause->setToolTip("Freeze the plot and stop UI updates. No new samples are drawn until unpaused.");
+        // Clear data button (moved here from Plot Appearance)
+        auto* btnClear = new QToolButton(cont);
+        btnClear->setText("Clear Recorded Data");
+        btnClear->setToolTip("Erase all recorded samples and reset plot time epoch.");
+        v->addWidget(makeRow(cont, "Max Plot Rate (Hz):", spinMaxRate));
+        v->addWidget(chkForceUpdate);
+        v->addWidget(chkPause);
+        v->addWidget(btnClear);
+        auto* it = new QTreeWidgetItem(upsec);
+        it->setFirstColumnSpanned(true);
+        tree->setItemWidget(it, 0, cont);
+        cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        cont->adjustSize();
+        it->setSizeHint(0, cont->sizeHint());
+        // Wiring
+        connect(btnClear, &QToolButton::clicked, this, [this]{ registry_->clearAllSamplesAndResetEpoch(); });
+        connect(chkPause, &QCheckBox::toggled, this, [this](bool on){
+            ui->plotCanvas->setPaused(on);
+            // Keep repaint mode consistent with Force Update state when unpausing
+            if (ui->plotCanvas)
+                ui->plotCanvas->setDataDrivenRepaintEnabled(!(chkForceUpdate && chkForceUpdate->isChecked()));
+            // Reduce background wakeups while paused
+            if (on) {
+                forceTimer_.stop();
+            } else if (chkForceUpdate && chkForceUpdate->isChecked() && spinMaxRate) {
+                int hz = spinMaxRate->value(); int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
+                forceTimer_.start(ms);
+            }
+        });
+        connect(chkForceUpdate, &QCheckBox::toggled, this, [this](bool on){
+            // Toggle repaint mode: ON => timer-driven (no data-driven repaints); OFF => data-driven
+            if (ui->plotCanvas)
+                ui->plotCanvas->setDataDrivenRepaintEnabled(!on);
+            forceTimer_.stop();
+            if (on && spinMaxRate && (!chkPause || !chkPause->isChecked())) {
+                int hz = spinMaxRate->value(); int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
+                forceTimer_.start(ms);
+            }
+        });
+        // Initialize repaint mode based on default Force Update state
+        if (ui->plotCanvas)
+            ui->plotCanvas->setDataDrivenRepaintEnabled(!chkForceUpdate->isChecked());
+    }
+
     // X-Axis section
     QTreeWidgetItem* xsec = addSection("X-Axis");
     {
@@ -124,20 +201,37 @@ void PlottingManager::buildSettingsTree() {
         doubleTimeSpan->setRange(0.1, 3600.0);
         doubleTimeSpan->setDecimals(2);
         doubleTimeSpan->setValue(10.0);
-        spinMaxRate = new QSpinBox(cont);
-        spinMaxRate->setRange(1, 240);
-        spinMaxRate->setValue(30);
+        doubleTimeSpan->setToolTip("Visible time window span. Older data scrolls off to the left.");
         cmbTimeUnits = new QComboBox(cont);
         cmbTimeUnits->addItems({"seconds", "milli-seconds", "nano-seconds"});
+        cmbTimeUnits->setToolTip("Display unit for X axis labels (affects labeling only).");
+        // X label and ticks
+        txtXLabel = new QLineEdit(cont);
+        txtXLabel->setPlaceholderText("e.g. Time (s)");
+        txtXLabel->setToolTip("X axis label. Auto-fills based on selected units; manual edits are overwritten when units change.");
+        spinXTicks = new QSpinBox(cont); spinXTicks->setRange(0, 20); spinXTicks->setValue(0);
+        spinXTicks->setToolTip("Override automatic X tick count (0 keeps auto).");
+        chkShowXTicks = new QCheckBox("Show tick labels", cont); chkShowXTicks->setChecked(true);
+        chkShowXTicks->setToolTip("Show or hide X axis tick marks and labels.");
+        chkSciX = new QCheckBox("Use scientific notation", cont); chkSciX->setChecked(false);
+        chkSciX->setToolTip("Display X axis tick labels in scientific notation (e.g., 1.5E3).");
+        v->addWidget(makeRow(cont, "X Label:", txtXLabel));
         v->addWidget(makeRow(cont, "Time Span (s):", doubleTimeSpan));
-        v->addWidget(makeRow(cont, "Max Plot Rate (Hz):", spinMaxRate));
-        v->addWidget(makeRow(cont, "Time Units:", cmbTimeUnits));
+        v->addWidget(makeRow(cont, "Time Units:", cmbTimeUnits));        
+        v->addWidget(makeRow(cont, "X ticks (0=auto):", spinXTicks));
+        v->addWidget(chkShowXTicks);
+        v->addWidget(chkSciX);
         auto* it = new QTreeWidgetItem(xsec);
         it->setFirstColumnSpanned(true);
         tree->setItemWidget(it, 0, cont);
         cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         cont->adjustSize();
         it->setSizeHint(0, cont->sizeHint());
+        // Wiring
+        connect(txtXLabel, &QLineEdit::textEdited, this, [this](const QString& t){ ui->plotCanvas->setXAxisTitle(t); ui->plotCanvas->requestRepaint(); });
+        connect(spinXTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int nx = spinXTicks->value(); if (nx <= 0) nx = -1; ui->plotCanvas->setTickCounts(nx, (spinYTicks ? (spinYTicks->value()<=0 ? -1 : spinYTicks->value()) : -1)); });
+        connect(chkShowXTicks, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowXTicks(on); });
+        connect(chkSciX, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setScientificTicksX(on); });
     }
 
     // Y-Axis section
@@ -147,29 +241,70 @@ void PlottingManager::buildSettingsTree() {
         auto* v = new QVBoxLayout(cont);
         v->setContentsMargins(4,4,4,4);
         v->setSpacing(6);
+        
+        auto* txtYUnits = new QLineEdit(cont);
+        txtYUnits->setPlaceholderText("e.g. Acceleration [m/s^2]");
+        txtYUnits->setToolTip("Units label for Y axis.");
+        v->addWidget(makeRow(cont, "Y Label:", txtYUnits));
+        connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
+
         cmbYType = new QComboBox(cont);
         cmbYType->addItems({"Linear", "Log"});
-        checkYAuto = new QCheckBox("Auto scale", cont);
-        checkYAuto->setChecked(true);
-        doubleYMin = new QDoubleSpinBox(cont);
+        auto* rowAuto = new QWidget(cont);
+        auto* hAuto = new QHBoxLayout(rowAuto);
+        hAuto->setContentsMargins(0,0,0,0);
+        hAuto->setSpacing(12);
+        auto* lblAuto = new QLabel("Auto scale range:", rowAuto);
+        lblAuto->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
+        checkYAutoExpand = new QCheckBox("Expand", rowAuto);
+        checkYAutoExpand->setChecked(true);
+        checkYAutoShrink = new QCheckBox("Shrink", rowAuto);
+        checkYAutoShrink->setChecked(true);        
+        hAuto->addWidget(lblAuto);
+        hAuto->addWidget(checkYAutoExpand);
+        hAuto->addWidget(checkYAutoShrink);
+        hAuto->addStretch(1);
+    doubleYMin = new SciDoubleSpinBox(cont);
         doubleYMin->setRange(-1e9, 1e9);
         doubleYMin->setValue(-1.0);
-        doubleYMax = new QDoubleSpinBox(cont);
+    doubleYMax = new SciDoubleSpinBox(cont);
         doubleYMax->setRange(-1e9, 1e9);
-        doubleYMax->setValue(1.0);
+    doubleYMax->setValue(1.0);
+        cmbYType->setToolTip("Linear or logarithmic Y axis. Log requires positive values.");
         v->addWidget(makeRow(cont, "Type:", cmbYType));
-        v->addWidget(checkYAuto);
-        v->addWidget(makeRow(cont, "Y Min:", doubleYMin));
+        doubleYMax->setToolTip("Upper Y limit when manual scaling is active.");
+        doubleYMin->setToolTip("Lower Y limit when manual scaling is active.");
+        v->addWidget(rowAuto);
         v->addWidget(makeRow(cont, "Y Max:", doubleYMax));
+    v->addWidget(makeRow(cont, "Y Min:", doubleYMin));
+    // Y ticks, visibility, scientific
+    spinYTicks = new QSpinBox(cont); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
+    spinYTicks->setToolTip("Override automatic Y tick count (0 keeps auto).");
+    chkShowYTicks = new QCheckBox("Show tick labels", cont); chkShowYTicks->setChecked(true);
+    chkShowYTicks->setToolTip("Show or hide Y axis tick marks and labels.");
+    chkSciY = new QCheckBox("Use scientific notation", cont); chkSciY->setChecked(false);
+    chkSciY->setToolTip("Display Y axis tick labels in scientific notation (e.g., 1.5E3). Also formats min/max fields.");
+    v->addWidget(makeRow(cont, "Y ticks (0=auto):", spinYTicks));
+    v->addWidget(chkShowYTicks);
+    v->addWidget(chkSciY);
         auto* it = new QTreeWidgetItem(ysec);
         it->setFirstColumnSpanned(true);
         tree->setItemWidget(it, 0, cont);
         cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         cont->adjustSize();
         it->setSizeHint(0, cont->sizeHint());
-        // Initialize disabled/read-only state while Auto is checked
+        // Initialize disabled/read-only state while any Auto is checked
         doubleYMin->setEnabled(false); doubleYMin->setReadOnly(true);
         doubleYMax->setEnabled(false); doubleYMax->setReadOnly(true);
+        // Wiring for Y extras
+        connect(spinYTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts((spinXTicks ? (spinXTicks->value()<=0 ? -1 : spinXTicks->value()) : -1), ny); });
+        connect(chkShowYTicks, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowYTicks(on); });
+        connect(chkSciY, &QCheckBox::toggled, this, [this](bool on){
+            ui->plotCanvas->setScientificTicksY(on);
+            if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin)) s1->setScientific(on);
+            if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax)) s2->setScientific(on);
+            ui->plotCanvas->requestRepaint();
+        });
     }
 
     // Signal Style section
@@ -181,9 +316,11 @@ void PlottingManager::buildSettingsTree() {
         v->setSpacing(6);
         cmbLineStyle = new QComboBox(cont);
         cmbLineStyle->addItems({"Solid", "Dash", "Dot", "Dash-Dot"});
+        cmbLineStyle->setToolTip("Pen style for selected signals.");
         spinLineWidth = new QSpinBox(cont);
         spinLineWidth->setRange(1, 10);
         spinLineWidth->setValue(2);
+        spinLineWidth->setToolTip("Line thickness for selected signals.");
         // Color indicator for line
         lineColorDot = new QWidget(cont);
         lineColorDot->setFixedSize(16, 16);
@@ -197,6 +334,7 @@ void PlottingManager::buildSettingsTree() {
             // Use this button as the single color picker for line color
             btnPickColor = new QToolButton(cont);
             btnPickColor->setText("Color…");
+            btnPickColor->setToolTip("Pick line color for selected signals.");
             h->addWidget(btnPickColor);
             v->addWidget(makeRow(cont, "Line Color:", row));
             // Color picking logic
@@ -229,6 +367,96 @@ void PlottingManager::buildSettingsTree() {
         it->setSizeHint(0, cont->sizeHint());
     }
 
+    // Signal Math section (between Signal Style and Plot Appearance)
+    QTreeWidgetItem* msec = addSection("Signal Math");
+    {
+        auto* cont = new QWidget(tree);
+        auto* v = new QVBoxLayout(cont);
+        v->setContentsMargins(4,4,4,4);
+        v->setSpacing(6);
+        // Equation reminder
+        {
+            auto* lblEq = new QLabel("y = a*x + b", cont);
+            lblEq->setToolTip("Signal math applies y = a*x + b. Enable 'Invert' to use y = 1/(a*x) + b.");
+            v->addWidget(lblEq);
+        }
+        auto* editGain = new QLineEdit(cont); editGain->setObjectName("mathGain"); editGain->setPlaceholderText("e.g. 180/pi or 1.0"); editGain->setText("1"); editGain->setToolTip("Scale factor a applied to samples before plotting.");
+        auto* editOffset = new QLineEdit(cont); editOffset->setObjectName("mathOffset"); editOffset->setPlaceholderText("e.g. 2 or -0.5"); editOffset->setText("0"); editOffset->setToolTip("Offset b added after scaling.");
+        auto* chkInvert = new QCheckBox("Invert", cont); chkInvert->setObjectName("mathInvert"); chkInvert->setChecked(false); chkInvert->setToolTip("Use y = 1/(a*x) + b instead of y = a*x + b.");
+        auto* chkLegendEq = new QCheckBox("Update legend with equation", cont); chkLegendEq->setObjectName("mathLegendEq"); chkLegendEq->setChecked(false); chkLegendEq->setToolTip("Show the applied equation in the legend instead of the raw signal name.");
+        v->addWidget(makeRow(cont, "Gain (a):", editGain));
+        v->addWidget(makeRow(cont, "Offset (b):", editOffset));
+        v->addWidget(chkInvert);
+        v->addWidget(chkLegendEq);
+        auto* it = new QTreeWidgetItem(msec);
+        it->setFirstColumnSpanned(true);
+        tree->setItemWidget(it, 0, cont);
+        cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        cont->adjustSize();
+        it->setSizeHint(0, cont->sizeHint());
+        // Disabled initially until a signal is selected
+        auto setEnabledBySel = [this, editGain, editOffset, chkInvert, chkLegendEq](bool en){
+            editGain->setEnabled(en); editOffset->setEnabled(en); chkInvert->setEnabled(en); chkLegendEq->setEnabled(en);
+        };
+        setEnabledBySel(false);
+        // Tiny safe expression evaluator for a,b (supports +,-,*,/, parentheses, constants: pi,e)
+        auto evalExpr = [](const QString& s, bool& ok) -> double {
+            struct P { const QChar* cur; const QChar* end; };
+            std::function<double(P&)> parseExpr, parseTerm, parseFactor;
+            auto skip = [](P& p){ while (p.cur < p.end && p.cur->isSpace()) ++p.cur; };
+            parseFactor = [&](P& p)->double{
+                skip(p);
+                double sign = 1.0;
+                while (p.cur < p.end && (*p.cur == '+' || *p.cur == '-')) { if (*p.cur == '-') sign = -sign; ++p.cur; skip(p);} 
+                if (p.cur < p.end && *p.cur == '(') { ++p.cur; double v = parseExpr(p); skip(p); if (p.cur < p.end && *p.cur == ')') ++p.cur; return sign*v; }
+                // constants
+                if (p.cur+1 <= p.end && (QStringLiteral("pi").startsWith(*p.cur, Qt::CaseInsensitive))) {
+                    // match 'pi'
+                    if (p.cur+1 < p.end && (p.cur[0] == 'p' || p.cur[0] == 'P') && (p.cur[1] == 'i' || p.cur[1] == 'I')) { p.cur += 2; return sign*M_PI; }
+                }
+                if (p.cur < p.end && (*p.cur == 'e' || *p.cur == 'E')) { ++p.cur; return sign*M_E; }
+                // number
+                QString num;
+                while (p.cur < p.end && (p.cur->isDigit() || *p.cur == '.' )) { num.append(*p.cur); ++p.cur; }
+                bool oknum=false; double v = num.toDouble(&oknum);
+                if (!oknum) { ok=false; return 0.0; }
+                return sign*v;
+            };
+            parseTerm = [&](P& p)->double{
+                double v = parseFactor(p); for(;;){ skip(p); if (p.cur>=p.end) break; QChar op = *p.cur; if (op!='*' && op!='/') break; ++p.cur; double rhs = parseFactor(p); if (op=='*') v*=rhs; else v/=rhs; }
+                return v;
+            };
+            parseExpr = [&](P& p)->double{
+                double v = parseTerm(p); for(;;){ skip(p); if (p.cur>=p.end) break; QChar op = *p.cur; if (op!='+' && op!='-') break; ++p.cur; double rhs = parseTerm(p); if (op=='+') v+=rhs; else v-=rhs; }
+                return v;
+            };
+            P p{ s.constData(), s.constData()+s.size() }; ok = true; double v = parseExpr(p); skip(p); if (p.cur != p.end) ok=false; return v; };
+            // Reflect selection into controls and wire changes back to canvas
+            auto applyToSelected = [this, editGain, editOffset, chkInvert, chkLegendEq, evalExpr]{
+            QVector<QString> sel;
+            if (auto* tree = ui->scrollBottomContents->findChild<QTreeWidget*>("treeSignals")) {
+                for (auto* it : tree->selectedItems()) sel.push_back(it->data(0, Qt::UserRole).toString());
+            }
+            if (sel.isEmpty()) return;
+            bool okA=false, okB=false;
+            double a = evalExpr(editGain->text(), okA);
+            double b = evalExpr(editOffset->text(), okB);
+            if (!okA && !okB) return; // ignore invalid input
+            for (const auto& id : sel) {
+                if (okA) ui->plotCanvas->setSignalGain(id, a);
+                if (okB) ui->plotCanvas->setSignalOffset(id, b);
+                ui->plotCanvas->setSignalInvert(id, chkInvert->isChecked());
+                ui->plotCanvas->setSignalLegendEquation(id, chkLegendEq->isChecked());
+            }
+            ui->plotCanvas->requestRepaint();
+        };
+        // We'll populate on selection change of the signals tree (connected in refreshSignalList)
+        connect(editGain,   &QLineEdit::editingFinished, this, [applyToSelected]{ applyToSelected(); });
+        connect(editOffset, &QLineEdit::editingFinished, this, [applyToSelected]{ applyToSelected(); });
+        connect(chkInvert,  &QCheckBox::toggled, this, [applyToSelected](bool){ applyToSelected(); });
+        connect(chkLegendEq,&QCheckBox::toggled, this, [applyToSelected](bool){ applyToSelected(); });
+    }
+
     // Legend/Grid/Background section
     QTreeWidgetItem* vissec = addSection("Plot Appearance");
     {
@@ -238,11 +466,14 @@ void PlottingManager::buildSettingsTree() {
         v->setSpacing(6);
         auto* chkLegend = new QCheckBox("Show legend", cont);
         chkLegend->setChecked(true);
+        chkLegend->setToolTip("Toggle legend visibility.");
         auto* chkGrid = new QCheckBox("Show grid", cont);
         chkGrid->setChecked(true);
+        chkGrid->setToolTip("Show grid lines aligned to ticks.");
         // Background color row with indicator dot
         auto* btnBg = new QToolButton(cont);
         btnBg->setText("Background…");
+        btnBg->setToolTip("Pick plot background color.");
         bgColorDot = new QWidget(cont);
         bgColorDot->setFixedSize(16,16);
         bgColorDot->setStyleSheet("border-radius:8px; border:1px solid palette(dark);");
@@ -254,20 +485,9 @@ void PlottingManager::buildSettingsTree() {
             h->addWidget(bgColorDot);
             h->addWidget(btnBg);
         }
-        auto* txtYUnits = new QLineEdit(cont);
-        txtYUnits->setPlaceholderText("Y Label (e.g. m/s^2)");
-        auto* spinXTicks = new QSpinBox(cont); spinXTicks->setRange(0, 20); spinXTicks->setValue(0);
-        auto* spinYTicks = new QSpinBox(cont); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
         v->addWidget(chkLegend);
         v->addWidget(chkGrid);
-        v->addWidget(makeRow(cont, "Y Label:", txtYUnits));
         v->addWidget(makeRow(cont, "Canvas:", bgRow));
-        v->addWidget(makeRow(cont, "X ticks (0=auto):", spinXTicks));
-        v->addWidget(makeRow(cont, "Y ticks (0=auto):", spinYTicks));
-        // Clear data button
-        auto* btnClear = new QToolButton(cont);
-        btnClear->setText("Clear Recorded Data");
-        v->addWidget(btnClear);
         auto* it = new QTreeWidgetItem(vissec);
         it->setFirstColumnSpanned(true);
         tree->setItemWidget(it, 0, cont);
@@ -277,7 +497,6 @@ void PlottingManager::buildSettingsTree() {
 
         connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShowLegend);
         connect(chkGrid, &QCheckBox::toggled,   ui->plotCanvas, &PlotCanvas::setShowGrid);
-        connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
         auto updateBgDot = [this]{
             // try reading palette of canvas background or stored color; we track via setBackgroundColor calls
             // We can't read from canvas easily, so we cache last set value locally by updating the dot style when user picks
@@ -296,18 +515,11 @@ void PlottingManager::buildSettingsTree() {
             ui->plotCanvas->setPalette(pal);
             ui->plotCanvas->requestRepaint();
         });
-        connect(spinXTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this, spinXTicks, spinYTicks](int){
-            int nx = spinXTicks->value(); if (nx <= 0) nx = -1; int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts(nx, ny);
-        });
-        connect(spinYTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this, spinXTicks, spinYTicks](int){
-            int nx = spinXTicks->value(); if (nx <= 0) nx = -1; int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts(nx, ny);
-        });
-        connect(btnClear, &QToolButton::clicked, this, [this]{
-            registry_->clearAllSamplesAndResetEpoch();
-        });
+        // tick controls moved to X-/Y-Axis sections
     }
 
     // start collapsed to show only section rows (matching requested look)
+    tree->collapseItem(upsec);
     tree->collapseItem(xsec);
     tree->collapseItem(ysec);
     tree->collapseItem(ssec);
@@ -350,7 +562,7 @@ void PlottingManager::refreshSignalList() {
     tree = new QTreeWidget(container);
         tree->setObjectName("treeSignals");
         tree->setColumnCount(3);
-        QStringList headers; headers << "Name" << "Show" << "Remove";
+        QStringList headers; headers << "Name" << "En." << "Del.";
         tree->setHeaderLabels(headers);
         // Column sizing: first column stretches, others manual but initialized to fit contents; disable reordering
         tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -395,17 +607,46 @@ void PlottingManager::refreshSignalList() {
         });
         // Capture reordering robustly across Qt implementations
         auto* m = tree->model();
-        connect(m, &QAbstractItemModel::rowsMoved,    this, [updateOrders](const QModelIndex&, int, int, const QModelIndex&, int){ updateOrders(); });
-        connect(m, &QAbstractItemModel::rowsInserted, this, [updateOrders](const QModelIndex&, int, int){ updateOrders(); });
-        connect(m, &QAbstractItemModel::rowsRemoved,  this, [updateOrders](const QModelIndex&, int, int){ updateOrders(); });
-        connect(m, &QAbstractItemModel::layoutChanged,this, [updateOrders]{ updateOrders(); });
-    // Only the checkbox in column 1 should toggle Show; clicking other columns should select the row normally.
+        // Helper to (re)apply Remove checkbox widgets for all rows (avoids disappearing after drag-drop)
+        auto rebuildRemoveWidgets = [this, tree]{
+            // Build a map from id -> existing checked state for Show column (preserve it)
+            QHash<QString, bool> showChecked;
+            for (int r = 0; r < tree->topLevelItemCount(); ++r) {
+                auto* row = tree->topLevelItem(r);
+                const QString id = row->data(0, Qt::UserRole).toString();
+                showChecked[id] = (row->checkState(1) == Qt::Checked);
+            }
+            // Reapply checkbox widgets in column 2
+            for (int r = 0; r < tree->topLevelItemCount(); ++r) {
+                auto* row = tree->topLevelItem(r);
+                const QString id = row->data(0, Qt::UserRole).toString();
+                // If there's already a widget, skip creating a new one
+                if (tree->itemWidget(row, 2) == nullptr) {
+                    auto* chkRemove = new QCheckBox(tree);
+                    chkRemove->setToolTip("Remove this signal from registry");
+                    tree->setItemWidget(row, 2, chkRemove);
+                    connect(chkRemove, &QCheckBox::toggled, this, [this, id](bool on){ Q_UNUSED(on); registry_->untagSignal(id); });
+                }
+                // restore Show state (Qt sometimes drops it during model moves)
+                row->setCheckState(1, showChecked.value(id, false) ? Qt::Checked : Qt::Unchecked);
+            }
+        };
+        connect(m, &QAbstractItemModel::rowsMoved,    this, [updateOrders, rebuildRemoveWidgets](const QModelIndex&, int, int, const QModelIndex&, int){ updateOrders(); rebuildRemoveWidgets(); });
+        connect(m, &QAbstractItemModel::rowsInserted, this, [updateOrders, rebuildRemoveWidgets](const QModelIndex&, int, int){ updateOrders(); rebuildRemoveWidgets(); });
+        connect(m, &QAbstractItemModel::rowsRemoved,  this, [updateOrders, rebuildRemoveWidgets](const QModelIndex&, int, int){ updateOrders(); rebuildRemoveWidgets(); });
+        connect(m, &QAbstractItemModel::layoutChanged,this, [updateOrders, rebuildRemoveWidgets]{ updateOrders(); rebuildRemoveWidgets(); });
+        // Only the checkbox in column 1 should toggle Show; clicking other columns should select the row normally.
         connect(tree, &QTreeWidget::itemSelectionChanged, this, [this, tree]{
             // Enable/disable style controls by selection
             const bool hasSel = !tree->selectedItems().isEmpty();
             if (cmbLineStyle) cmbLineStyle->setEnabled(hasSel);
             if (spinLineWidth) spinLineWidth->setEnabled(hasSel);
             if (btnPickColor) btnPickColor->setEnabled(hasSel);
+            // Also gate Signal Math controls
+            if (auto* editGain = ui->treeSettings->findChild<QLineEdit*>("mathGain")) editGain->setEnabled(hasSel);
+            if (auto* editOffset = ui->treeSettings->findChild<QLineEdit*>("mathOffset")) editOffset->setEnabled(hasSel);
+            if (auto* chkInvert = ui->treeSettings->findChild<QCheckBox*>("mathInvert")) chkInvert->setEnabled(hasSel);
+            if (auto* chkLegendEq = ui->treeSettings->findChild<QCheckBox*>("mathLegendEq")) chkLegendEq->setEnabled(hasSel);
             // Reflect first selection's current style into controls
             if (hasSel) {
                 auto* it = tree->selectedItems().first();
@@ -420,6 +661,19 @@ void PlottingManager::refreshSignalList() {
                 if (lineColorDot) {
                     const QColor col = ui->plotCanvas->signalColor(id);
                     lineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(col.name()));
+                }
+                // Reflect per-signal math
+                if (auto* editGain = ui->treeSettings->findChild<QLineEdit*>("mathGain")) {
+                    editGain->blockSignals(true); editGain->setText(QString::number(ui->plotCanvas->signalGain(id), 'g', 6)); editGain->blockSignals(false);
+                }
+                if (auto* editOffset = ui->treeSettings->findChild<QLineEdit*>("mathOffset")) {
+                    editOffset->blockSignals(true); editOffset->setText(QString::number(ui->plotCanvas->signalOffset(id), 'g', 6)); editOffset->blockSignals(false);
+                }
+                if (auto* chkInvert = ui->treeSettings->findChild<QCheckBox*>("mathInvert")) {
+                    chkInvert->blockSignals(true); chkInvert->setChecked(ui->plotCanvas->signalInvert(id)); chkInvert->blockSignals(false);
+                }
+                if (auto* chkLegendEq = ui->treeSettings->findChild<QCheckBox*>("mathLegendEq")) {
+                    chkLegendEq->blockSignals(true); chkLegendEq->setChecked(ui->plotCanvas->signalLegendEquation(id)); chkLegendEq->blockSignals(false);
                 }
             } else {
                 // No selection: clear/neutral color dot
@@ -459,7 +713,7 @@ void PlottingManager::refreshSignalList() {
         auto* chkRemove = new QCheckBox(tree);
         chkRemove->setToolTip("Remove this signal from registry");
         tree->setItemWidget(row, 2, chkRemove);
-        connect(chkRemove, &QCheckBox::toggled, this, [this, d](bool on){ Q_UNUSED(on); registry_->untagSignal(d.id); });
+        connect(chkRemove, &QCheckBox::toggled, this, [this, id=d.id](bool on){ Q_UNUSED(on); registry_->untagSignal(id); });
     }
     tree->blockSignals(false);
     // Initialize column widths for Show/Remove to minimal content width
@@ -497,26 +751,79 @@ void PlottingManager::onXAxisChanged() {
     if (doubleTimeSpan->value() > maxSpan) doubleTimeSpan->setValue(maxSpan);
     ui->plotCanvas->setTimeWindowSec(doubleTimeSpan->value());
     ui->plotCanvas->setMaxPlotRateHz(spinMaxRate->value());
+    // Keep force-update timer in sync with rate and state
+    const int hz = spinMaxRate->value();
+    const int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
+    if (chkForceUpdate && chkForceUpdate->isChecked() && (!chkPause || !chkPause->isChecked())) {
+        if (forceTimer_.isActive()) forceTimer_.setInterval(ms); else forceTimer_.start(ms);
+    } else {
+        forceTimer_.stop();
+    }
     const QString units = cmbTimeUnits->currentText();
     // xUnitToSeconds_ means: displayed unit to seconds scale
     double toSec = 1.0;
-    if (units.contains("nano", Qt::CaseInsensitive)) { toSec = 1e-9; ui->plotCanvas->setXAxisUnitLabel("ns"); }
-    else if (units.contains("milli", Qt::CaseInsensitive)) { toSec = 1e-3; ui->plotCanvas->setXAxisUnitLabel("ms"); }
-    else { toSec = 1.0; ui->plotCanvas->setXAxisUnitLabel("s"); }
+    QString unitLabel = "s";
+    if (units.contains("nano", Qt::CaseInsensitive)) { toSec = 1e-9; unitLabel = "ns"; }
+    else if (units.contains("milli", Qt::CaseInsensitive)) { toSec = 1e-3; unitLabel = "ms"; }
+    else { toSec = 1.0; unitLabel = "s"; }
+    ui->plotCanvas->setXAxisUnitLabel(unitLabel);
+    // Reset X axis title to match unit if not empty; overwrite on unit change as requested
+    if (txtXLabel) {
+        txtXLabel->blockSignals(true);
+        txtXLabel->setText(QString("Time (%1)").arg(unitLabel));
+        txtXLabel->blockSignals(false);
+        ui->plotCanvas->setXAxisTitle(txtXLabel->text());
+    }
     ui->plotCanvas->setTimeUnitScale(toSec);
+    // Apply tick count and visibility from moved controls
+    if (spinXTicks || spinYTicks) {
+        int nx = (spinXTicks ? spinXTicks->value() : -1); if (nx <= 0) nx = -1;
+        int ny = (spinYTicks ? spinYTicks->value() : -1); if (ny <= 0) ny = -1;
+        ui->plotCanvas->setTickCounts(nx, ny);
+    }
+    if (chkShowXTicks) ui->plotCanvas->setShowXTicks(chkShowXTicks->isChecked());
+    if (chkShowYTicks) ui->plotCanvas->setShowYTicks(chkShowYTicks->isChecked());
+    if (chkSciX) ui->plotCanvas->setScientificTicksX(chkSciX->isChecked());
+    if (chkSciY) {
+        ui->plotCanvas->setScientificTicksY(chkSciY->isChecked());
+        if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin)) s1->setScientific(chkSciY->isChecked());
+        if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax)) s2->setScientific(chkSciY->isChecked());
+    }
     ui->plotCanvas->requestRepaint();
 }
 
 void PlottingManager::onYAxisChanged() {
-    if (!checkYAuto || !cmbYType) return;
-    bool autoY = checkYAuto->isChecked();
-    // Gray out and make read-only when autoscale is on; restore otherwise
-    if (doubleYMin) { doubleYMin->setEnabled(!autoY); doubleYMin->setReadOnly(autoY); }
-    if (doubleYMax) { doubleYMax->setEnabled(!autoY); doubleYMax->setReadOnly(autoY); }
-    ui->plotCanvas->setYAxisAuto(autoY);
+    if (!cmbYType) return;
+    const bool autoExpand = (checkYAutoExpand ? checkYAutoExpand->isChecked() : false);
+    const bool autoShrink = (checkYAutoShrink ? checkYAutoShrink->isChecked() : false);
+    const bool anyAuto = autoExpand || autoShrink;
+    // Gray out and make read-only when any autoscale is on; restore otherwise
+    if (doubleYMin) { doubleYMin->setEnabled(!anyAuto); doubleYMin->setReadOnly(anyAuto); }
+    if (doubleYMax) { doubleYMax->setEnabled(!anyAuto); doubleYMax->setReadOnly(anyAuto); }
+    ui->plotCanvas->setYAxisAutoExpand(autoExpand);
+    ui->plotCanvas->setYAxisAutoShrink(autoShrink);
     const bool log = cmbYType->currentText().contains("log", Qt::CaseInsensitive);
     ui->plotCanvas->setYAxisLog(log);
-    if (!autoY) {
+    // Update Y min/max display precision dynamically when autoscale updates; also honor scientific toggle
+    if (!anyAuto) {
+        if (doubleYMin && doubleYMax) {
+            // Adjust decimals based on magnitude of values
+            auto setPrec = [&](QDoubleSpinBox* box){
+                double v = qAbs(box->value());
+                int dec = 3;
+                if (v > 0 && v < 1.0) {
+                    // increase decimals roughly to first significant digit
+                    int k = int(qCeil(-qLn(v)/qLn(10.0))) + 2; dec = qBound(3, k, 12);
+                }
+                box->setDecimals(dec);
+            };
+            setPrec(doubleYMin);
+            setPrec(doubleYMax);
+            ui->plotCanvas->setYAxisRange(doubleYMin->value(), doubleYMax->value());
+        }
+    }
+    // If scientific Y is on, we keep spin boxes numeric but increase decimals as above; label formatting handled in canvas
+    if (!anyAuto) {
         if (doubleYMin && doubleYMax)
             ui->plotCanvas->setYAxisRange(doubleYMin->value(), doubleYMax->value());
     }
