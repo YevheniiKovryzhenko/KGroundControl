@@ -1477,8 +1477,8 @@
           </item>
          </layout>
         </item>
-        <item>
-         <widget class="QCheckBox" name="settings_hard_reset_on_exit">
+    <item>
+     <widget class="QCheckBox" name="settings_hard_reset_on_exit">
           <property name="minimumSize">
            <size>
             <width>0</width>
@@ -1490,6 +1490,55 @@
           </property>
          </widget>
         </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_reset_now">
+      <item>
+       <spacer name="horizontalSpacer_reset_now_left">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeType">
+         <enum>QSizePolicy::Fixed</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>200</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_settings_reset_now">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Reset Now</string>
+        </property>
+        <property name="toolTip">
+         <string>Immediately clear all saved settings and reload defaults</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_reset_now_right">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>200</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </item>
         <item>
          <spacer name="verticalSpacer_2">
           <property name="orientation">

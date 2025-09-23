@@ -55,6 +55,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QCheckBox>
+#include <QTimer>
 
 class QTreeWidget;
 
@@ -116,6 +117,7 @@ public:
     bool start(mocap_settings* mocap_new_settings);
 
     void run();
+    void get_backlog(int &pending_bytes, int &frames_ready) { if (optitrack) optitrack->get_backlog(pending_bytes, frames_ready); else { pending_bytes = 0; frames_ready = 0; } }
 
 signals:
     // void new_data_available(void);
@@ -311,10 +313,16 @@ private:
     QHash<QString, QCheckBox*>       mocapCheckMap_;  // key: same path
     QString mocapCurrentFrameId_;
     bool mocapTreeResetting_ = false; // guard against updates during reset/clear
+    QTimer* mocapQueueTimer_ = nullptr;
 
 private slots:
     void onRegistrySignalsChanged();
     void onFramesUpdatedBackground(QVector<mocap_data_t> frames);
+    void handleQueueMetricsTick();
+
+private:
+    void updateQueueTimerFromUi();
+    bool startConnectionFromUi(bool silent);
 };
 
 

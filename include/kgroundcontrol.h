@@ -84,6 +84,7 @@ signals:
 
 public slots:
     void get_settings(kgroundcontrol_settings* settings_out);
+    void on_btn_settings_reset_now_clicked();
 
     // void port_added_externally(QString port_name);
 

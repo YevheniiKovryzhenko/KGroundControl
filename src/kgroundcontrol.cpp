@@ -48,6 +48,8 @@
 #include <QStringList>
 #include <QDialog>
 #include <QFontDatabase>
+#include <QSettings>
+#include <QMessageBox>
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -90,6 +92,35 @@ KGroundControl::KGroundControl(QWidget *parent)
 
 
     // connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
+
+    // Auto-create MOCAP manager if it was open on last run
+    {
+        QSettings s; s.beginGroup("mocap_manager");
+        const bool reopen = s.value("connection/was_open", false).toBool();
+        s.endGroup();
+        if (reopen) {
+            mocap_manager_ = new mocap_manager();
+            connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
+            connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);
+
+            connect(connection_manager_, &connection_manager::port_names_updated, mocap_manager_, &mocap_manager::update_relay_port_list, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+            connect(mocap_manager_, &mocap_manager::get_port_pointer, connection_manager_, &connection_manager::get_port, Qt::DirectConnection);
+
+            connect(mavlink_manager_, &mavlink_manager::sysid_list_changed, mocap_manager_, &mocap_manager::update_relay_sysid_list, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_sysids, mavlink_manager_, &mavlink_manager::get_sysids, Qt::DirectConnection);
+
+            connect(mavlink_manager_, &mavlink_manager::compid_list_changed, mocap_manager_, &mocap_manager::update_relay_compids, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_compids, mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
+
+            connect(mocap_manager_, &mocap_manager::closed, this, &KGroundControl::mocap_closed);
+            connect(mocap_manager_, &mocap_manager::windowHidden, this, &KGroundControl::mocap_window_hidden);
+
+            if (mocap_manager_->isVisible()) {
+                ui->btn_mocap->setVisible(false);
+            }
+        }
+    }
 
     // Start of Commns Pannel configuration:
 
@@ -201,18 +232,6 @@ KGroundControl::KGroundControl(QWidget *parent)
     // Initialize plotting buffer control
     if (ui->spin_plot_buffer)
         ui->spin_plot_buffer->setValue(settings.plot_buffer_duration_sec);
-
-
-    // // Start of System Thread Configuration //
-    // generic_thread_settings systhread_settings_;
-    // systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
-    // systhread_settings_.update_rate_hz = 1;
-    // systhread_ = new system_status_thread(&systhread_settings_, &settings);
-    // // connect(systhread_, &system_status_thread::send_parsed_hearbeat, connection_manager_, &connection_manager::relay_parsed_hearbeat, Qt::DirectConnection);
-    // connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
-    // END of System Thear Configuration //
-
-    // emit settings_updated(&settings);
 
     ui->stackedWidget_c2t->setCurrentIndex(0);
 
@@ -565,6 +584,50 @@ void KGroundControl::get_settings(kgroundcontrol_settings* settings_out)
     settings_mutex_->lock();
     memcpy(settings_out, &settings, sizeof(settings));
     settings_mutex_->unlock();
+}
+
+void KGroundControl::on_btn_settings_reset_now_clicked()
+{
+    auto confirm = QMessageBox::question(this, "Reset Settings",
+        "This will immediately clear ALL saved settings and reload defaults. Continue?",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (confirm != QMessageBox::Yes) return;
+
+    // Close sub-windows that may save settings on close BEFORE clearing
+    if (mocap_manager_) {
+        mocap_manager_->close();
+    }
+
+    // Clear persistent store
+    { QSettings s; s.clear(); s.sync(); }
+
+    // Reset in-memory app settings to defaults
+    settings = kgroundcontrol_settings{};
+    emit settings_updated(&settings);
+
+    // Apply font and buffer defaults
+    QFont defFont(settings.font_family, settings.font_point_size);
+    qApp->setFont(defFont);
+    updateAllWidgetsFont(this, defFont);
+    if (ui->spin_plot_buffer)
+        ui->spin_plot_buffer->setValue(settings.plot_buffer_duration_sec);
+    PlotSignalRegistry::instance().setBufferDurationSec(settings.plot_buffer_duration_sec);
+
+    // Reset UI widgets in Settings page
+    ui->txt_sysid->setText(QString::number(settings.sysid));
+    {
+        QString compKey = enum_helpers::value2key(settings.compid);
+        int compIdx = ui->cmbx_compid->findText(compKey);
+        if (compIdx >= 0) ui->cmbx_compid->setCurrentIndex(compIdx);
+    }
+    ui->font_combo->setCurrentFont(QFont(settings.font_family));
+    {
+        int sizeIdx = ui->font_size_combo->findText(QString::number(settings.font_point_size));
+        if (sizeIdx >= 0) ui->font_size_combo->setCurrentIndex(sizeIdx);
+    }
+    if (ui->settings_hard_reset_on_exit) ui->settings_hard_reset_on_exit->setChecked(false);
+
+    QMessageBox::information(this, "Reset Complete", "All settings cleared. Defaults are now active.");
 }
 
 

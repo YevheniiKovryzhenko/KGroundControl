@@ -26,7 +26,7 @@
       </size>
      </property>
      <property name="currentIndex">
-      <number>2</number>
+      <number>3</number>
      </property>
      <widget class="QWidget" name="page_4">
       <layout class="QVBoxLayout" name="verticalLayout_6">
@@ -62,12 +62,12 @@
               <height>30</height>
              </size>
             </property>
+            <property name="toolTip">
+             <string>Start listening for mocap data on the configured local port</string>
+            </property>
             <property name="text">
              <string>Open Data Socket</string>
             </property>
-               <property name="toolTip">
-                <string>Start listening for mocap data on the configured local port</string>
-               </property>
            </widget>
           </item>
          </layout>
@@ -102,12 +102,12 @@
               <height>30</height>
              </size>
             </property>
+            <property name="toolTip">
+             <string>Configure synthetic mocap data source</string>
+            </property>
             <property name="text">
              <string>Fake Mocap Settings</string>
             </property>
-               <property name="toolTip">
-                <string>Configure synthetic mocap data source</string>
-               </property>
            </widget>
           </item>
           <item>
@@ -124,12 +124,12 @@
               <height>30</height>
              </size>
             </property>
+            <property name="toolTip">
+             <string>Open the tree view with live mocap signals</string>
+            </property>
             <property name="text">
              <string>Mocap Data Inspector</string>
             </property>
-               <property name="toolTip">
-                <string>Open the tree view with live mocap signals</string>
-               </property>
            </widget>
           </item>
           <item>
@@ -146,19 +146,16 @@
               <height>30</height>
              </size>
             </property>
+            <property name="toolTip">
+             <string>Setup forwarding of mocap data to external consumers</string>
+            </property>
             <property name="text">
              <string>Configure Data Bridge</string>
             </property>
-               <property name="toolTip">
-                <string>Setup forwarding of mocap data to external consumers</string>
-               </property>
            </widget>
           </item>
           <item>
            <spacer name="verticalSpacer">
-            <property name="orientation">
-             <enum>Qt::Orientation::Vertical</enum>
-            </property>
             <property name="sizeHint" stdset="0">
              <size>
               <width>20</width>
@@ -184,12 +181,12 @@
               <height>30</height>
              </size>
             </property>
+            <property name="toolTip">
+             <string>Stop sockets and background tasks related to mocap</string>
+            </property>
             <property name="text">
              <string>Terminate All</string>
             </property>
-               <property name="toolTip">
-                <string>Stop sockets and background tasks related to mocap</string>
-               </property>
            </widget>
           </item>
          </layout>
@@ -205,9 +202,6 @@
           <layout class="QHBoxLayout" name="horizontalLayout">
            <item>
             <spacer name="horizontalSpacer_3">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeHint" stdset="0">
               <size>
                <width>200</width>
@@ -224,12 +218,12 @@
                <height>30</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>Use IPv4 sockets</string>
+             </property>
              <property name="text">
               <string>IPv4</string>
              </property>
-            <property name="toolTip">
-             <string>Use IPv4 sockets</string>
-            </property>
              <property name="checked">
               <bool>true</bool>
              </property>
@@ -237,11 +231,8 @@
            </item>
            <item>
             <spacer name="horizontalSpacer_26">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeType">
-              <enum>QSizePolicy::Policy::Fixed</enum>
+              <enum>QSizePolicy::Fixed</enum>
              </property>
              <property name="sizeHint" stdset="0">
               <size>
@@ -253,11 +244,8 @@
            </item>
            <item>
             <spacer name="horizontalSpacer_2">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeType">
-              <enum>QSizePolicy::Policy::Fixed</enum>
+              <enum>QSizePolicy::Fixed</enum>
              </property>
              <property name="sizeHint" stdset="0">
               <size>
@@ -278,19 +266,16 @@
                <height>30</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>Use IPv6 sockets</string>
+             </property>
              <property name="text">
               <string>IPv6</string>
              </property>
-            <property name="toolTip">
-             <string>Use IPv6 sockets</string>
-            </property>
             </widget>
            </item>
            <item>
             <spacer name="horizontalSpacer_4">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeHint" stdset="0">
               <size>
                <width>200</width>
@@ -305,9 +290,6 @@
           <layout class="QHBoxLayout" name="horizontalLayout_50">
            <item>
             <spacer name="horizontalSpacer_105">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeHint" stdset="0">
               <size>
                <width>300</width>
@@ -330,19 +312,16 @@
                <height>16777215</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>Apply local network settings</string>
+             </property>
              <property name="text">
               <string>Update</string>
              </property>
-            <property name="toolTip">
-             <string>Apply local network settings</string>
-            </property>
             </widget>
            </item>
            <item>
             <spacer name="horizontalSpacer_106">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeHint" stdset="0">
               <size>
                <width>300</width>
@@ -372,16 +351,10 @@
              <property name="text">
               <string>Local Address:</string>
              </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-             </property>
             </widget>
            </item>
            <item row="3" column="2">
             <widget class="QComboBox" name="cmbx_local_port">
-                      <property name="toolTip">
-                        <string>UDP port to listen for mocap data</string>
-                      </property>
              <property name="sizePolicy">
               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Maximum">
                <horstretch>30</horstretch>
@@ -406,8 +379,11 @@
                <height>0</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>UDP port to listen for mocap data</string>
+             </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -438,7 +414,7 @@
               </size>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -466,7 +442,7 @@
               <bool>true</bool>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -486,9 +462,6 @@
              </property>
              <property name="text">
               <string>Host Address:</string>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
              </property>
             </widget>
            </item>
@@ -522,7 +495,7 @@
               <bool>false</bool>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -542,9 +515,6 @@
              </property>
              <property name="text">
               <string>Output Rotation:</string>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
              </property>
             </widget>
            </item>
@@ -575,7 +545,7 @@
               </size>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -596,9 +566,6 @@
              <property name="text">
               <string>Local Port:</string>
              </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-             </property>
             </widget>
            </item>
            <item row="1" column="1">
@@ -618,20 +585,14 @@
              <property name="text">
               <string>Multicast Group:</string>
              </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-             </property>
             </widget>
            </item>
           </layout>
          </item>
          <item>
           <spacer name="verticalSpacer_11">
-           <property name="orientation">
-            <enum>Qt::Orientation::Vertical</enum>
-           </property>
            <property name="sizeType">
-            <enum>QSizePolicy::Policy::Fixed</enum>
+            <enum>QSizePolicy::Fixed</enum>
            </property>
            <property name="sizeHint" stdset="0">
             <size>
@@ -750,9 +711,6 @@
              <property name="text">
               <string>Priority:</string>
              </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-             </property>
             </widget>
            </item>
            <item row="1" column="1" colspan="2">
@@ -776,7 +734,7 @@
               </size>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+              <enum>QComboBox::AdjustToContents</enum>
              </property>
             </widget>
            </item>
@@ -799,9 +757,6 @@
            </item>
            <item>
             <spacer name="horizontalSpacer">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="sizeHint" stdset="0">
               <size>
                <width>40</width>
@@ -883,7 +838,7 @@
                  <string notr="true">background: transparent;</string>
                 </property>
                 <property name="frameShape">
-                 <enum>QFrame::Shape::NoFrame</enum>
+                 <enum>QFrame::NoFrame</enum>
                 </property>
                 <property name="text">
                  <string>Frame ID:</string>
@@ -922,11 +877,8 @@
             </item>
             <item>
              <spacer name="horizontalSpacer_17">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
               <property name="sizeType">
-               <enum>QSizePolicy::Policy::Fixed</enum>
+               <enum>QSizePolicy::Fixed</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -988,11 +940,8 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_10">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeType">
-            <enum>QSizePolicy::Policy::Fixed</enum>
+            <enum>QSizePolicy::Fixed</enum>
            </property>
            <property name="sizeHint" stdset="0">
             <size>
@@ -1023,52 +972,45 @@
          </item>
         </layout>
        </item>
-    <item>
-     <layout class="QGridLayout" name="gridLayout_inspector">
-      <property name="horizontalSpacing">
-       <number>6</number>
-      </property>
-      <property name="verticalSpacing">
-       <number>6</number>
-      </property>
-      <item row="0" column="0">
-       <widget class="QTreeWidget" name="tree_mocap_detail">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="columnCount">
-         <number>3</number>
-        </property>
-        <column>
-         <property name="text">
-          <string>Name</string>
+       <item>
+        <layout class="QGridLayout" name="gridLayout_inspector">
+         <property name="spacing">
+          <number>6</number>
          </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Value</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Plot</string>
-         </property>
-        </column>
-       </widget>
-      </item>
-     </layout>
-    </item>
-       
+         <item row="0" column="0">
+          <widget class="QTreeWidget" name="tree_mocap_detail">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="columnCount">
+            <number>3</number>
+           </property>
+           <column>
+            <property name="text">
+             <string>Name</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Value</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Plot</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </item>
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_11">
          <item>
           <spacer name="horizontalSpacer_11">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1098,7 +1040,7 @@
             </size>
            </property>
            <property name="layoutDirection">
-            <enum>Qt::LayoutDirection::LeftToRight</enum>
+            <enum>Qt::LeftToRight</enum>
            </property>
            <property name="text">
             <string>Refresh Rate (Hz):</string>
@@ -1138,9 +1080,6 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_12">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1155,9 +1094,6 @@
         <layout class="QHBoxLayout" name="horizontalLayout_12">
          <item>
           <spacer name="horizontalSpacer_13">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1187,7 +1123,7 @@
             </size>
            </property>
            <property name="layoutDirection">
-            <enum>Qt::LayoutDirection::LeftToRight</enum>
+            <enum>Qt::LeftToRight</enum>
            </property>
            <property name="text">
             <string>Priority:</string>
@@ -1221,15 +1157,12 @@
             </size>
            </property>
            <property name="sizeAdjustPolicy">
-            <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+            <enum>QComboBox::AdjustToContents</enum>
            </property>
           </widget>
          </item>
          <item>
           <spacer name="horizontalSpacer_14">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1244,9 +1177,6 @@
         <layout class="QHBoxLayout" name="horizontalLayout_13">
          <item>
           <spacer name="horizontalSpacer_15">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1270,9 +1200,6 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_16">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>300</width>
@@ -1283,7 +1210,6 @@
          </item>
         </layout>
        </item>
-       
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_3">
          <item>
@@ -1301,9 +1227,6 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_9">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>40</width>
@@ -1328,8 +1251,8 @@
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>827</width>
-            <height>161</height>
+            <width>831</width>
+            <height>528</height>
            </rect>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_14">
@@ -1376,7 +1299,7 @@
                   </size>
                  </property>
                  <property name="layoutDirection">
-                  <enum>Qt::LayoutDirection::LeftToRight</enum>
+                  <enum>Qt::LeftToRight</enum>
                  </property>
                  <property name="autoFillBackground">
                   <bool>false</bool>
@@ -1413,7 +1336,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1457,7 +1380,7 @@
                   </size>
                  </property>
                  <property name="layoutDirection">
-                  <enum>Qt::LayoutDirection::LeftToRight</enum>
+                  <enum>Qt::LeftToRight</enum>
                  </property>
                  <property name="autoFillBackground">
                   <bool>false</bool>
@@ -1494,7 +1417,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1538,7 +1461,7 @@
                   </size>
                  </property>
                  <property name="layoutDirection">
-                  <enum>Qt::LayoutDirection::LeftToRight</enum>
+                  <enum>Qt::LeftToRight</enum>
                  </property>
                  <property name="autoFillBackground">
                   <bool>false</bool>
@@ -1575,7 +1498,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1619,7 +1542,7 @@
                   </size>
                  </property>
                  <property name="layoutDirection">
-                  <enum>Qt::LayoutDirection::LeftToRight</enum>
+                  <enum>Qt::LeftToRight</enum>
                  </property>
                  <property name="autoFillBackground">
                   <bool>false</bool>
@@ -1656,7 +1579,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1700,7 +1623,7 @@
                   </size>
                  </property>
                  <property name="layoutDirection">
-                  <enum>Qt::LayoutDirection::LeftToRight</enum>
+                  <enum>Qt::LeftToRight</enum>
                  </property>
                  <property name="autoFillBackground">
                   <bool>false</bool>
@@ -1737,7 +1660,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1758,9 +1681,6 @@
                  </property>
                  <property name="text">
                   <string>Update Rate:</string>
-                 </property>
-                 <property name="alignment">
-                  <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                  </property>
                 </widget>
                </item>
@@ -1788,7 +1708,7 @@
                   <string notr="true"/>
                  </property>
                  <property name="text">
-                  <string notr="true">30</string>
+                  <string notr="true">40</string>
                  </property>
                  <property name="maxLength">
                   <number>10</number>
@@ -1813,9 +1733,6 @@
                  <property name="text">
                   <string>Priority:</string>
                  </property>
-                 <property name="alignment">
-                  <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-                 </property>
                 </widget>
                </item>
                <item>
@@ -1833,7 +1750,7 @@
                   </size>
                  </property>
                  <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+                  <enum>QComboBox::AdjustToContents</enum>
                  </property>
                 </widget>
                </item>
@@ -1850,10 +1767,10 @@
               </sizepolicy>
              </property>
              <property name="sizeAdjustPolicy">
-              <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustIgnored</enum>
+              <enum>QAbstractScrollArea::AdjustIgnored</enum>
              </property>
              <property name="editTriggers">
-              <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+              <set>QAbstractItemView::NoEditTriggers</set>
              </property>
              <property name="tabKeyNavigation">
               <bool>false</bool>
@@ -1865,7 +1782,7 @@
               <bool>false</bool>
              </property>
              <property name="selectionBehavior">
-              <enum>QAbstractItemView::SelectionBehavior::SelectItems</enum>
+              <enum>QAbstractItemView::SelectItems</enum>
              </property>
              <attribute name="horizontalHeaderCascadingSectionResizes">
               <bool>true</bool>
@@ -1896,9 +1813,6 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_19">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
            <property name="sizeHint" stdset="0">
             <size>
              <width>40</width>

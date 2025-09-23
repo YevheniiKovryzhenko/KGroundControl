@@ -355,6 +355,35 @@ QString mocap_settings::get_QString(void)
 }
 
 
+void mocap_settings::save(QSettings &settings)
+{
+    settings.beginGroup("mocap");
+    settings.setValue("use_ipv6", use_ipv6);
+    settings.setValue("host_address", host_address);
+    settings.setValue("multicast_address", multicast_address);
+    settings.setValue("local_address", local_address);
+    settings.setValue("local_port", static_cast<int>(local_port));
+    settings.setValue("data_rotation", static_cast<int>(data_rotation));
+    settings.endGroup();
+}
+
+bool mocap_settings::load(QSettings &settings)
+{
+    settings.beginGroup("mocap");
+    if (!settings.contains("local_port")) {
+        settings.endGroup();
+        return false;
+    }
+    use_ipv6        = settings.value("use_ipv6", use_ipv6).toBool();
+    host_address    = settings.value("host_address", host_address).toString();
+    multicast_address = settings.value("multicast_address", multicast_address).toString();
+    local_address   = settings.value("local_address", local_address).toString();
+    local_port      = static_cast<uint16_t>(settings.value("local_port", local_port).toUInt());
+    data_rotation   = static_cast<mocap_rotation>(settings.value("data_rotation", static_cast<int>(data_rotation)).toInt());
+    settings.endGroup();
+    return true;
+}
+
 
 mocap_relay_settings::mocap_relay_settings(QObject *parent)
     : QObject(parent)
@@ -402,6 +431,8 @@ void mocap_relay_settings::save(QSettings &settings)
         settings.setValue("msg_option", static_cast<uint>(msg_option));
         settings.setValue("sysid", sysid);
         settings.setValue("compid", static_cast<int32_t>(compid));
+        settings.setValue("update_rate_hz", static_cast<int>(update_rate_hz));
+        settings.setValue("priority", static_cast<int>(priority));
         // settings.endGroup();
         settings.endGroup();
     }
@@ -420,6 +451,9 @@ bool mocap_relay_settings::load(QSettings &settings)
     msg_option = static_cast<mocap_relay_msg_opt>(settings.value("msg_option").toUInt());
     sysid = settings.value("sysid").toUInt();
     compid = static_cast<mavlink_enums::mavlink_component_id>(settings.value("compid").toUInt());
+    // Optional fields with defaults for backward compatibility
+    update_rate_hz = settings.value("update_rate_hz", update_rate_hz).toUInt();
+    priority = settings.value("priority", priority).toInt();
     settings.endGroup();
     return true;
 }

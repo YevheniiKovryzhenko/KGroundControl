@@ -288,6 +288,8 @@ public:
 
     QString get_QString(void);
     void printf(void);
+    void save(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 
@@ -318,7 +320,7 @@ public:
     mocap_relay_msg_opt msg_option = mavlink_vision_position_estimate;
     uint8_t sysid = 0;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
-    uint32_t update_rate_hz = 30;
+    uint32_t update_rate_hz = 40;
     int priority = 0;
 
     QString get_QString(void);

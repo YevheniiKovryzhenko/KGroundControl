@@ -85,12 +85,15 @@ mocap_optitrack::~mocap_optitrack()
 void mocap_optitrack::read_port(void)
 {
     mutex->lock();
-    QNetworkDatagram datagram = Port->receiveDatagram();
-    QByteArray new_data = datagram.data();
+    // Drain all pending datagrams to minimize socket-level buffering
+    while (Port->hasPendingDatagrams()) {
+        QNetworkDatagram datagram = Port->receiveDatagram();
+        QByteArray new_data = datagram.data();
 #ifdef DEBUG
-    //qDebug() << "Recevied new data: size = " << new_data.size();
+        // qDebug() << "Recevied new data: size = " << new_data.size();
 #endif
-    bytearray.append(new_data);
+        bytearray.append(new_data);
+    }
     mutex->unlock();
 }
 
@@ -271,13 +274,13 @@ bool mocap_optitrack::create_optitrack_data_socket(\
         return false;
     }
     multicast_address_ = multicast_address;
-    // create a 1MB buffer
-    int optval = 100000;
+    // Increase Qt socket read buffer to 1MB to tolerate bursts
+    int optval = 1048576;
 
-    Port->setReadBufferSize(100000);
+    Port->setReadBufferSize(optval);
 #ifdef DEBUG
     optval = Port->readBufferSize();
-    if (optval != 100000) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
+    if (optval != 1048576) qDebug() << "[create_optitrack_data_socket] ReceiveBuffer size = " << QString::number(optval);
     else qDebug() << "[create_optitrack_data_socket] Increased receive buffer size to " << QString::number(optval);
 #endif
 
@@ -318,6 +321,31 @@ bool mocap_optitrack::is_ready_to_parse(void)
         }
 
         return (nBytes > 0 && bytearray.size() >= nBytes);
+    }
+}
+
+void mocap_optitrack::get_backlog(int &pending_bytes, int &frames_ready)
+{
+    QMutexLocker lock(mutex);
+    pending_bytes = bytearray.size();
+    // Count how many full frames are present without mutating the buffer
+    frames_ready = 0;
+    int idx = 0;
+    while (idx + 4 <= bytearray.size()) {
+        int msgId = 0;
+        memcpy(&msgId, bytearray.constData() + idx, 2);
+        if (msgId != NAT_FRAMEOFDATA) { idx += 2; continue; }
+        if (idx + 4 > bytearray.size()) break;
+        int nBytes = 0;
+        memcpy(&nBytes, bytearray.constData() + idx + 2, 2);
+        if (nBytes <= 0) { idx += 4; continue; }
+        int total = nBytes + 4; // header + payload
+        if (idx + total <= bytearray.size()) {
+            ++frames_ready;
+            idx += total;
+        } else {
+            break; // incomplete frame tail
+        }
     }
 }
 
