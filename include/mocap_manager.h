@@ -96,12 +96,16 @@ signals:
     void frame_ids_updated(QVector<int> frame_ids);
     void frames_updated(QVector<mocap_data_t> frames);
 
+private slots:
+    void cleanup_stale_frames();
+
 private:
     QVector<int> frame_ids_;
     QVector<mocap_data_t> frames_;
     QHash<int, int> frame_id_to_index_; // Maps frame ID to index in frames_ vector
     QHash<int, uint64_t> last_time_ms_; // last timestamp per frame id
     QMutex* mutex = nullptr;
+    QTimer* cleanup_timer_ = nullptr;
 };
 
 class mocap_thread : public generic_thread

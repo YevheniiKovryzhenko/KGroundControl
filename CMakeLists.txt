@@ -205,6 +205,7 @@ set(PROJECT_HEADERS
     include/plotting_manager.h
     include/plot_signal_registry.h
     include/plot_canvas.h
+    include/create_3d_group_dialog.h
 )
 
 set(PROJECT_SOURCES
@@ -229,6 +230,7 @@ set(PROJECT_SOURCES
     src/plotting_manager.cpp
     src/plot_signal_registry.cpp
     src/plot_canvas.cpp
+    src/create_3d_group_dialog.cpp
 )
 
 set(PROJECT_UI
@@ -242,6 +244,7 @@ set(PROJECT_UI
     src/joystick_manager.ui
     src/fake_mocap_dialog.ui
     src/plotting_manager.ui
+    src/create_3d_group_dialog.ui
 )
 
 set(PROJECT_RESOURCES

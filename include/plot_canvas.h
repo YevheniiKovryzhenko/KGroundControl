@@ -7,16 +7,46 @@
 #include <limits>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QTimer>
 
 class PlotSignalRegistry;
+
+struct Plot3DGroup {
+    QString name;
+    QVector<QString> signalIds; // Up to 3 signals for X, Y, Z dimensions
+    QColor color;
+    bool enabled = true;
+    // Head (latest point) customization
+    QColor headColor = QColor(Qt::red);
+    QString headPointStyle = "Circle";
+    int headPointSize = 6;
+    // Tail (time-history) customization
+    bool tailEnabled = false;
+    double tailTimeSpanSec = 10.0; // duration in seconds
+    QColor tailPointColor = QColor(Qt::blue);
+    QString tailPointStyle = "Circle";
+    int tailPointSize = 3;
+    QColor tailLineColor = QColor(Qt::blue);
+    QString tailLineStyle = "Solid";
+    int tailLineWidth = 2;
+    QString tailScatterStyle = "None";
+    int tailScatterSize = 2;
+};
 
 class PlotCanvas : public QWidget {
     Q_OBJECT
 public:
+    enum PlotMode {
+        Mode2D,
+        Mode3D
+    };
+
     explicit PlotCanvas(QWidget* parent = nullptr);
     ~PlotCanvas() override;
 
     void setRegistry(PlotSignalRegistry* reg);
+    void setPlotMode(PlotMode mode) { mode_ = mode; update();}
+    PlotMode plotMode() const { return mode_; }
 
     void setEnabledSignals(const QVector<QString>& ids);
 
@@ -33,11 +63,25 @@ public:
     void setYAxisRange(double minVal, double maxVal);
     void setYAxisLog(bool enabled);
 
+    // X-axis controls (for 3D plotting)
+    void setXAxisAutoExpand(bool enabled);
+    void setXAxisAutoShrink(bool enabled);
+    void setXAxisRange(double minVal, double maxVal);
+    void setXAxisLog(bool enabled);
+
+    // Z-axis controls (for 3D plotting)
+    void setZAxisAutoExpand(bool enabled);
+    void setZAxisAutoShrink(bool enabled);
+    void setZAxisRange(double minVal, double maxVal);
+    void setZAxisLog(bool enabled);
+
     void setMaxPlotRateHz(int hz) { maxRateHz_ = qMax(0, hz); }
 
     void setSignalColor(const QString& id, const QColor& color);
     void setSignalWidth(const QString& id, int width);
     void setSignalStyle(const QString& id, Qt::PenStyle style);
+    void setSignalDashPattern(const QString& id, const QVector<qreal>& pattern);
+    void setSignalScatterStyle(const QString& id, int style); // 0=circle, 1=square, 2=triangle, 3=cross, 4=plus
     // Per-signal math transform: y = a*x + b, or if invert(id)=true then y = 1/(a*x) + b
     void setSignalGain(const QString& id, double a);
     void setSignalOffset(const QString& id, double b);
@@ -51,6 +95,8 @@ public:
     QColor signalColor(const QString& id) const { return colorById_.value(id, pickColorFor(id)); }
     int signalWidth(const QString& id) const { return widthById_.value(id, 2); }
     Qt::PenStyle signalStyle(const QString& id) const { return styleById_.value(id, Qt::SolidLine); }
+    QVector<qreal> signalDashPattern(const QString& id) const { return dashPatternById_.value(id, QVector<qreal>()); }
+    int signalScatterStyle(const QString& id) const { return scatterStyleById_.value(id, 0); }
 
     // Visual toggles
     void setShowLegend(bool show) { showLegend_ = show; update(); }
@@ -64,12 +110,36 @@ public:
     void setScientificTicksX(bool on) { sciX_ = on; update(); }
     void setScientificTicksY(bool on) { sciY_ = on; update(); }
     void setXAxisTitle(const QString& title) { xTitle_ = title; update(); }
+
+    // Z-axis visual settings (for 3D plotting)
+    void setZAxisUnitLabel(const QString& unit) { zUnitLabel_ = unit; update(); }
+    void setTickCountZ(int zTicks) { tickCountZ_ = zTicks; update(); }
+    void setShowZTicks(bool show) { showZTicks_ = show; update(); }
+    void setScientificTicksZ(bool on) { sciZ_ = on; update(); }
     // Control repaint mode: when true (default), data-driven repaints occur only for enabled signals.
     // When false, data-driven repaints are ignored (used when Force Update drives updates).
     void setDataDrivenRepaintEnabled(bool on) { dataDrivenRepaint_ = on; }
     // Pause rendering/time progression. When paused, requestRepaint() is ignored and time is frozen.
     void setPaused(bool paused);
     bool isPaused() const { return paused_; }
+
+    // 3D plotting
+    void setGroups3D(const QVector<Plot3DGroup>& groups) {
+        groups3D_ = groups;
+        // Only repaint if in 3D mode and at least one group is enabled.
+        if (mode_ == Mode3D) {
+            bool anyGroupEnabled = false;
+            for (const auto& g : groups3D_) { if (g.enabled) { anyGroupEnabled = true; break; } }
+            if (anyGroupEnabled) update();
+        }
+    }
+
+    // Camera controls for 3D
+    void setCameraRotationX(float degrees) { cameraRotationX_ = degrees; update(); }
+    void setCameraRotationY(float degrees) { cameraRotationY_ = degrees; update(); }
+    void setCameraDistance(float distance) { cameraDistance_ = qMax(0.1f, distance); update(); }
+
+    void resetCamera();
 
 public slots:
     void requestRepaint();
@@ -87,6 +157,7 @@ protected:
 private:
     PlotSignalRegistry* registry_ = nullptr;
     QVector<QString> enabledIds_;
+    PlotMode mode_ = Mode2D;
 
     double windowSec_ = 10.0;
     double xUnitToSeconds_ = 1.0; // for labels (ns/ms/s)
@@ -96,6 +167,18 @@ private:
     double yMin_ = -1.0, yMax_ = 1.0;
     bool yLog_ = false;
     int maxRateHz_ = 30; // 0 = unlimited
+
+    // X-axis settings (for 3D plotting)
+    bool xAutoExpand_ = true; // allow outward growth
+    bool xAutoShrink_ = true; // allow outward growth
+    double xMin_ = -1.0, xMax_ = 1.0;
+    bool xLog_ = false;
+
+    // Z-axis settings (for 3D plotting)
+    bool zAutoExpand_ = true; // allow outward growth
+    bool zAutoShrink_ = true; // allow inward tightening
+    double zMin_ = -1.0, zMax_ = 1.0;
+    bool zLog_ = false;
 
     // Update throttling and pause state
     QElapsedTimer monotonic_;          // monotonic clock for throttling
@@ -108,6 +191,8 @@ private:
     QHash<QString, QColor> colorById_;
     QHash<QString, int> widthById_;
     QHash<QString, Qt::PenStyle> styleById_;
+    QHash<QString, QVector<qreal>> dashPatternById_;
+    QHash<QString, int> scatterStyleById_;
     // Per-signal math
     QHash<QString, double> gainById_;
     QHash<QString, double> offsetById_;
@@ -119,6 +204,7 @@ private:
     QString legendTextFor(const QString& id) const;  // label or equation if enabled
     QString formatNumber(double v, int maxPrec = 3) const;
     bool transformValue(const QString& id, double x, double& yOut) const; // returns true if valid
+    void render3D(QPainter& p, const QRect& rect);
 
     // visuals
     bool showLegend_ = true;
@@ -135,6 +221,12 @@ private:
     bool sciX_ = false;
     bool sciY_ = false;
 
+    // Z-axis visual settings
+    QString zUnitLabel_ = ""; // Z axis unit label
+    int tickCountZ_ = -1; // -1 => auto
+    bool showZTicks_ = true;
+    bool sciZ_ = false;
+
     // legend drag state
     mutable QPoint legendTopLeft_ = QPoint(-1, -1); // device coords; -1,-1 => unset
     bool draggingLegend_ = false;
@@ -147,4 +239,14 @@ private:
     // Default color palette for auto-assignment
     QVector<QColor> paletteColors_;
     int paletteIdx_ = 0;
+
+    // 3D groups
+    QVector<Plot3DGroup> groups3D_;
+
+    // 3D simulation (simple orthographic projection for now)
+    float cameraDistance_ = 5.0f;
+    float cameraRotationX_ = 30.0f; // degrees
+    float cameraRotationY_ = 45.0f; // degrees
+    QPoint lastMousePos_;
+    bool mousePressed_ = false;
 };

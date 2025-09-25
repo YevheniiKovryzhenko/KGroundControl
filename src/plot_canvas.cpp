@@ -6,6 +6,10 @@
 #include <QElapsedTimer>
 #include <QtMath>
 #include <QDateTime>
+#include <QMouseEvent>
+#include <QVector3D>
+#include <cmath>
+// quiet build: avoid noisy debug prints in release UI
 
 PlotCanvas::PlotCanvas(QWidget* parent) : QWidget(parent) {
     setAutoFillBackground(true);
@@ -27,6 +31,9 @@ PlotCanvas::PlotCanvas(QWidget* parent) : QWidget(parent) {
     monotonic_.start();
     throttleTimer_.setSingleShot(true);
     connect(&throttleTimer_, &QTimer::timeout, this, [this]{ QWidget::update(); });
+
+    // Initialize 3D camera
+    resetCamera();
 }
 
 PlotCanvas::~PlotCanvas() = default;
@@ -36,8 +43,22 @@ void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
     if (registry_) {
         // Only repaint on data for signals that are currently enabled (visible)
         connect(registry_, &PlotSignalRegistry::samplesAppended, this, [this](const QString& id){
-            if (!dataDrivenRepaint_) return;
-            if (enabledIds_.contains(id)) requestRepaint();
+            if (!dataDrivenRepaint_) {
+                // If we are in 3D mode, still respond to data events so groups animate
+                if (mode_ != Mode3D) return;
+            }
+            if (mode_ == Mode3D) {
+                // Only force immediate update if there is at least one enabled 3D group
+                bool anyGroupEnabled = false;
+                for (const auto& g : groups3D_) { if (g.enabled) { anyGroupEnabled = true; break; } }
+                if (anyGroupEnabled) {
+                    // Bypass throttle for 3D so groups appear responsive; rely on UI to control force-update if needed
+                    update();
+                }
+                return;
+            }
+            // In 2D, only request repaint if the appended sample belongs to an enabled signal
+            if (!enabledIds_.isEmpty() && enabledIds_.contains(id)) requestRepaint();
         });
         connect(registry_, &PlotSignalRegistry::samplesCleared, this, [this]{ legendTopLeft_ = QPoint(-1,-1); update(); });
         connect(registry_, &PlotSignalRegistry::epochChanged, this, [this](qint64){ update(); });
@@ -68,6 +89,30 @@ void PlotCanvas::setYAxisLog(bool enabled) {
     yLog_ = enabled;
 }
 
+// X-axis methods
+void PlotCanvas::setXAxisAutoExpand(bool enabled) { xAutoExpand_ = enabled; }
+void PlotCanvas::setXAxisAutoShrink(bool enabled) { xAutoShrink_ = enabled; }
+
+void PlotCanvas::setXAxisRange(double minVal, double maxVal) {
+    xMin_ = minVal; xMax_ = maxVal;
+}
+
+void PlotCanvas::setXAxisLog(bool enabled) {
+    xLog_ = enabled;
+}
+
+// Z-axis methods
+void PlotCanvas::setZAxisAutoExpand(bool enabled) { zAutoExpand_ = enabled; }
+void PlotCanvas::setZAxisAutoShrink(bool enabled) { zAutoShrink_ = enabled; }
+
+void PlotCanvas::setZAxisRange(double minVal, double maxVal) {
+    zMin_ = minVal; zMax_ = maxVal;
+}
+
+void PlotCanvas::setZAxisLog(bool enabled) {
+    zLog_ = enabled;
+}
+
 void PlotCanvas::setSignalColor(const QString& id, const QColor& color) {
     colorById_[id] = color;
 }
@@ -78,6 +123,14 @@ void PlotCanvas::setSignalWidth(const QString& id, int width) {
 
 void PlotCanvas::setSignalStyle(const QString& id, Qt::PenStyle style) {
     styleById_[id] = style;
+}
+
+void PlotCanvas::setSignalDashPattern(const QString& id, const QVector<qreal>& pattern) {
+    dashPatternById_[id] = pattern;
+}
+
+void PlotCanvas::setSignalScatterStyle(const QString& id, int style) {
+    scatterStyleById_[id] = style;
 }
 
 void PlotCanvas::setSignalGain(const QString& id, double a) { gainById_[id] = a; }
@@ -92,6 +145,28 @@ void PlotCanvas::setPaused(bool paused) {
         pausedTimeNs_ = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch() * 1000000LL;
     }
     update();
+}
+
+void PlotCanvas::resetCamera() {
+    cameraDistance_ = 5.0f;
+    cameraRotationX_ = 30.0f;
+    cameraRotationY_ = 45.0f;
+    update();
+}
+
+QColor PlotCanvas::pickColorFor(const QString& id) const {
+    if (colorById_.contains(id)) return colorById_[id];
+    // Assign from palette in a round-robin manner
+    if (!paletteColors_.isEmpty()) {
+        const QColor c = paletteColors_.at(paletteIdx_ % paletteColors_.size());
+        // mutable map would be needed; colorById_ is non-const here because method is const; we store lazily via const_cast
+        const_cast<PlotCanvas*>(this)->colorById_.insert(id, c);
+        const_cast<PlotCanvas*>(this)->paletteIdx_ = (paletteIdx_ + 1) % qMax(1, paletteColors_.size());
+        return c;
+    }
+    // Fallback to a deterministic hash color if palette empty
+    uint h = qHash(id);
+    return QColor::fromHsl(int(h % 360), 200, 150);
 }
 
 void PlotCanvas::requestRepaint() {
@@ -110,27 +185,29 @@ void PlotCanvas::requestRepaint() {
     if (!throttleTimer_.isActive()) throttleTimer_.start(remaining);
 }
 
-QColor PlotCanvas::pickColorFor(const QString& id) const {
-    if (colorById_.contains(id)) return colorById_[id];
-    // Assign from palette in a round-robin manner
-    if (!paletteColors_.isEmpty()) {
-        const QColor c = paletteColors_.at(paletteIdx_ % paletteColors_.size());
-        // mutable map would be needed; colorById_ is non-const here because method is const; we store lazily via const_cast
-        const_cast<PlotCanvas*>(this)->colorById_.insert(id, c);
-        const_cast<PlotCanvas*>(this)->paletteIdx_ = (paletteIdx_ + 1) % qMax(1, paletteColors_.size());
-        return c;
-    }
-    // Fallback to a deterministic hash color if palette empty
-    uint h = qHash(id);
-    return QColor::fromHsl(int(h % 360), 200, 150);
-}
-
 void PlotCanvas::paintEvent(QPaintEvent* ev) {
     Q_UNUSED(ev);
     QPainter p(this);
     p.fillRect(rect(), bgColor_.isValid() ? bgColor_ : palette().base());
 
-    if (!registry_ || enabledIds_.isEmpty()) return;
+    if (!registry_) return;
+
+    // In 3D mode we render based on 3D groups (not per-signal enabled list).
+    // Allow entering 3D even when `enabledIds_` is empty as long as there is
+    // at least one enabled 3D group. In 2D we still require enabled signals.
+    if (mode_ == Mode3D) {
+        bool anyGroupEnabled = false;
+        for (const auto& g : groups3D_) {
+            if (g.enabled) { anyGroupEnabled = true; break; }
+        }
+        if (!anyGroupEnabled) return;
+
+        // 3D mode - render groups as 3D points
+        render3D(p, rect());
+        return;
+    }
+
+    // 2D mode - existing plotting logic
 
     // Determine time span in absolute UTC nanoseconds; freeze when paused
     qint64 now_ns = paused_ ? pausedTimeNs_ : (QDateTime::currentDateTimeUtc().toMSecsSinceEpoch() * 1000000LL);
@@ -303,9 +380,11 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
     const QColor axisColor = (yiq < 128) ? QColor(220,220,220) : QColor(60,60,60);
     p.setPen(QPen(axisColor, 1));
     p.drawRect(plotRect);
+        double minX = std::numeric_limits<double>::infinity(), maxX = -std::numeric_limits<double>::infinity();
+        double minY = std::numeric_limits<double>::infinity(), maxY = -std::numeric_limits<double>::infinity();
+        double minZ = std::numeric_limits<double>::infinity(), maxZ = -std::numeric_limits<double>::infinity();
 
-    // Build Y tick values (evenly spaced in visual/log space)
-    QVector<qreal> xTicksPx; xTicksPx.reserve(nXTicks-1);
+    // debug: initial min/max (removed noisy prints)
     QVector<double> yTickVals; yTickVals.reserve(nYTicks-1);
     for (int i = 1; i < nYTicks; ++i) {
         double frac = double(i)/nYTicks;
@@ -317,7 +396,7 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
 
     // Build X tick positions; map after final plotRect is known
     auto mapX = [&](qint64 t){ return plotRect.left() + (plotRect.width() * (t - start_ns) / (windowSec_ * 1e9)); };
-    xTicksPx.clear();
+    QVector<qreal> xTicksPx; xTicksPx.reserve(xTickSecsPreview.size());
     for (double tSec : xTickSecsPreview) {
         qint64 t_ns = qint64(tSec * 1e9);
         qreal x = mapX(t_ns);
@@ -339,7 +418,20 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
     // Draw each signal with a continuous polyline connecting consecutive visible samples (after transform)
     for (const auto& id : enabledIds_) {
         auto samples = registry_->getSamples(id);
-        QPen pen(pickColorFor(id), widthById_.value(id, 2), styleById_.value(id, Qt::SolidLine));
+        Qt::PenStyle style = styleById_.value(id, Qt::SolidLine);
+
+        // final min/max computed for drawing
+        QVector<qreal> dashPattern = dashPatternById_.value(id, QVector<qreal>());
+        // Construct pen and ensure dash patterns are applied explicitly.
+        QPen pen(pickColorFor(id), widthById_.value(id, 2));
+        if (!dashPattern.isEmpty()) {
+            // Force custom dash style when a pattern is present so setDashPattern takes effect
+            pen.setStyle(Qt::CustomDashLine);
+            pen.setDashPattern(dashPattern);
+        } else {
+            // Use stored style when no custom pattern is provided
+            pen.setStyle(style);
+        }
         p.setPen(pen);
         QPointF prev;
         bool havePrev = false;
@@ -349,9 +441,53 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
             const qreal x = mapX(s.t_ns);
             double yv; if (!transformValue(id, s.value, yv)) { havePrev = false; continue; }
             const qreal y = mapY(yv);
-            if (!havePrev) { prev = QPointF(x, y); havePrev = true; continue; }
-            p.drawLine(prev, QPointF(x, y));
-            prev = QPointF(x, y);
+            if (style == Qt::DotLine) {
+                // Draw scatter points instead of lines
+                int scatterStyle = scatterStyleById_.value(id, 0); // 0=circle, 1=square, 2=triangle, 3=cross, 4=plus
+                int pointSize = qMax(2, widthById_.value(id, 2) * 2);
+                QPointF center(x, y);
+                
+                // Save current pen and set fill brush
+                QPen oldPen = p.pen();
+                p.setBrush(QBrush(oldPen.color()));
+                
+                switch (scatterStyle) {
+                case 0: // Circle
+                    p.drawEllipse(center, pointSize, pointSize);
+                    break;
+                case 1: // Square
+                    p.drawRect(QRectF(x - pointSize, y - pointSize, pointSize * 2, pointSize * 2));
+                    break;
+                case 2: { // Triangle
+                    QPointF points[3] = {
+                        QPointF(x, y - pointSize),
+                        QPointF(x - pointSize, y + pointSize),
+                        QPointF(x + pointSize, y + pointSize)
+                    };
+                    p.drawPolygon(points, 3);
+                    break;
+                }
+                case 3: // Cross (X)
+                    p.setBrush(Qt::NoBrush); // No fill for cross
+                    p.drawLine(QPointF(x - pointSize, y - pointSize), QPointF(x + pointSize, y + pointSize));
+                    p.drawLine(QPointF(x + pointSize, y - pointSize), QPointF(x - pointSize, y + pointSize));
+                    break;
+                case 4: // Plus (+)
+                    p.setBrush(Qt::NoBrush); // No fill for plus
+                    p.drawLine(QPointF(x - pointSize, y), QPointF(x + pointSize, y));
+                    p.drawLine(QPointF(x, y - pointSize), QPointF(x, y + pointSize));
+                    break;
+                }
+                
+                // Restore pen
+                p.setPen(oldPen);
+                p.setBrush(Qt::NoBrush);
+            } else {
+                // Draw connected lines
+                if (!havePrev) { prev = QPointF(x, y); havePrev = true; continue; }
+                p.drawLine(prev, QPointF(x, y));
+                prev = QPointF(x, y);
+            }
         }
     }
 
@@ -425,11 +561,62 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
         int y = lr.top() + 14;
         for (int i = 0; i < enabledIds_.size(); ++i) {
             const QString& id = enabledIds_[i];
-            QPen pen(pickColorFor(id), widthById_.value(id, 2), styleById_.value(id, Qt::SolidLine));
-            p.setPen(pen);
-            p.drawLine(lr.left()+8, y-4, lr.left()+28, y-4);
-            p.setPen(axisColor);
-            p.drawText(lr.left()+34, y, legendTextFor(id));
+            // If this signal is scatter mode, draw a representative marker in the legend
+            Qt::PenStyle st = styleById_.value(id, Qt::SolidLine);
+            if (st == Qt::DotLine) {
+                // Draw scatter marker
+                QPen pen(pickColorFor(id), widthById_.value(id, 2));
+                p.setPen(pen);
+                p.setBrush(QBrush(pen.color()));
+                int pointSize = qMax(2, widthById_.value(id, 2) * 2);
+                const int cx = lr.left() + 18;
+                const int cy = y - 4;
+                int scatterStyle = scatterStyleById_.value(id, 0);
+                switch (scatterStyle) {
+                case 0: // Circle
+                    p.drawEllipse(QPointF(cx, cy), pointSize, pointSize);
+                    break;
+                case 1: // Square
+                    p.drawRect(QRectF(cx - pointSize, cy - pointSize, pointSize * 2, pointSize * 2));
+                    break;
+                case 2: { // Triangle
+                    QPointF points[3] = {
+                        QPointF(cx, cy - pointSize),
+                        QPointF(cx - pointSize, cy + pointSize),
+                        QPointF(cx + pointSize, cy + pointSize)
+                    };
+                    p.drawPolygon(points, 3);
+                    break;
+                }
+                case 3: // Cross (X)
+                    p.setBrush(Qt::NoBrush);
+                    p.drawLine(QPointF(cx - pointSize, cy - pointSize), QPointF(cx + pointSize, cy + pointSize));
+                    p.drawLine(QPointF(cx + pointSize, cy - pointSize), QPointF(cx - pointSize, cy + pointSize));
+                    break;
+                case 4: // Plus (+)
+                    p.setBrush(Qt::NoBrush);
+                    p.drawLine(QPointF(cx - pointSize, cy), QPointF(cx + pointSize, cy));
+                    p.drawLine(QPointF(cx, cy - pointSize), QPointF(cx, cy + pointSize));
+                    break;
+                default:
+                    p.drawEllipse(QPointF(cx, cy), pointSize, pointSize);
+                }
+                // Draw label text to the right
+                p.setPen(axisColor);
+                p.drawText(lr.left()+34, y, legendTextFor(id));
+            } else {
+                QPen pen(pickColorFor(id), widthById_.value(id, 2), styleById_.value(id, Qt::SolidLine));
+                // Ensure legend line reflects any custom dash pattern used for the signal
+                QVector<qreal> legendPattern = dashPatternById_.value(id, QVector<qreal>());
+                if (!legendPattern.isEmpty()) {
+                    pen.setStyle(Qt::CustomDashLine);
+                    pen.setDashPattern(legendPattern);
+                }
+                p.setPen(pen);
+                p.drawLine(lr.left()+8, y-4, lr.left()+28, y-4);
+                p.setPen(axisColor);
+                p.drawText(lr.left()+34, y, legendTextFor(id));
+            }
             y += 18;
             if (y >= lr.bottom()) break;
         }
@@ -466,23 +653,51 @@ QRect PlotCanvas::legendRect(const QRectF& plotRect) const {
 }
 
 void PlotCanvas::mousePressEvent(QMouseEvent* ev) {
-    if (!showLegend_) return QWidget::mousePressEvent(ev);
-    // Use plot area bounds for consistent hit test
-    QRectF plotRect = rect().adjusted(40, 10, -10, -25);
-    QRect lr = legendRect(plotRect);
-    if (lr.contains(ev->pos())) {
-        draggingLegend_ = true;
-        dragOffset_ = ev->pos() - lr.topLeft();
-        ev->accept();
-        return;
+    if (mode_ == Mode3D) {
+        // Handle 3D camera controls
+        if (ev->button() == Qt::LeftButton) {
+            mousePressed_ = true;
+            lastMousePos_ = ev->pos();
+            ev->accept();
+            return;
+        }
+    } else {
+        // Handle 2D legend dragging
+        if (!showLegend_) return QWidget::mousePressEvent(ev);
+        // Use plot area bounds for consistent hit test
+        QRectF plotRect = rect().adjusted(40, 10, -10, -25);
+        QRect lr = legendRect(plotRect);
+        if (lr.contains(ev->pos())) {
+            draggingLegend_ = true;
+            dragOffset_ = ev->pos() - lr.topLeft();
+            ev->accept();
+            return;
+        }
     }
     QWidget::mousePressEvent(ev);
 }
 
 void PlotCanvas::mouseMoveEvent(QMouseEvent* ev) {
-    if (draggingLegend_) {
+    if (mode_ == Mode3D && mousePressed_) {
+        // Handle 3D camera rotation
+        QPoint delta = ev->pos() - lastMousePos_;
+        lastMousePos_ = ev->pos();
+
+        // Rotate camera based on mouse movement
+        float sensitivity = 0.5f;
+        cameraRotationY_ += delta.x() * sensitivity;
+        cameraRotationX_ += delta.y() * sensitivity;
+
+        // Clamp X rotation to avoid gimbal lock
+        cameraRotationX_ = qBound(-90.0f, cameraRotationX_, 90.0f);
+
+        update();
+        ev->accept();
+        return;
+    } else if (mode_ == Mode2D && draggingLegend_) {
+        // Handle 2D legend dragging
         legendTopLeft_ = ev->pos() - dragOffset_;
-    // Clamp via repaint using plot clamping
+        // Clamp via repaint using plot clamping
         update();
         ev->accept();
         return;
@@ -491,7 +706,11 @@ void PlotCanvas::mouseMoveEvent(QMouseEvent* ev) {
 }
 
 void PlotCanvas::mouseReleaseEvent(QMouseEvent* ev) {
-    if (draggingLegend_) {
+    if (mode_ == Mode3D && ev->button() == Qt::LeftButton) {
+        mousePressed_ = false;
+        ev->accept();
+        return;
+    } else if (mode_ == Mode2D && draggingLegend_) {
         draggingLegend_ = false;
         ev->accept();
         return;
@@ -540,6 +759,261 @@ QString PlotCanvas::legendTextFor(const QString& id) const {
         expr += appendSigned(b);
         return expr;
     }
+}
+
+void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
+    if (!registry_ || groups3D_.isEmpty()) {
+        p.setPen(QPen(Qt::white));
+        p.drawText(rect, Qt::AlignCenter, "3D Mode\nCreate groups and assign signals\nto start plotting");
+        return;
+    }
+
+    // Set up 3D projection matrices
+    const float centerX = rect.width() / 2.0f;
+    const float centerY = rect.height() / 2.0f;
+    const float scale = qMin(rect.width(), rect.height()) / 10.0f; // Scale to fit in view
+
+    // Simple rotation matrices
+    const float radX = cameraRotationX_ * M_PI / 180.0f;
+    const float radY = cameraRotationY_ * M_PI / 180.0f;
+    const float cosX = cos(radX), sinX = sin(radX);
+    const float cosY = cos(radY), sinY = sin(radY);
+
+    // Collect samples for each signal and compute per-dimension min/max across recent samples
+    QHash<QString, double> latestValues;
+    double minX = std::numeric_limits<double>::infinity(), maxX = -std::numeric_limits<double>::infinity();
+    double minY = std::numeric_limits<double>::infinity(), maxY = -std::numeric_limits<double>::infinity();
+    double minZ = std::numeric_limits<double>::infinity(), maxZ = -std::numeric_limits<double>::infinity();
+    for (const auto& group : groups3D_) {
+        if (!group.enabled) continue;
+        for (int idx = 0; idx < group.signalIds.size(); ++idx) {
+            const QString& signalId = group.signalIds.at(idx);
+            const auto samples = registry_->getSamples(signalId);
+            if (samples.isEmpty()) continue;
+            // compute min/max across sample history for this signal
+            double localMin = std::numeric_limits<double>::infinity();
+            double localMax = -std::numeric_limits<double>::infinity();
+            for (const auto& s : samples) {
+                localMin = qMin(localMin, s.value);
+                localMax = qMax(localMax, s.value);
+            }
+            // remember last value for immediate display
+            latestValues[signalId] = samples.last().value;
+            // expand global min/max for appropriate dimension
+            if (idx == 0) { minX = qMin(minX, localMin); maxX = qMax(maxX, localMax); }
+            else if (idx == 1) { minY = qMin(minY, localMin); maxY = qMax(maxY, localMax); }
+            else if (idx == 2) { minZ = qMin(minZ, localMin); maxZ = qMax(maxZ, localMax); }
+        }
+    }
+    // Provide sensible defaults if data absent so points are visible
+    auto ensureRange = [](double& lo, double& hi){
+        if (!qIsFinite(lo) || !qIsFinite(hi)) { lo = -1.0; hi = 1.0; return; }
+        if (qFuzzyCompare(lo, hi) || lo > hi) {
+            // expand slightly around the value
+            double v = (qIsFinite(lo) && qIsFinite(hi) && qFuzzyCompare(lo, hi)) ? lo : 0.0;
+            if (!qIsFinite(v)) v = 0.0;
+            double delta = qMax(1e-3, qAbs(v) * 0.1);
+            lo = v - delta; hi = v + delta;
+        }
+    };
+    ensureRange(minX, maxX); ensureRange(minY, maxY); ensureRange(minZ, maxZ);
+    // Render each group with time-history trails aligned by exact timestamps present in all signals
+    for (const auto& group : groups3D_) {
+        if (!group.enabled || group.signalIds.isEmpty()) continue;
+
+        // Gather samples for each signal in the group
+        const int dims = group.signalIds.size();
+        QVector<QVector<PlotSignalSample>> samplesList; samplesList.reserve(dims);
+        for (const auto& sid : group.signalIds) samplesList.append(registry_->getSamples(sid));
+
+        // Build the set intersection of timestamps present in all signals
+        QSet<qint64> commonTimes;
+        if (!samplesList.isEmpty()) {
+            // Initialize with timestamps from first signal
+            for (const auto& s : samplesList.first()) commonTimes.insert(s.t_ns);
+            // Intersect with remaining
+            for (int i = 1; i < samplesList.size(); ++i) {
+                QSet<qint64> cur;
+                for (const auto& s : samplesList[i]) cur.insert(s.t_ns);
+                commonTimes = commonTimes.intersect(cur);
+                if (commonTimes.isEmpty()) break;
+            }
+        }
+
+        // If no common exact timestamps, fall back to using the last N samples where N = min(len_i)
+        QVector<qint64> timesOrdered;
+        if (!commonTimes.isEmpty()) {
+            timesOrdered = QVector<qint64>::fromList(commonTimes.values());
+            std::sort(timesOrdered.begin(), timesOrdered.end());
+        } else {
+            // Determine minimal length across signals and take last N sample times from each (assume roughly aligned by recency)
+            int Nmin = INT_MAX;
+            for (const auto& v : samplesList) Nmin = qMin(Nmin, v.size());
+            if (Nmin == INT_MAX || Nmin <= 0) {
+                // Nothing to draw; skip group
+                continue;
+            }
+            // Use last Nmin timestamps from the last signal for ordering (could choose any)
+            const auto& ref = samplesList.last();
+            timesOrdered.reserve(Nmin);
+            for (int i = ref.size() - Nmin; i < ref.size(); ++i) timesOrdered.append(ref.at(i).t_ns);
+        }
+
+        if (timesOrdered.isEmpty()) continue;
+
+        // Build quick lookup maps from timestamp -> value for each signal
+        QVector<QHash<qint64, double>> valueMaps; valueMaps.reserve(dims);
+        for (const auto& vec : samplesList) {
+            QHash<qint64, double> m; m.reserve(vec.size());
+            for (const auto& s : vec) m.insert(s.t_ns, s.value);
+            valueMaps.append(std::move(m));
+        }
+
+        // Compute min/max per-dimension using only the selected times to keep scaling tight to the trail
+        double gminX = std::numeric_limits<double>::infinity(), gmaxX = -std::numeric_limits<double>::infinity();
+        double gminY = std::numeric_limits<double>::infinity(), gmaxY = -std::numeric_limits<double>::infinity();
+        double gminZ = std::numeric_limits<double>::infinity(), gmaxZ = -std::numeric_limits<double>::infinity();
+        QVector<QVector3D> pts; pts.reserve(timesOrdered.size());
+        for (qint64 t : timesOrdered) {
+            double vx = (dims >= 1 && valueMaps.size() > 0 && valueMaps[0].contains(t)) ? valueMaps[0].value(t) : 0.0;
+            double vy = (dims >= 2 && valueMaps.size() > 1 && valueMaps[1].contains(t)) ? valueMaps[1].value(t) : 0.0;
+            double vz = (dims >= 3 && valueMaps.size() > 2 && valueMaps[2].contains(t)) ? valueMaps[2].value(t) : 0.0;
+            gminX = qMin(gminX, vx); gmaxX = qMax(gmaxX, vx);
+            gminY = qMin(gminY, vy); gmaxY = qMax(gmaxY, vy);
+            gminZ = qMin(gminZ, vz); gmaxZ = qMax(gmaxZ, vz);
+            pts.append(QVector3D(vx, vy, vz));
+        }
+
+        // Ensure ranges valid
+        ensureRange(gminX, gmaxX); ensureRange(gminY, gmaxY); ensureRange(gminZ, gmaxZ);
+
+        // Normalize points into [-1,1] cube and transform/project each one
+        auto normv = [](double v, double lo, double hi){ if (hi - lo <= 0) return 0.0; return 2.0 * ( (v - lo) / (hi - lo) ) - 1.0; };
+        QVector<QPointF> screenPts; screenPts.reserve(pts.size());
+        for (const auto& v : pts) {
+            QVector3D npt(normv(v.x(), gminX, gmaxX), normv(v.y(), gminY, gmaxY), normv(v.z(), gminZ, gmaxZ));
+            // rotate
+            QVector3D r = npt;
+            float tY = r.y() * cosX - r.z() * sinX;
+            float tZ = r.y() * sinX + r.z() * cosX;
+            r.setY(tY); r.setZ(tZ);
+            float tX = r.x() * cosY + r.z() * sinY;
+            tZ = -r.x() * sinY + r.z() * cosY;
+            r.setX(tX); r.setZ(tZ);
+            float sx = centerX + r.x() * scale / cameraDistance_;
+            float sy = centerY - r.y() * scale / cameraDistance_;
+            screenPts.append(QPointF(sx, sy));
+        }
+
+        // Helper to draw a marker for head/tail points
+        auto drawMarker = [&](QPainter& painter, const QPointF& c, const QString& style, int size, const QColor& col){
+            painter.save();
+            painter.setPen(QPen(col));
+            painter.setBrush(QBrush(col));
+            if (style == "Circle") {
+                painter.drawEllipse(c, size, size);
+            } else if (style == "Square") {
+                painter.drawRect(QRectF(c.x()-size, c.y()-size, size*2, size*2));
+            } else if (style == "Diamond") {
+                QPolygonF poly;
+                poly << QPointF(c.x(), c.y()-size) << QPointF(c.x()+size, c.y()) << QPointF(c.x(), c.y()+size) << QPointF(c.x()-size, c.y());
+                painter.drawPolygon(poly);
+            } else if (style == "Cross") {
+                painter.drawLine(QPointF(c.x()-size, c.y()-size), QPointF(c.x()+size, c.y()+size));
+                painter.drawLine(QPointF(c.x()-size, c.y()+size), QPointF(c.x()+size, c.y()-size));
+            } else {
+                // default to circle
+                painter.drawEllipse(c, size, size);
+            }
+            painter.restore();
+        };
+
+        // Draw fading polyline: older samples lighter (lower alpha)
+        const int M = screenPts.size();
+        // Respect group-level tailEnabled and tailTimeSpanSec: if tail disabled, only show head
+        if (!group.tailEnabled) {
+            // Show only the latest point (head)
+            const QPointF& c = screenPts.last();
+            QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
+            drawMarker(p, c, group.headPointStyle, group.headPointSize, headCol);
+            p.setPen(QPen(Qt::white));
+            p.drawText(c + QPointF(8, -8), group.name);
+        } else {
+            // Optionally filter points by tailTimeSpanSec (only keep those within last T seconds)
+            if (group.tailTimeSpanSec > 0.0) {
+                // timesOrdered aligns with pts/screenPts indices
+                qint64 lastT = timesOrdered.last();
+                double spanNs = group.tailTimeSpanSec * 1e9;
+                int startIdx = 0;
+                for (int i = 0; i < timesOrdered.size(); ++i) {
+                    if (timesOrdered.at(i) >= lastT - qint64(spanNs)) { startIdx = i; break; }
+                }
+                if (startIdx > 0) {
+                    QVector<QPointF> tmp; tmp.reserve(M - startIdx);
+                    for (int i = startIdx; i < screenPts.size(); ++i) tmp.append(screenPts[i]);
+                    screenPts = tmp;
+                }
+            }
+
+            const int NM = screenPts.size();
+            if (NM <= 0) continue;
+            if (NM == 1) {
+                // Single point: draw head using headColor (fallback to group's base color)
+                QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
+                drawMarker(p, screenPts.first(), group.headPointStyle, group.headPointSize, headCol);
+            } else {
+                for (int i = 0; i < NM-1; ++i) {
+                    double alphaFrac = double(i) / double(qMax(1, NM-1)); // 0..1 older->newer
+                    int alpha = int(80 + alphaFrac * 175); // range [80,255]
+                    QColor col = group.tailLineColor.isValid() ? group.tailLineColor : group.color; col.setAlpha(alpha);
+                    int lw = qMax(1, group.tailLineWidth);
+                    p.setPen(QPen(col, lw));
+                    p.drawLine(screenPts[i], screenPts[i+1]);
+                }
+                // Draw markers for each point (small) and highlight last
+                for (int i = 0; i < NM; ++i) {
+                    if (i == NM-1) {
+                        // Head marker: respect headColor and head style/size
+                        QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
+                        drawMarker(p, screenPts[i], group.headPointStyle, group.headPointSize, headCol);
+                    } else {
+                        // Tail markers: use tail point color (faded) and tail style/size
+                        int sz = group.tailPointSize;
+                        QColor col = group.tailPointColor.isValid() ? group.tailPointColor : group.color; col.setAlpha(200);
+                        drawMarker(p, screenPts[i], group.tailPointStyle, sz, col);
+                    }
+                }
+                // Label at last point
+                p.setPen(QPen(Qt::white));
+                p.drawText(screenPts.last() + QPointF(8, -8), group.name);
+            }
+        }
+    }
+
+    // Draw simple axes with tick marks and labels
+    p.setPen(QPen(Qt::gray, 1, Qt::DashLine));
+    const int axisLen = int(scale * 1.5);
+    p.drawLine(centerX - axisLen, centerY, centerX + axisLen, centerY); // X axis
+    p.drawLine(centerX, centerY - axisLen, centerX, centerY + axisLen); // Y axis
+    // ticks and simple numeric labels for -1,0,1 normalized space
+    p.setPen(QPen(Qt::lightGray));
+    for (int i = -1; i <= 1; ++i) {
+        int x = centerX + int(i * axisLen);
+        p.drawLine(x, centerY-4, x, centerY+4);
+        p.drawText(x-10, centerY+18, QString::number(i));
+        int y = centerY - int(i * axisLen);
+        p.drawLine(centerX-4, y, centerX+4, y);
+        p.drawText(centerX+8, y+4, QString::number(i));
+    }
+
+    // Draw camera info
+    p.setPen(QPen(Qt::white));
+    // Use explicit number formatting to avoid mismatched QString::arg placeholders
+    QString info = QString("Camera: RotX=%1°, RotY=%2°, Dist=%3")
+                   .arg(QString::number(cameraRotationX_, 'f', 1))
+                   .arg(QString::number(cameraRotationY_, 'f', 1))
+                   .arg(QString::number(cameraDistance_, 'f', 1));
+    p.drawText(10, 20, info);
 }
 
 bool PlotCanvas::transformValue(const QString& id, double x, double& yOut) const {

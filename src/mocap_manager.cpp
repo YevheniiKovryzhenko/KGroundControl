@@ -210,10 +210,16 @@ mocap_data_aggegator::mocap_data_aggegator(QObject* parent)
 : QObject(parent)
 {
     mutex = new QMutex;
+    cleanup_timer_ = new QTimer(this);
+    connect(cleanup_timer_, &QTimer::timeout, this, &mocap_data_aggegator::cleanup_stale_frames);
+    cleanup_timer_->start(5000); // Check every 5 seconds
 }
 
 mocap_data_aggegator::~mocap_data_aggegator()
 {
+    if (cleanup_timer_) {
+        cleanup_timer_->stop();
+    }
     delete mutex;
 }
 
@@ -225,6 +231,40 @@ void mocap_data_aggegator::clear(void)
         frame_ids_.clear();
         frames_.clear();
         frame_id_to_index_.clear();
+        last_time_ms_.clear();
+    }
+    mutex->unlock();
+}
+
+void mocap_data_aggegator::cleanup_stale_frames()
+{
+    mutex->lock();
+    uint64_t current_time = QDateTime::currentMSecsSinceEpoch();
+    const uint64_t timeout_ms = 30000; // 30 seconds
+    QVector<int> ids_to_remove;
+
+    for (auto it = last_time_ms_.begin(); it != last_time_ms_.end(); ++it) {
+        if (current_time - it.value() > timeout_ms) {
+            ids_to_remove.append(it.key());
+        }
+    }
+
+    if (!ids_to_remove.isEmpty()) {
+        for (int id : ids_to_remove) {
+            int index = frame_id_to_index_.value(id, -1);
+            if (index >= 0 && index < frames_.size()) {
+                frames_.removeAt(index);
+                frame_ids_.removeAll(id);
+                frame_id_to_index_.remove(id);
+                last_time_ms_.remove(id);
+
+                // Update indices for remaining frames
+                for (int i = index; i < frames_.size(); ++i) {
+                    frame_id_to_index_[frames_[i].id] = i;
+                }
+            }
+        }
+        emit frame_ids_updated(frame_ids_);
     }
     mutex->unlock();
 }
@@ -653,6 +693,9 @@ mocap_manager::mocap_manager(QWidget *parent)
 
     // mutex = new QMutex;
     mocap_data = new mocap_data_aggegator(this);
+
+    // Connect frame IDs updates to relay combo box
+    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_relay_mocap_frame_ids, Qt::QueuedConnection);
 
     // Start fake mocap node (disabled by default; can be toggled later via settings)
     {
@@ -1252,7 +1295,7 @@ void mocap_manager::on_btn_mocap_data_inspector_clicked()
     update_visuals_mocap_frame_ids(mocap_data->get_ids()); //get most recent ids
 
     //connect data aggregator updates:
-    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::DirectConnection);
+    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::QueuedConnection);
     connect(mocap_data, &mocap_data_aggegator::frames_updated, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
 
     //linking all updates from the inspector thread to this UI:

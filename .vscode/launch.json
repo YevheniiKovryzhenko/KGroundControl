@@ -8,7 +8,7 @@
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Configure+Build (Preset) - Debug (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Run: MinSizeRel (Windows)",
@@ -17,7 +17,7 @@
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Run: Release (Windows)",
@@ -26,7 +26,7 @@
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Configure+Build (Preset) - Release (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Run: Debug (Linux)",
@@ -37,7 +37,7 @@
             "cwd": "${workspaceFolder}/build/Debug/bin",
             "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Run: MinSizeRel (Linux)",
@@ -48,7 +48,7 @@
             "cwd": "${workspaceFolder}/build/MinSizeRel/bin",
             "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "Run: Release (Linux)",
@@ -59,7 +59,7 @@
             "cwd": "${workspaceFolder}/build/Release/bin",
             "externalConsole": false,
             "preLaunchTask": "Configure+Build (Preset) - Release (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/33c40801b5a607628556bae18df2de32/tonka3000.qtvsctools/qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
         }
     ]
 }

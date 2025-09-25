@@ -38,6 +38,27 @@
         </property>
         <layout class="QVBoxLayout" name="leftTopLayout">
          <item>
+          <widget class="QLabel" name="lblPlotMode">
+           <property name="text">
+            <string>Plot Mode</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="cmbPlotMode">
+           <item>
+            <property name="text">
+             <string>2D Plot</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>3D Plot</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
           <widget class="QLabel" name="lblSettings">
            <property name="text">
             <string>Settings</string>
@@ -73,6 +94,38 @@
          </rect>
         </property>
         <layout class="QVBoxLayout" name="leftBottomLayout">
+         <item>
+          <widget class="QLabel" name="lbl3DGroups">
+           <property name="text">
+            <string>3D Groups</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QTreeWidget" name="tree3DGroups">
+           <property name="maximumHeight">
+            <number>150</number>
+           </property>
+           <property name="headerHidden">
+            <bool>false</bool>
+           </property>
+           <column>
+            <property name="text">
+             <string>Name</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>En.</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Del.</string>
+            </property>
+           </column>
+          </widget>
+         </item>
          <item>
           <widget class="QLabel" name="lblSignals">
            <property name="text">
