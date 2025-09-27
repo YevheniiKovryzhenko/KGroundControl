@@ -424,17 +424,103 @@ void fake_mocap_thread::run()
 
         if (enabled)
         {
-            const double t = static_cast<double>(timer_.elapsed()) / 1000.0; // seconds
-            const double omega = 2.0 * M_PI / T;
-            const double ang = omega * t;
+            // Maintain state to detect enable transitions so we can restart the local timer
+            static bool was_enabled = false;
+            if (enabled && !was_enabled) {
+                timer_.restart();
+                was_enabled = true;
+            } else if (!enabled) {
+                was_enabled = false;
+            }
+
+            const double t = static_cast<double>(timer_.elapsed()) / 1000.0; // seconds since enabled
+            // Phase durations (make them proportional but bounded)
+            const double takeoff_dur = qBound(3.0, T * 1.2, 5.0); // seconds to ascend from ground to flight altitude
+            const double ramp_dur = qBound(2.0, T * 0.8, 3.0);     // seconds to move radially out/in
+            const int revolutions = 3;
+            const double circle_dur = T * static_cast<double>(revolutions);
+            const double landing_dur = takeoff_dur;
+
+            const double phase_total = takeoff_dur + ramp_dur + circle_dur + ramp_dur + landing_dur;
+
+            // Loop the whole mission sequence repeatedly
+            const double tseq = std::fmod(t, phase_total);
+
+            // Trajectory state to compute position and yaw (vehicle facing direction of motion)
+            double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
+            const double ang0 = 0.0; // starting angular offset for the circle (starts at +X axis)
+            const double omega = (T > 0.0) ? (2.0 * M_PI / T) : 0.0;
+
+            if (tseq < takeoff_dur) {
+                // Takeoff: vertical from (0,0,0) to (0,0,-1)
+                double s = qBound(0.0, tseq / takeoff_dur, 1.0);
+                x = 0.0; y = 0.0; z = - s * 1.0; // z negative is altitude -1m
+                // Face the initial tangent direction so orientation is ready for circle
+                yaw = ang0 + M_PI_2; // tangent at start (pi/2)
+            }
+            else if (tseq < takeoff_dur + ramp_dur) {
+                // Radial ramp-out: move from center to circle radius at z=-1
+                double s = qBound(0.0, (tseq - takeoff_dur) / ramp_dur, 1.0);
+                double r = s * R;
+                double ang = ang0; // keep angle fixed during radial ramp
+                x = r * qCos(ang);
+                y = r * qSin(ang);
+                z = -1.0;
+                // velocity is radial outward -> yaw points along velocity
+                double vx = (R / qMax(ramp_dur, 1e-6)) * qCos(ang);
+                double vy = (R / qMax(ramp_dur, 1e-6)) * qSin(ang);
+                yaw = std::atan2(vy, vx);
+            }
+            else if (tseq < takeoff_dur + ramp_dur + circle_dur) {
+                // Circular laps: tangent yaw (facing direction of motion)
+                double t_circle = tseq - (takeoff_dur + ramp_dur);
+                double ang = ang0 + omega * t_circle;
+                x = R * qCos(ang);
+                y = R * qSin(ang);
+                z = -1.0;
+                // Tangent velocity: compute yaw from velocity vector
+                double vx = -R * omega * qSin(ang);
+                double vy =  R * omega * qCos(ang);
+                // If radius is zero, fallback
+                if (qFuzzyIsNull(R) && qFuzzyIsNull(vx) && qFuzzyIsNull(vy)) yaw = ang0 + M_PI_2;
+                else yaw = std::atan2(vy, vx);
+            }
+            else if (tseq < takeoff_dur + ramp_dur + circle_dur + ramp_dur) {
+                // Radial ramp-in: move from circle radius back toward center at z=-1
+                double s = qBound(0.0, (tseq - (takeoff_dur + ramp_dur + circle_dur)) / ramp_dur, 1.0);
+                // final angle at the end of circle
+                double ang_end = ang0 + omega * circle_dur;
+                double r = (1.0 - s) * R; // shrink radius to zero
+                x = r * qCos(ang_end);
+                y = r * qSin(ang_end);
+                z = -1.0;
+                // radial inward velocity
+                double vx = - (R / qMax(ramp_dur, 1e-6)) * qCos(ang_end);
+                double vy = - (R / qMax(ramp_dur, 1e-6)) * qSin(ang_end);
+                yaw = std::atan2(vy, vx);
+            }
+            else {
+                // Landing: vertical from (0,0,-1) back to (0,0,0)
+                double s = qBound(0.0, (tseq - (takeoff_dur + ramp_dur + circle_dur + ramp_dur)) / landing_dur, 1.0);
+                x = 0.0; y = 0.0; z = -1.0 + s * 1.0; // climb to ground (0)
+                // Keep yaw as the last tangent direction
+                double ang_last = ang0 + omega * circle_dur;
+                yaw = ang_last + M_PI_2;
+            }
+
+            // Compose quaternion that represents yaw-only orientation (no roll/pitch)
+            double cy = std::cos(yaw * 0.5);
+            double sy = std::sin(yaw * 0.5);
             optitrack_message_t msg;
             msg.id = id;
             msg.trackingValid = true;
-            msg.x = R * qCos(ang);
-            msg.y = R * qSin(ang);
-            msg.z = -1.0;
-            msg.qw = 1.0;
-            msg.qx = msg.qy = msg.qz = 0.0;
+            msg.x = x;
+            msg.y = y;
+            msg.z = z;
+            msg.qw = cy;
+            msg.qx = 0.0;
+            msg.qy = 0.0;
+            msg.qz = sy;
 
             QVector<optitrack_message_t> batch{msg};
             emit update(batch, mocap_rotation::NONE); // already in desired frame
@@ -843,9 +929,9 @@ mocap_manager::mocap_manager(QWidget *parent)
         QSettings s;
         s.beginGroup("mocap_manager");
         // Restore window geometry/state
-    if (s.contains("geometry")) this->restoreGeometry(s.value("geometry").toByteArray());
-    const bool wasMax = s.value("window/maximized", false).toBool();
-    if (wasMax) this->setWindowState(Qt::WindowMaximized);
+        if (s.contains("geometry")) this->restoreGeometry(s.value("geometry").toByteArray());
+        const bool wasMax = s.value("window/maximized", false).toBool();
+        if (wasMax) this->setWindowState(Qt::WindowMaximized);
 
         // Connection pane
         ui->btn_connection_ipv6->setChecked(true); // IPv4 label is on ipv6 btn
@@ -861,9 +947,9 @@ mocap_manager::mocap_manager(QWidget *parent)
         ui->txt_connection_read_rate->setText(s.value("connection/read_rate_hz", ui->txt_connection_read_rate->text()).toString());
 
         // Inspector settings
-    ui->cmbx_refresh_priority->setCurrentIndex(s.value("inspector/priority_index", ui->cmbx_refresh_priority->currentIndex()).toInt());
-    ui->txt_refresh_rate->setText(s.value("inspector/refresh_rate_hz", ui->txt_refresh_rate->text()).toString());
-    updateQueueTimerFromUi();
+        ui->cmbx_refresh_priority->setCurrentIndex(s.value("inspector/priority_index", ui->cmbx_refresh_priority->currentIndex()).toInt());
+        ui->txt_refresh_rate->setText(s.value("inspector/refresh_rate_hz", ui->txt_refresh_rate->text()).toString());
+        updateQueueTimerFromUi();
 
         // Fake mocap settings
         fake_settings_.enabled = s.value("fake/enabled", fake_settings_.enabled).toBool();

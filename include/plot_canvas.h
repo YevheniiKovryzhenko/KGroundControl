@@ -21,6 +21,19 @@ struct Plot3DGroup {
     QColor headColor = QColor(Qt::red);
     QString headPointStyle = "Circle";
     int headPointSize = 6;
+    // Optional attitude mapping for rotating body-frame heads
+    // "None", "Euler", or "Quaternion". When set, renderer may use these
+    // signal IDs to rotate the head glyph accordingly.
+    QString attitudeMode = "None";
+    // Euler signals (if attitudeMode == "Euler")
+    QString rollSignal;
+    QString pitchSignal;
+    QString yawSignal;
+    // Quaternion signals (if attitudeMode == "Quaternion")
+    QString qxSignal;
+    QString qySignal;
+    QString qzSignal;
+    QString qwSignal;
     // Tail (time-history) customization
     bool tailEnabled = true;
     double tailTimeSpanSec = 10.0; // duration in seconds
@@ -45,6 +58,16 @@ public:
         Mode2D,
         Mode3D
     };
+
+    // Draws a small inertial axes frame in the bottom right corner (3D mode)
+    void drawCornerAxes(QPainter& p, const QRect& rect) const;
+    // Draws a small inertial axes frame centered at world origin (0,0,0)
+    void drawCenterAxes(QPainter& p, const QRect& rect) const;
+    void setShowCornerAxes(bool show) { showCornerAxes_ = show; update(); }
+    bool showCornerAxes() const { return showCornerAxes_; }
+
+    void setShowCenterAxes(bool show) { showCenterAxes_ = show; update(); }
+    bool showCenterAxes() const { return showCenterAxes_; }
 
     explicit PlotCanvas(QWidget* parent = nullptr);
     ~PlotCanvas() override;
@@ -211,6 +234,11 @@ private:
     double xMin_ = -1.0, xMax_ = 1.0;
     bool xLog_ = false;
 
+    // Last used ranges from the most recent 3D render (used for projecting world-space points)
+    double renderMinX_ = -1.0, renderMaxX_ = 1.0;
+    double renderMinY_ = -1.0, renderMaxY_ = 1.0;
+    double renderMinZ_ = -1.0, renderMaxZ_ = 1.0;
+
     // Z-axis settings (for 3D plotting)
     bool zAutoExpand_ = true; // allow outward growth
     bool zAutoShrink_ = true; // allow inward tightening
@@ -244,6 +272,8 @@ private:
     void render3D(QPainter& p, const QRect& rect);
 
     // visuals
+    bool showCornerAxes_ = true;
+    bool showCenterAxes_ = false;
     bool showLegend_ = true;
     bool showGrid_ = true;
     QColor bgColor_ = QColor(Qt::black);

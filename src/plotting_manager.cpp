@@ -206,6 +206,24 @@ void PlottingManager::setup3DGroupsTree() {
             group.signalIds.append(dialog.getXSignal());
             group.signalIds.append(dialog.getYSignal());
             group.signalIds.append(dialog.getZSignal());
+            // Persist attitude selection into group
+            QString att = dialog.getAttitudeMode();
+            if (!att.isEmpty() && att != "None") {
+                group.attitudeMode = att;
+                if (att == "Euler") {
+                    group.rollSignal = dialog.getRollSignal();
+                    group.pitchSignal = dialog.getPitchSignal();
+                    group.yawSignal = dialog.getYawSignal();
+                    // default head style to Axes when attitude provided
+                    group.headPointStyle = "Axes";
+                } else if (att == "Quaternion") {
+                    group.qxSignal = dialog.getQxSignal();
+                    group.qySignal = dialog.getQySignal();
+                    group.qzSignal = dialog.getQzSignal();
+                    group.qwSignal = dialog.getQwSignal();
+                    group.headPointStyle = "Axes";
+                }
+            }
             groups3D_.append(group);
 
             updateGroups3DList(ui->tree3DGroups);
@@ -591,6 +609,46 @@ void PlottingManager::buildSettingsTree() {
         });
     }
 
+    // Coordinate System section (3D only) - small tab with a checkbox to toggle corner axes
+    coordinateSection = addSection("Coordinate System");
+    {
+        auto* cont = new QWidget(tree);
+        auto* v = new QVBoxLayout(cont);
+        v->setContentsMargins(4,4,4,4);
+        v->setSpacing(6);
+
+        auto* chkShowCornerAxes = new QCheckBox("Show Corner Axes", cont);
+        chkShowCornerAxes->setToolTip("Show a small inertial XYZ frame in the bottom-right corner of 3D plots.");
+        // Initialize from canvas state
+        if (ui && ui->plotCanvas) chkShowCornerAxes->setChecked(ui->plotCanvas->showCornerAxes());
+        v->addWidget(chkShowCornerAxes);
+
+        auto* chkShowCenterAxes = new QCheckBox("Show Center Axes", cont);
+        chkShowCenterAxes->setToolTip("Show a small inertial XYZ frame at the world origin (0,0,0) projected into the 3D plot.");
+        if (ui && ui->plotCanvas) chkShowCenterAxes->setChecked(ui->plotCanvas->showCenterAxes());
+        v->addWidget(chkShowCenterAxes);
+
+        auto* it = new QTreeWidgetItem(coordinateSection);
+        it->setFirstColumnSpanned(true);
+        tree->setItemWidget(it, 0, cont);
+        cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        cont->adjustSize();
+        it->setSizeHint(0, cont->sizeHint());
+
+        // Wiring
+        connect(chkShowCornerAxes, &QCheckBox::toggled, this, [this](bool on){ if (ui && ui->plotCanvas) ui->plotCanvas->setShowCornerAxes(on); });
+        connect(chkShowCenterAxes, &QCheckBox::toggled, this, [this](bool on){ if (ui && ui->plotCanvas) ui->plotCanvas->setShowCenterAxes(on); });
+
+        // Initially hidden (only show in 3D mode)
+        coordinateSection->setHidden(true);
+
+        // Mirror plot mode changes like camera3DSection
+        connect(ui->cmbPlotMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index){
+            bool is3D = (index == 1);
+            if (coordinateSection) coordinateSection->setHidden(!is3D);
+        });
+    }
+
     // Group Style section (3D only, visible when a 3D group is selected)
     groupStyleSection = addSection("Group Style");
     {
@@ -605,9 +663,10 @@ void PlottingManager::buildSettingsTree() {
         headBox->setLayout(headL);
         // Make Head box expand horizontally so controls fill available width like Tail
         headBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        // head color swatch + pick button
+        // head color swatch + pick button (row so label+control can be hidden together)
+        headColorRow = new QWidget(headBox);
         {
-            auto* row = new QWidget(headBox);
+            auto* row = headColorRow;
             auto* h = new QHBoxLayout(row); h->setContentsMargins(0,0,0,0);
             h->setSpacing(8);
             auto* lbl = new QLabel("Head Color:", row); lbl->setMinimumWidth(120);
@@ -617,10 +676,12 @@ void PlottingManager::buildSettingsTree() {
             headL->addWidget(row);
         }
         cmbHeadPointStyle = new QComboBox(headBox);
-        cmbHeadPointStyle->addItems({"None","Circle","Cross","Square","Diamond"});
+        cmbHeadPointStyle->addItems({"None","Circle","Cross","Square","Diamond","Axes"});
         spinHeadPointSize = new QSpinBox(headBox); spinHeadPointSize->setRange(1, 40); spinHeadPointSize->setValue(6);
-        headL->addWidget(makeRow(headBox, "Point Style:", cmbHeadPointStyle));
-        headL->addWidget(makeRow(headBox, "Point Size:", spinHeadPointSize));
+        headPointStyleRow = makeRow(headBox, "Point Style:", cmbHeadPointStyle);
+        headPointSizeRow = makeRow(headBox, "Point Size:", spinHeadPointSize);
+        headL->addWidget(headPointStyleRow);
+        headL->addWidget(headPointSizeRow);
 
         // Tail subgroup
         auto* tailBox = new QGroupBox("Tail", cont);
@@ -736,6 +797,11 @@ void PlottingManager::buildSettingsTree() {
             if (groupStyleContent && groupStyleItem) {
                 groupStyleContent->adjustSize();
                 groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+                if (ui && ui->treeSettings) {
+                    ui->treeSettings->doItemsLayout();
+                    ui->treeSettings->updateGeometry();
+                    ui->treeSettings->viewport()->update();
+                }
             }
         });
 
@@ -761,7 +827,47 @@ void PlottingManager::buildSettingsTree() {
         connect(spinTailGapLength, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailGapLength = v; ui->plotCanvas->setGroups3D(groups3D_); } });
 
         // Head controls wiring
-        connect(cmbHeadPointStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].headPointStyle = cmbHeadPointStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); } });
+        connect(cmbHeadPointStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ 
+            const QString style = cmbHeadPointStyle->currentText();
+            if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) {
+                groups3D_[selectedGroupIndex_].headPointStyle = style; 
+                ui->plotCanvas->setGroups3D(groups3D_);
+            }
+            // When Axes glyph is selected, head color and size are not applicable; hide those rows.
+            // Keep the Point Style row visible so the user can switch styles.
+            bool isAxes = (style == "Axes");
+            // Helper: hide/show a full row and zero its height when hidden so layouts reclaim space.
+            auto setRowVisible = [](QWidget* row, bool on){
+                if (!row) return;
+                row->setVisible(on);
+                if (!on) {
+                    row->setMaximumHeight(0);
+                    row->setMinimumHeight(0);
+                } else {
+                    row->setMaximumHeight(QWIDGETSIZE_MAX);
+                    row->setMinimumHeight(0);
+                }
+            };
+
+            if (headColorRow) setRowVisible(headColorRow, !isAxes);
+            else { if (headColorDot) headColorDot->setVisible(!isAxes); if (btnHeadPickColor) btnHeadPickColor->setVisible(!isAxes); }
+            // Always keep the Point Style row visible so the selector is reachable
+            if (headPointStyleRow) setRowVisible(headPointStyleRow, true);
+            else if (cmbHeadPointStyle) cmbHeadPointStyle->setVisible(true);
+            if (headPointSizeRow) setRowVisible(headPointSizeRow, !isAxes);
+            else if (spinHeadPointSize) spinHeadPointSize->setVisible(!isAxes);
+
+            // Update group style content size hint so the settings tree resizes immediately
+            if (groupStyleContent && groupStyleItem) {
+                groupStyleContent->adjustSize();
+                groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+                if (ui && ui->treeSettings) {
+                    ui->treeSettings->doItemsLayout();
+                    ui->treeSettings->updateGeometry();
+                    ui->treeSettings->viewport()->update();
+                }
+            }
+        });
         connect(spinHeadPointSize, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].headPointSize = spinHeadPointSize->value(); ui->plotCanvas->setGroups3D(groups3D_); } });
     }
 
@@ -2254,39 +2360,54 @@ void PlottingManager::updateGroups3DList(QTreeWidget* tree) {
         if (groupStyleSection) groupStyleSection->setHidden(!is3D);
         // Populate controls from group
         const auto& g = groups3D_.at(idx);
-    if (headColorDot) headColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.headColor.name()));
+        if (headColorDot) headColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.headColor.name()));
         if (cmbHeadPointStyle) { int pos = cmbHeadPointStyle->findText(g.headPointStyle); if (pos>=0) cmbHeadPointStyle->setCurrentIndex(pos); }
         if (spinHeadPointSize) spinHeadPointSize->setValue(g.headPointSize);
+        // Hide head color and size rows when Axes style selected since they don't apply.
+        // Always keep the Point Style row visible so the selector remains reachable.
+        bool isAxesStyle = (g.headPointStyle == "Axes");
+        auto setRowVisible = [](QWidget* row, bool on){ if (!row) return; row->setVisible(on); if (!on) { row->setMaximumHeight(0); row->setMinimumHeight(0); } else { row->setMaximumHeight(QWIDGETSIZE_MAX); row->setMinimumHeight(0); } };
+        if (headColorRow) setRowVisible(headColorRow, !isAxesStyle);
+        else { if (headColorDot) headColorDot->setVisible(!isAxesStyle); if (btnHeadPickColor) btnHeadPickColor->setVisible(!isAxesStyle); }
+        if (headPointStyleRow) setRowVisible(headPointStyleRow, true);
+        else if (cmbHeadPointStyle) cmbHeadPointStyle->setVisible(true);
+        if (headPointSizeRow) setRowVisible(headPointSizeRow, !isAxesStyle);
+        else if (spinHeadPointSize) spinHeadPointSize->setVisible(!isAxesStyle);
 
         if (chkTailEnable) chkTailEnable->setChecked(g.tailEnabled);
-    if (editTailTimeSpan) { editTailTimeSpan->blockSignals(true); editTailTimeSpan->setValue(g.tailTimeSpanSec); editTailTimeSpan->blockSignals(false); }
-    if (tailColorDot) tailColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.tailPointColor.name()));
+        if (editTailTimeSpan) { editTailTimeSpan->blockSignals(true); editTailTimeSpan->setValue(g.tailTimeSpanSec); editTailTimeSpan->blockSignals(false); }
+        if (tailColorDot) tailColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.tailPointColor.name()));
         if (cmbTailPointStyle) { int pos = cmbTailPointStyle->findText(g.tailPointStyle); if (pos>=0) cmbTailPointStyle->setCurrentIndex(pos); }
         if (spinTailPointSize) spinTailPointSize->setValue(g.tailPointSize);
-    if (tailLineColorDot) tailLineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.tailLineColor.name()));
+        if (tailLineColorDot) tailLineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.tailLineColor.name()));
         if (cmbTailLineStyle) { int pos = cmbTailLineStyle->findText(g.tailLineStyle); if (pos>=0) cmbTailLineStyle->setCurrentIndex(pos); }
         if (spinTailLineWidth) spinTailLineWidth->setValue(g.tailLineWidth);
         if (spinTailDashLength) spinTailDashLength->setValue(g.tailDashLength);
         if (spinTailGapLength) spinTailGapLength->setValue(g.tailGapLength);
-    // No plot-type widget; point/line visibility is derived from styles.
+        // No plot-type widget; point/line visibility is derived from styles.
         // Toggle visibility of tail controls depending on enabled state
-    if (tailTimeSpanRow) tailTimeSpanRow->setVisible(g.tailEnabled);
-    if (tailPointColorRow) tailPointColorRow->setVisible(g.tailEnabled);
-    if (tailPointStyleRow) tailPointStyleRow->setVisible(g.tailEnabled);
-    if (tailPointSizeRow) tailPointSizeRow->setVisible(g.tailEnabled);
-    if (tailLineColorRow) tailLineColorRow->setVisible(g.tailEnabled);
-    if (tailLineStyleRow) tailLineStyleRow->setVisible(g.tailEnabled);
-    if (tailLineWidthRow) tailLineWidthRow->setVisible(g.tailEnabled);
-    // Dash rows depend on both enabled and dashed style
-    bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot"));
-    if (tailDashLengthRow) tailDashLengthRow->setVisible(g.tailEnabled && isDashed);
-    if (tailGapLengthRow) tailGapLengthRow->setVisible(g.tailEnabled && isDashed);
-    if (tailDashLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailDashLengthRow->setVisible(g.tailEnabled && isDashed); }
-    if (tailGapLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailGapLengthRow->setVisible(g.tailEnabled && isDashed); }
-    // Update the stored content widget size hint so the tree shrinks to fit
-    if (groupStyleContent && groupStyleItem) {
+        if (tailTimeSpanRow) tailTimeSpanRow->setVisible(g.tailEnabled);
+        if (tailPointColorRow) tailPointColorRow->setVisible(g.tailEnabled);
+        if (tailPointStyleRow) tailPointStyleRow->setVisible(g.tailEnabled);
+        if (tailPointSizeRow) tailPointSizeRow->setVisible(g.tailEnabled);
+        if (tailLineColorRow) tailLineColorRow->setVisible(g.tailEnabled);
+        if (tailLineStyleRow) tailLineStyleRow->setVisible(g.tailEnabled);
+        if (tailLineWidthRow) tailLineWidthRow->setVisible(g.tailEnabled);
+        // Dash rows depend on both enabled and dashed style
+        bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot"));
+        if (tailDashLengthRow) tailDashLengthRow->setVisible(g.tailEnabled && isDashed);
+        if (tailGapLengthRow) tailGapLengthRow->setVisible(g.tailEnabled && isDashed);
+        if (tailDashLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailDashLengthRow->setVisible(g.tailEnabled && isDashed); }
+        if (tailGapLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailGapLengthRow->setVisible(g.tailEnabled && isDashed); }
+        // Update the stored content widget size hint so the tree shrinks to fit
+        if (groupStyleContent && groupStyleItem) {
         groupStyleContent->adjustSize();
         groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+        if (ui && ui->treeSettings) {
+            ui->treeSettings->doItemsLayout();
+            ui->treeSettings->updateGeometry();
+            ui->treeSettings->viewport()->update();
+        }
     }
     });
 

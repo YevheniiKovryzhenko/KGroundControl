@@ -140,6 +140,7 @@ private:
 
     // 3D sections
     QTreeWidgetItem* camera3DSection = nullptr;
+    QTreeWidgetItem* coordinateSection = nullptr;
     QTreeWidgetItem* zAxisSection = nullptr;
     QTreeWidgetItem* groupStyleSection = nullptr;
     // The tree item and content widget used for the Group Style section so we can update its
@@ -175,10 +176,14 @@ private:
     QSpinBox*       spinTailGapLength = nullptr;
 
     // Head (single point) controls
+    // Row widgets so label+control can be hidden as a unit
+    QWidget*        headColorRow = nullptr;
     QWidget*        headColorDot = nullptr;
     QToolButton*    btnHeadPickColor = nullptr;
     QComboBox*      cmbHeadPointStyle = nullptr;
+    QWidget*        headPointStyleRow = nullptr;
     QSpinBox*       spinHeadPointSize = nullptr;
+    QWidget*        headPointSizeRow = nullptr;
 
     // Ordering state
     QVector<QString> signalOrder_;    // All tagged signals in desired vertical order

@@ -1083,6 +1083,10 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     minX = xr.first; maxX = xr.second;
     minY = yr.first; maxY = yr.second;
     minZ = zr.first; maxZ = zr.second;
+    // Cache the ranges used for projection so drawCenterAxes can project world (0,0,0) consistently
+    renderMinX_ = minX; renderMaxX_ = maxX;
+    renderMinY_ = minY; renderMaxY_ = maxY;
+    renderMinZ_ = minZ; renderMaxZ_ = maxZ;
     // Render each group with time-history trails aligned by exact timestamps present in all signals
     for (const auto& group : groups3D_) {
         if (!group.enabled || group.signalIds.isEmpty()) continue;
@@ -1188,6 +1192,52 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
             painter.restore();
         };
 
+        // Helper to draw a small 3-axis glyph (X=red, Y=green, Z=blue) centered at c.
+        // `orient` is a unit quaternion representing rotation from body to world.
+        auto drawAxesHead = [&](QPainter& painter, const QPointF& c, const QQuaternion& orient, int pixelSize){
+            // Use the same desired on-screen pixel length as drawCenterAxes so glyphs match
+            const int shortSide = qMin(rect.width(), rect.height());
+            const double desiredPx = qBound(24.0, double(shortSide) * 0.12, 180.0);
+            const double arrowHead = qMax(6.0, desiredPx * 0.22);
+
+            QVector3D ax(1,0,0), ay(0,1,0), az(0,0,1);
+            // orient rotates from body -> world. To get view-space directions we must
+            // apply the camera rotation to the world vectors so they are projected
+            // consistently with the rest of the scene.
+            QVector3D wx = cameraOrientation_.rotatedVector(orient.rotatedVector(ax));
+            QVector3D wy = cameraOrientation_.rotatedVector(orient.rotatedVector(ay));
+            QVector3D wz = cameraOrientation_.rotatedVector(orient.rotatedVector(az));
+
+            // Screen-space deltas use view-space x/y components (y inverted for screen coords)
+            QPointF dx(wx.x() * desiredPx, -wx.y() * desiredPx);
+            QPointF dy(wy.x() * desiredPx, -wy.y() * desiredPx);
+            QPointF dz(wz.x() * desiredPx, -wz.y() * desiredPx);
+
+            painter.save();
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            QPen penX(QColor(200,50,50), 2); penX.setCapStyle(Qt::RoundCap);
+            QPen penY(QColor(50,200,50), 2); penY.setCapStyle(Qt::RoundCap);
+            QPen penZ(QColor(80,140,240), 2); penZ.setCapStyle(Qt::RoundCap);
+            painter.setPen(penX); painter.drawLine(c, c + dx);
+            painter.setPen(penY); painter.drawLine(c, c + dy);
+            painter.setPen(penZ); painter.drawLine(c, c + dz);
+
+            // Triangular arrowheads sized like other axes
+            auto drawHead = [&](const QPointF& tip, const QPointF& from, const QColor& col){
+                QLineF ln(from, tip);
+                double angle = ln.angle();
+                double headLen = arrowHead;
+                QPointF h1 = tip + QPointF(-headLen * std::cos((angle-20.0) * M_PI/180.0), headLen * std::sin((angle-20.0) * M_PI/180.0));
+                QPointF h2 = tip + QPointF(-headLen * std::cos((angle+20.0) * M_PI/180.0), headLen * std::sin((angle+20.0) * M_PI/180.0));
+                QPolygonF poly; poly << tip << h1 << h2;
+                painter.save(); painter.setBrush(col); painter.setPen(Qt::NoPen); painter.drawPolygon(poly); painter.restore();
+            };
+            drawHead(c + dx, c, Qt::red);
+            drawHead(c + dy, c, Qt::green);
+            drawHead(c + dz, c, QColor(80,140,240));
+            painter.restore();
+        };
+
         // Draw fading polyline: older samples lighter (lower alpha)
         const int M = screenPts.size();
         // Respect group-level tailEnabled and tailTimeSpanSec: if tail disabled, only show head
@@ -1273,7 +1323,34 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                 // Draw the head marker using the head-specific style/size unless head style is "None"
                 if (group.headPointStyle != "None") {
                     QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
-                    drawMarker(p, screenPts.last(), group.headPointStyle, group.headPointSize, headCol);
+                    if (group.headPointStyle == "Axes") {
+                        // compute orientation quaternion from group's attitude signals if present
+                        QQuaternion orient = QQuaternion::fromEulerAngles(0,0,0); // identity
+                        if (group.attitudeMode == "Quaternion") {
+                            // fetch latest quaternion samples (assume registry provides latest value at index 0)
+                            double qx=0,qy=0,qz=0,qw=1; bool ok=false;
+                            const auto s_qx = registry_->getSamples(group.qxSignal);
+                            const auto s_qy = registry_->getSamples(group.qySignal);
+                            const auto s_qz = registry_->getSamples(group.qzSignal);
+                            const auto s_qw = registry_->getSamples(group.qwSignal);
+                            if (!s_qx.isEmpty() && !s_qy.isEmpty() && !s_qz.isEmpty() && !s_qw.isEmpty()) {
+                                qx = s_qx.last().value; qy = s_qy.last().value; qz = s_qz.last().value; qw = s_qw.last().value; ok=true;
+                            }
+                            if (ok) orient = QQuaternion(float(qw), float(qx), float(qy), float(qz));
+                        } else if (group.attitudeMode == "Euler") {
+                            double roll=0,pitch=0,yaw=0; bool ok=false;
+                            const auto s_r = registry_->getSamples(group.rollSignal);
+                            const auto s_p = registry_->getSamples(group.pitchSignal);
+                            const auto s_y = registry_->getSamples(group.yawSignal);
+                            if (!s_r.isEmpty() && !s_p.isEmpty() && !s_y.isEmpty()) {
+                                roll = s_r.last().value; pitch = s_p.last().value; yaw = s_y.last().value; ok=true;
+                            }
+                            if (ok) orient = QQuaternion::fromEulerAngles(float(roll), float(pitch), float(yaw));
+                        }
+                        drawAxesHead(p, screenPts.last(), orient, group.headPointSize);
+                    } else {
+                        drawMarker(p, screenPts.last(), group.headPointStyle, group.headPointSize, headCol);
+                    }
                 }
 
                 // Label at last point
@@ -1534,7 +1611,152 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     drawAxisTicks(minY, maxY, anchor, p0, py, "Y", tickCountY_, sciY_);
     drawAxisTicks(minZ, maxZ, anchor, p0, pz, "Z", tickCountZ_, sciZ_);
 
+    // Draw small inertial axes frame in the bottom right corner if enabled
+    if (showCornerAxes_)
+        drawCornerAxes(p, rect);
+    // Draw a small world-origin axes frame if enabled (drawn in scene space so it appears at projected origin)
+    if (showCenterAxes_)
+        drawCenterAxes(p, rect);
     // Camera overlay removed: camera rotation/distance are now shown in the 3D Camera settings panel
+}
+
+// Draws a small right-handed XYZ axes frame in the bottom right corner (screen space, not affected by camera)
+void PlotCanvas::drawCornerAxes(QPainter& p, const QRect& rect) const {
+    // Size and placement: place origin inset from bottom-right corner
+    const int margin = 40;
+    const int shortSide = qMin(rect.width(), rect.height());
+    // Desired on-screen length for corner axes: a bit smaller than center axes
+    const double desiredPx = qBound(16.0, double(shortSide) * 0.08, 120.0);
+    // Compute arrow/head size and add extra bottom inset so heads don't overlap the plot border
+    const double arrowHead = qMax(6.0, desiredPx * 0.22);
+    QPoint origin(rect.right() - margin - int(desiredPx), rect.bottom() - margin - int(arrowHead * 1.2));
+
+    // Axes directions in 3D (unit vectors)
+    QVector3D xAxis(1, 0, 0);
+    QVector3D yAxis(0, 1, 0);
+    QVector3D zAxis(0, 0, 1);
+    // Rotate by camera orientation (so axes match main view)
+    QVector3D xRot = cameraOrientation_.rotatedVector(xAxis);
+    QVector3D yRot = cameraOrientation_.rotatedVector(yAxis);
+    QVector3D zRot = cameraOrientation_.rotatedVector(zAxis);
+    // Project to 2D using desiredPx as scale so axes have consistent on-screen length
+    auto project = [&](const QVector3D& v) -> QPoint {
+        return QPoint(int(v.x() * desiredPx), int(-v.y() * desiredPx));
+    };
+    QPoint xEnd = origin + project(xRot);
+    QPoint yEnd = origin + project(yRot);
+    QPoint zEnd = origin + project(zRot);
+
+    // Draw lines
+    QPen pen;
+    pen.setWidth(2);
+    // X axis (red)
+    pen.setColor(Qt::red);
+    p.setPen(pen);
+    p.drawLine(origin, xEnd);
+    // Y axis (green)
+    pen.setColor(Qt::green);
+    p.setPen(pen);
+    p.drawLine(origin, yEnd);
+    // Z axis (blue)
+    pen.setColor(Qt::blue);
+    p.setPen(pen);
+    p.drawLine(origin, zEnd);
+
+    // Arrowhead: draw filled triangular heads with size proportional to desiredPx
+    auto drawArrowHead = [&](const QPointF& tip, const QPointF& from, const QColor& col){
+        QLineF ln(from, tip);
+        double angle = ln.angle();
+        double headLen = arrowHead;
+        QPointF h1 = tip + QPointF(-headLen * std::cos((angle-25.0) * M_PI/180.0), headLen * std::sin((angle-25.0) * M_PI/180.0));
+        QPointF h2 = tip + QPointF(-headLen * std::cos((angle+25.0) * M_PI/180.0), headLen * std::sin((angle+25.0) * M_PI/180.0));
+        QPolygonF poly; poly << tip << h1 << h2;
+        p.save(); p.setBrush(col); p.setPen(Qt::NoPen); p.drawPolygon(poly); p.restore();
+    };
+    drawArrowHead(xEnd, origin, Qt::red);
+    drawArrowHead(yEnd, origin, Qt::green);
+    drawArrowHead(zEnd, origin, Qt::blue);
+
+    // Axis labels (offset from arrow tips)
+    QFont font = p.font(); font.setBold(true); p.setFont(font);
+    p.setPen(Qt::red);   p.drawText(xEnd + QPoint(4, 0), "X");
+    p.setPen(Qt::green); p.drawText(yEnd + QPoint(-10, -4), "Y");
+    p.setPen(Qt::blue);  p.drawText(zEnd + QPoint(6, -6), "Z");
+}
+
+// Draws a small right-handed XYZ axes frame at the world origin (0,0,0) projected into screen space
+void PlotCanvas::drawCenterAxes(QPainter& p, const QRect& rect) const {
+    // Project world origin using the same projection helper in render3D
+    // We'll recreate the minimal projection logic here (normalized by current min/max ranges)
+    // Determine center and scale matching render3D
+    const float centerX = rect.width() / 2.0f;
+    const float centerY = rect.height() / 2.0f;
+    const float scale = qMin(rect.width(), rect.height()) / 10.0f;
+
+    // Helper to normalize and project a world-space point into screen
+    auto projectWorldLocal = [&](const QVector3D& v)->QPointF{
+        auto normv_local = [](double val, double lo, double hi){ if (hi - lo <= 0.0) return 0.0; return 2.0 * ( (val - lo) / (hi - lo) ) - 1.0; };
+        QVector3D npt(normv_local(v.x(), renderMinX_, renderMaxX_), normv_local(v.y(), renderMinY_, renderMaxY_), normv_local(v.z(), renderMinZ_, renderMaxZ_));
+        QVector3D r = cameraOrientation_.rotatedVector(npt);
+        float sx = centerX + r.x() * scale / cameraDistance_;
+        float sy = centerY - r.y() * scale / cameraDistance_;
+        return QPointF(sx, sy);
+    };
+
+    QVector3D worldOrigin(0.0f, 0.0f, 0.0f);
+
+    // Compute normalized origin and its rotated vector
+    auto normv_local = [](double val, double lo, double hi){ if (hi - lo <= 0.0) return 0.0; return 2.0 * ( (val - lo) / (hi - lo) ) - 1.0; };
+    QVector3D nOrigin(normv_local(0.0, renderMinX_, renderMaxX_), normv_local(0.0, renderMinY_, renderMaxY_), normv_local(0.0, renderMinZ_, renderMaxZ_));
+    QVector3D rOrigin = cameraOrientation_.rotatedVector(nOrigin);
+    QPointF pOrig(centerX + rOrigin.x() * scale / cameraDistance_, centerY - rOrigin.y() * scale / cameraDistance_);
+
+    // Desired on-screen pixel length for axes (fraction of canvas short side). Clamp to reasonable range.
+    const double desiredPx = qBound(24.0, double(qMin(rect.width(), rect.height())) * 0.12, 180.0);
+    // delta in normalized rotated space that will project to desiredPx: deltaNorm * (scale/cameraDistance_) == desiredPx
+    const double deltaNorm = desiredPx * cameraDistance_ / scale;
+
+    // Rotated unit axes in normalized space
+    QVector3D dirX = cameraOrientation_.rotatedVector(QVector3D(1.0f, 0.0f, 0.0f));
+    QVector3D dirY = cameraOrientation_.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f));
+    QVector3D dirZ = cameraOrientation_.rotatedVector(QVector3D(0.0f, 0.0f, 1.0f));
+
+    QVector3D rTipX = rOrigin + dirX * float(deltaNorm);
+    QVector3D rTipY = rOrigin + dirY * float(deltaNorm);
+    QVector3D rTipZ = rOrigin + dirZ * float(deltaNorm);
+
+    QPointF px(centerX + rTipX.x() * scale / cameraDistance_, centerY - rTipX.y() * scale / cameraDistance_);
+    QPointF py(centerX + rTipY.x() * scale / cameraDistance_, centerY - rTipY.y() * scale / cameraDistance_);
+    QPointF pz(centerX + rTipZ.x() * scale / cameraDistance_, centerY - rTipZ.y() * scale / cameraDistance_);
+
+    // Draw lines with slimmer pen so they don't dominate
+    QPen pen;
+    pen.setWidth(2);
+    pen.setColor(Qt::red);
+    p.setPen(pen);
+    p.drawLine(pOrig, px);
+    pen.setColor(Qt::green); p.setPen(pen); p.drawLine(pOrig, py);
+    pen.setColor(Qt::blue); p.setPen(pen); p.drawLine(pOrig, pz);
+
+    // Arrowheads: draw small triangles at tips
+    auto drawArrowHead = [&](const QPointF& tip, const QPointF& from, const QColor& col){
+        QLineF ln(from, tip);
+        double angle = ln.angle();
+        double headLen = 8.0;
+        QPointF h1 = tip + QPointF(-headLen * std::cos((angle-20.0) * M_PI/180.0), headLen * std::sin((angle-20.0) * M_PI/180.0));
+        QPointF h2 = tip + QPointF(-headLen * std::cos((angle+20.0) * M_PI/180.0), headLen * std::sin((angle+20.0) * M_PI/180.0));
+        QPolygonF poly; poly << tip << h1 << h2;
+        p.setBrush(col); p.setPen(Qt::NoPen); p.drawPolygon(poly);
+    };
+    drawArrowHead(px, pOrig, Qt::red);
+    drawArrowHead(py, pOrig, Qt::green);
+    drawArrowHead(pz, pOrig, Qt::blue);
+
+    // Labels near tips
+    QFont font = p.font(); font.setBold(true); p.setFont(font);
+    p.setPen(Qt::red); p.drawText(px + QPointF(4, 0), "X");
+    p.setPen(Qt::green); p.drawText(py + QPointF(-10, -4), "Y");
+    p.setPen(Qt::blue); p.drawText(pz + QPointF(6, -6), "Z");
 }
 
 bool PlotCanvas::transformValue(const QString& id, double x, double& yOut) const {

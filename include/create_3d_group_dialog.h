@@ -17,6 +17,16 @@ public:
     QString getXSignal() const;
     QString getYSignal() const;
     QString getZSignal() const;
+    QString getAttitudeMode() const;
+    // Euler
+    QString getRollSignal() const;
+    QString getPitchSignal() const;
+    QString getYawSignal() const;
+    // Quaternion
+    QString getQxSignal() const;
+    QString getQySignal() const;
+    QString getQzSignal() const;
+    QString getQwSignal() const;
     void setGroupName(const QString& name);
 
 private slots:

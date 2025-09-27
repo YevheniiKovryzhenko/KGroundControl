@@ -70,6 +70,88 @@
      <item row="3" column="1">
       <widget class="QComboBox" name="cmbZSignal"/>
      </item>
+    <item row="4" column="0">
+     <widget class="QLabel" name="label_attitude">
+      <property name="text">
+       <string>Attitude:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="1">
+     <widget class="QComboBox" name="cmbAttitude"/>
+    </item>
+    <!-- Euler selectors -->
+    <item row="5" column="0">
+     <widget class="QLabel" name="label_roll">
+      <property name="text">
+       <string>Roll Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="1">
+     <widget class="QComboBox" name="cmbRollSignal"/>
+    </item>
+    <item row="6" column="0">
+     <widget class="QLabel" name="label_pitch">
+      <property name="text">
+       <string>Pitch Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="1">
+     <widget class="QComboBox" name="cmbPitchSignal"/>
+    </item>
+    <item row="7" column="0">
+     <widget class="QLabel" name="label_yaw">
+      <property name="text">
+       <string>Yaw Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="1">
+     <widget class="QComboBox" name="cmbYawSignal"/>
+    </item>
+    <!-- Quaternion selectors -->
+    <item row="8" column="0">
+     <widget class="QLabel" name="label_qx">
+      <property name="text">
+       <string>Qx Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="8" column="1">
+     <widget class="QComboBox" name="cmbQxSignal"/>
+    </item>
+    <item row="9" column="0">
+     <widget class="QLabel" name="label_qy">
+      <property name="text">
+       <string>Qy Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="9" column="1">
+     <widget class="QComboBox" name="cmbQySignal"/>
+    </item>
+    <item row="10" column="0">
+     <widget class="QLabel" name="label_qz">
+      <property name="text">
+       <string>Qz Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="10" column="1">
+     <widget class="QComboBox" name="cmbQzSignal"/>
+    </item>
+    <item row="11" column="0">
+     <widget class="QLabel" name="label_qw">
+      <property name="text">
+       <string>Qw Signal:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="11" column="1">
+     <widget class="QComboBox" name="cmbQwSignal"/>
+    </item>
     </layout>
    </item>
    <item>
