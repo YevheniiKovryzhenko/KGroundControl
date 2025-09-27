@@ -8,7 +8,10 @@
 #include <QDateTime>
 #include <QMouseEvent>
 #include <QVector3D>
+#include <QQuaternion>
+#include <QPainterPath>
 #include <cmath>
+#include <algorithm>
 // quiet build: avoid noisy debug prints in release UI
 
 PlotCanvas::PlotCanvas(QWidget* parent) : QWidget(parent) {
@@ -36,6 +39,21 @@ PlotCanvas::PlotCanvas(QWidget* parent) : QWidget(parent) {
     resetCamera();
 }
 
+// Arcball setters
+void PlotCanvas::setShowArcball(bool show) {
+    showArcball_ = show;
+    update();
+}
+
+void PlotCanvas::setArcballRadius(double frac) {
+    // store normalized fraction clamped to reasonable range
+    arcballRadius_ = std::clamp(frac, 0.05, 1.0);
+}
+
+void PlotCanvas::setArcballSensitivity(double s) {
+    arcballSensitivity_ = std::max(0.01, s);
+}
+
 PlotCanvas::~PlotCanvas() = default;
 
 void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
@@ -43,17 +61,15 @@ void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
     if (registry_) {
         // Only repaint on data for signals that are currently enabled (visible)
         connect(registry_, &PlotSignalRegistry::samplesAppended, this, [this](const QString& id){
-            if (!dataDrivenRepaint_) {
-                // If we are in 3D mode, still respond to data events so groups animate
-                if (mode_ != Mode3D) return;
-            }
+            // If data-driven repaints are disabled, ignore sample events; the force timer drives repaints
+            if (!dataDrivenRepaint_) return;
             if (mode_ == Mode3D) {
-                // Only force immediate update if there is at least one enabled 3D group
+                // Only request a repaint if there is at least one enabled 3D group
                 bool anyGroupEnabled = false;
                 for (const auto& g : groups3D_) { if (g.enabled) { anyGroupEnabled = true; break; } }
                 if (anyGroupEnabled) {
-                    // Bypass throttle for 3D so groups appear responsive; rely on UI to control force-update if needed
-                    update();
+                    // Use requestRepaint so pause and max-rate throttling are respected
+                    requestRepaint();
                 }
                 return;
             }
@@ -68,6 +84,30 @@ void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
 void PlotCanvas::setEnabledSignals(const QVector<QString>& ids) {
     enabledIds_ = ids;
     update();
+}
+
+void PlotCanvas::setCameraRotationX(float degrees) {
+    cameraRotationX_ = degrees;
+    // Clamp to valid range
+    cameraRotationX_ = qBound(-180.0f, cameraRotationX_, 180.0f);
+    // update quaternion to match new euler listing (X then Y)
+    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    update();
+    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+}
+
+void PlotCanvas::setCameraRotationY(float degrees) {
+    cameraRotationY_ = degrees;
+    cameraRotationY_ = qBound(-180.0f, cameraRotationY_, 180.0f);
+    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    update();
+    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+}
+
+void PlotCanvas::setCameraDistance(float distance) {
+    cameraDistance_ = qMax(0.1f, distance);
+    update();
+    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
 }
 
 void PlotCanvas::setTimeWindowSec(double seconds) {
@@ -148,10 +188,99 @@ void PlotCanvas::setPaused(bool paused) {
 }
 
 void PlotCanvas::resetCamera() {
-    cameraDistance_ = 5.0f;
+    // Reset rotations to sensible defaults and auto-range distance to fit data
     cameraRotationX_ = 30.0f;
     cameraRotationY_ = 45.0f;
+    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    // If data exists, compute distance to fit it; otherwise fall back to default
+    if (!autoRangeCamera()) {
+        cameraDistance_ = 5.0f;
+    }
     update();
+    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+}
+
+bool PlotCanvas::autoRangeCamera() {
+    if (!registry_ || groups3D_.isEmpty()) return false;
+
+    // Collect per-dimension data min/max across enabled groups (reuse render3D logic)
+    double minX = std::numeric_limits<double>::infinity(), maxX = -std::numeric_limits<double>::infinity();
+    double minY = std::numeric_limits<double>::infinity(), maxY = -std::numeric_limits<double>::infinity();
+    double minZ = std::numeric_limits<double>::infinity(), maxZ = -std::numeric_limits<double>::infinity();
+    bool anyData = false;
+    for (const auto& group : groups3D_) {
+        if (!group.enabled) continue;
+        for (int idx = 0; idx < group.signalIds.size(); ++idx) {
+            const QString& signalId = group.signalIds.at(idx);
+            const auto samples = registry_->getSamples(signalId);
+            if (samples.isEmpty()) continue;
+            anyData = true;
+            double localMin = std::numeric_limits<double>::infinity();
+            double localMax = -std::numeric_limits<double>::infinity();
+            for (const auto& s : samples) { localMin = qMin(localMin, s.value); localMax = qMax(localMax, s.value); }
+            if (idx == 0) { minX = qMin(minX, localMin); maxX = qMax(maxX, localMax); }
+            else if (idx == 1) { minY = qMin(minY, localMin); maxY = qMax(maxY, localMax); }
+            else if (idx == 2) { minZ = qMin(minZ, localMin); maxZ = qMax(maxZ, localMax); }
+        }
+    }
+    if (!anyData) return false;
+
+    auto ensureRange = [](double& lo, double& hi){
+        if (!qIsFinite(lo) || !qIsFinite(hi)) { lo = -1.0; hi = 1.0; return; }
+        if (qFuzzyCompare(lo, hi) || lo > hi) {
+            double v = (qIsFinite(lo) && qIsFinite(hi) && qFuzzyCompare(lo, hi)) ? lo : 0.0;
+            if (!qIsFinite(v)) v = 0.0;
+            double delta = qMax(1e-3, qAbs(v) * 0.1);
+            lo = v - delta; hi = v + delta;
+        }
+    };
+    ensureRange(minX, maxX); ensureRange(minY, maxY); ensureRange(minZ, maxZ);
+
+    // Build normalized [-1,1] corners of the data bbox
+    auto normv = [](double v, double lo, double hi){ if (hi - lo <= 0) return 0.0; return 2.0 * ( (v - lo) / (hi - lo) ) - 1.0; };
+    QVector<QVector3D> corners;
+    corners.reserve(8);
+    for (int xi = 0; xi < 2; ++xi) for (int yi = 0; yi < 2; ++yi) for (int zi = 0; zi < 2; ++zi) {
+        double xv = xi ? maxX : minX;
+        double yv = yi ? maxY : minY;
+        double zv = zi ? maxZ : minZ;
+        double nx = normv(xv, minX, maxX);
+        double ny = normv(yv, minY, maxY);
+        double nz = normv(zv, minZ, maxZ);
+        corners.append(QVector3D(float(nx), float(ny), float(nz)));
+    }
+
+    // Rotate corners by current camera orientation and compute max projected extent
+    float maxAbs = 0.0f;
+    for (const auto& c : corners) {
+        QVector3D r = cameraOrientation_.rotatedVector(c);
+        maxAbs = qMax(maxAbs, qMax(qAbs(r.x()), qAbs(r.y())));
+    }
+
+    // Widget geometry and scale must match render3D's assumptions
+    const QRect rect = this->rect();
+    const float w = float(rect.width());
+    const float h = float(rect.height());
+    const float scale = qMin(w, h) / 10.0f;
+    const float margin = 20.0f; // pixels margin around edges
+    const float visHalf = qMax(10.0f, qMin(w, h) * 0.5f - margin);
+
+    if (maxAbs <= 1e-6f) {
+        // Degenerate: all points collapse to a single spot; pick a reasonable distance
+        cameraDistance_ = 5.0f;
+        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+        update();
+        return true;
+    }
+
+    // Calculate required cameraDistance so that maxAbs * scale / cameraDistance <= visHalf
+    float desired = (maxAbs * scale) / visHalf;
+    // Ensure reasonable bounds
+    desired = qBound(0.05f, desired, 1e6f);
+    cameraDistance_ = desired;
+    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+    update();
+    return true;
 }
 
 QColor PlotCanvas::pickColorFor(const QString& id) const {
@@ -203,6 +332,7 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
         if (!anyGroupEnabled) return;
 
         // 3D mode - render groups as 3D points
+        // Always render the 3D scene even when paused so the last frame remains visible
         render3D(p, rect());
         return;
     }
@@ -658,6 +788,33 @@ void PlotCanvas::mousePressEvent(QMouseEvent* ev) {
         if (ev->button() == Qt::LeftButton) {
             mousePressed_ = true;
             lastMousePos_ = ev->pos();
+            // start fade-in for arcball visualization
+            arcFadeDirection_ = 1;
+            arcFadeStartMs_ = monotonic_.elapsed();
+            arcFadeProgress_ = 0.0;
+            // initialize arcball sample vectors from the click position so the active sector
+            // immediately matches the click even if the user doesn't move the mouse.
+            {
+                const float w = float(width());
+                const float h = float(height());
+                const float cx = w * 0.5f;
+                const float cy = h * 0.5f;
+                const float baseR = qMin(w, h) * 0.5f;
+                const float r = float(std::clamp(arcballRadius_, 0.05, 1.0) * baseR);
+                auto mapToSphere = [&](const QPoint& p)->QVector3D{
+                    float x = (p.x() - cx) / r;
+                    float y = (cy - p.y()) / r; // invert y so up is positive
+                    float len2 = x*x + y*y;
+                    if (len2 <= 1.0f) {
+                        return QVector3D(x, y, std::sqrt(1.0f - len2));
+                    }
+                    float invLen = 1.0f / std::sqrt(len2);
+                    return QVector3D(x * invLen, y * invLen, 0.0f);
+                };
+                lastArc_v0_ = mapToSphere(lastMousePos_);
+                lastArc_v1_ = lastArc_v0_;
+            }
+            update();
             ev->accept();
             return;
         }
@@ -679,19 +836,65 @@ void PlotCanvas::mousePressEvent(QMouseEvent* ev) {
 
 void PlotCanvas::mouseMoveEvent(QMouseEvent* ev) {
     if (mode_ == Mode3D && mousePressed_) {
-        // Handle 3D camera rotation
-        QPoint delta = ev->pos() - lastMousePos_;
-        lastMousePos_ = ev->pos();
+            // Handle 3D camera rotation using an arcball (virtual sphere) mapping.
+            // Map previous and current mouse positions to points on a sphere centered at the widget center.
+            QPoint prevPos = lastMousePos_;
+            QPoint curPos = ev->pos();
+            lastMousePos_ = curPos;
 
-        // Rotate camera based on mouse movement
-        float sensitivity = 0.5f;
-        cameraRotationY_ += delta.x() * sensitivity;
-        cameraRotationX_ += delta.y() * sensitivity;
+            const float w = float(width());
+            const float h = float(height());
+            const float cx = w * 0.5f;
+            const float cy = h * 0.5f;
+            // base radius scaled by user-provided fraction (0..1)
+            const float baseR = qMin(w, h) * 0.5f;
+            const float r = float(std::clamp(arcballRadius_, 0.05, 1.0) * baseR);
 
-        // Clamp X rotation to avoid gimbal lock
-        cameraRotationX_ = qBound(-90.0f, cameraRotationX_, 90.0f);
+            auto mapToSphere = [&](const QPoint& p)->QVector3D{
+                float x = (p.x() - cx) / r;
+                float y = (cy - p.y()) / r; // invert y so up is positive
+                float len2 = x*x + y*y;
+                if (len2 <= 1.0f) {
+                    return QVector3D(x, y, std::sqrt(1.0f - len2));
+                }
+                float invLen = 1.0f / std::sqrt(len2);
+                return QVector3D(x * invLen, y * invLen, 0.0f);
+            };
+
+            QVector3D v0 = mapToSphere(prevPos);
+            QVector3D v1 = mapToSphere(curPos);
+            // remember for visualization while dragging
+            lastArc_v0_ = v0;
+            lastArc_v1_ = v1;
+
+            QVector3D axis_view = QVector3D::crossProduct(v0, v1);
+            float axisLen = axis_view.length();
+            float dot = QVector3D::dotProduct(v0, v1);
+            dot = qBound(-1.0f, dot, 1.0f);
+            if (axisLen > 1e-8f) {
+                // angle between v0 and v1
+                float angleRad = std::atan2(axisLen, dot);
+                float angleDeg = angleRad * 180.0f / float(M_PI);
+                // apply sensitivity multiplier
+                angleDeg *= float(arcballSensitivity_);
+
+                // Convert axis from view space to world space (rotate by inverse camera orientation)
+                QQuaternion inv = cameraOrientation_.inverted();
+                QVector3D axis_world = inv.rotatedVector(axis_view.normalized()).normalized();
+
+                // Create quaternion delta in world-space and apply to camera orientation
+                QQuaternion qDelta = QQuaternion::fromAxisAndAngle(axis_world, angleDeg);
+                cameraOrientation_ = cameraOrientation_ * qDelta;
+                cameraOrientation_.normalize();
+
+                // Update Euler approximation for UI
+                QVector3D e = cameraOrientation_.toEulerAngles();
+                cameraRotationX_ = e.x();
+                cameraRotationY_ = e.y();
+        }
 
         update();
+        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
         ev->accept();
         return;
     } else if (mode_ == Mode2D && draggingLegend_) {
@@ -708,6 +911,12 @@ void PlotCanvas::mouseMoveEvent(QMouseEvent* ev) {
 void PlotCanvas::mouseReleaseEvent(QMouseEvent* ev) {
     if (mode_ == Mode3D && ev->button() == Qt::LeftButton) {
         mousePressed_ = false;
+        // start fade-out for arcball visualization
+        arcFadeDirection_ = -1;
+        arcFadeStartMs_ = monotonic_.elapsed();
+        // leave lastArc_v0_/v1_ so the release arc can be shown during fade-out
+        update();
+        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
         ev->accept();
         return;
     } else if (mode_ == Mode2D && draggingLegend_) {
@@ -716,6 +925,25 @@ void PlotCanvas::mouseReleaseEvent(QMouseEvent* ev) {
         return;
     }
     QWidget::mouseReleaseEvent(ev);
+}
+
+void PlotCanvas::wheelEvent(QWheelEvent* ev) {
+    // Only zoom when in 3D mode and mouse is over the canvas
+    if (mode_ == Mode3D) {
+        // Typical wheel delta is in steps of 120 per notch; use delta to compute a smooth scale
+        const QPoint angleDelta = ev->angleDelta();
+        int dy = angleDelta.y();
+        if (dy == 0) return QWidget::wheelEvent(ev);
+        // Compute zoom factor: each notch (120) scales by ~1.1
+        double notches = double(dy) / 120.0;
+        double factor = pow(1.1, -notches); // negative so wheel forward zooms in
+        float newDist = cameraDistance_ * float(factor);
+        // Clamp and apply
+        setCameraDistance(newDist);
+        ev->accept();
+        return;
+    }
+    QWidget::wheelEvent(ev);
 }
 
 QString PlotCanvas::formatNumber(double v, int maxPrec) const {
@@ -773,11 +1001,10 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     const float centerY = rect.height() / 2.0f;
     const float scale = qMin(rect.width(), rect.height()) / 10.0f; // Scale to fit in view
 
-    // Simple rotation matrices
-    const float radX = cameraRotationX_ * M_PI / 180.0f;
-    const float radY = cameraRotationY_ * M_PI / 180.0f;
-    const float cosX = cos(radX), sinX = sin(radX);
-    const float cosY = cos(radY), sinY = sin(radY);
+    // Use quaternion orientation for rotation to avoid gimbal lock
+    // Ensure cameraOrientation_ is up-to-date with Euler angles if it was never set
+    // (cameraRotationX_/Y_ kept for backward compatibility)
+    if (cameraOrientation_.isIdentity()) cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
 
     // Collect samples for each signal and compute per-dimension min/max across recent samples
     QHash<QString, double> latestValues;
@@ -817,6 +1044,45 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         }
     };
     ensureRange(minX, maxX); ensureRange(minY, maxY); ensureRange(minZ, maxZ);
+    // Apply autoscale settings: respect stored axis ranges when autoscale disabled; when enabled
+    // update stored ranges taking into account expand/shrink flags (behaviour mirrors 2D path).
+    // Use temporary variables to decide the ranges used for normalization below.
+    double dataMinX = minX, dataMaxX = maxX;
+    double dataMinY = minY, dataMaxY = maxY;
+    double dataMinZ = minZ, dataMaxZ = maxZ;
+    // If autoscale is disabled for an axis, use the user-specified stored range (xMin_/xMax_ etc.)
+    // If enabled, merge stored with data according to expand/shrink flags similar to 2D.
+    auto computeUsedRange = [&](double storedLo, double storedHi, double dataLo, double dataHi, bool autoExpand, bool autoShrink){
+        double lo = storedLo, hi = storedHi;
+        if (autoExpand || autoShrink) {
+            // Start from stored baseline
+            lo = storedLo; hi = storedHi;
+            if (autoExpand) {
+                lo = qMin(storedLo, dataLo);
+                hi = qMax(storedHi, dataHi);
+            }
+            if (autoShrink) {
+                lo = qMax(lo, dataLo);
+                hi = qMin(hi, dataHi);
+            }
+            // Ensure sensible range
+            if (!qIsFinite(lo) || !qIsFinite(hi) || lo >= hi) { lo = dataLo; hi = dataHi; }
+        } else {
+            // Manual range: prefer stored values; fall back to data if stored is degenerate
+            if (!qIsFinite(storedLo) || !qIsFinite(storedHi) || storedLo >= storedHi) { lo = dataLo; hi = dataHi; }
+            else { lo = storedLo; hi = storedHi; }
+        }
+        // Final ensure
+        if (!qIsFinite(lo) || !qIsFinite(hi) || lo >= hi) { lo = dataLo; hi = dataHi; }
+        return std::pair<double,double>(lo, hi);
+    };
+
+    auto xr = computeUsedRange(xMin_, xMax_, dataMinX, dataMaxX, xAutoExpand_, xAutoShrink_);
+    auto yr = computeUsedRange(yMin_, yMax_, dataMinY, dataMaxY, yAutoExpand_, yAutoShrink_);
+    auto zr = computeUsedRange(zMin_, zMax_, dataMinZ, dataMaxZ, zAutoExpand_, zAutoShrink_);
+    minX = xr.first; maxX = xr.second;
+    minY = yr.first; maxY = yr.second;
+    minZ = zr.first; maxZ = zr.second;
     // Render each group with time-history trails aligned by exact timestamps present in all signals
     for (const auto& group : groups3D_) {
         if (!group.enabled || group.signalIds.isEmpty()) continue;
@@ -892,14 +1158,8 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         QVector<QPointF> screenPts; screenPts.reserve(pts.size());
         for (const auto& v : pts) {
             QVector3D npt(normv(v.x(), gminX, gmaxX), normv(v.y(), gminY, gmaxY), normv(v.z(), gminZ, gmaxZ));
-            // rotate
-            QVector3D r = npt;
-            float tY = r.y() * cosX - r.z() * sinX;
-            float tZ = r.y() * sinX + r.z() * cosX;
-            r.setY(tY); r.setZ(tZ);
-            float tX = r.x() * cosY + r.z() * sinY;
-            tZ = -r.x() * sinY + r.z() * cosY;
-            r.setX(tX); r.setZ(tZ);
+            // rotate using quaternion
+            QVector3D r = cameraOrientation_.rotatedVector(npt);
             float sx = centerX + r.x() * scale / cameraDistance_;
             float sy = centerY - r.y() * scale / cameraDistance_;
             screenPts.append(QPointF(sx, sy));
@@ -931,13 +1191,15 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         // Draw fading polyline: older samples lighter (lower alpha)
         const int M = screenPts.size();
         // Respect group-level tailEnabled and tailTimeSpanSec: if tail disabled, only show head
-        if (!group.tailEnabled) {
+            if (!group.tailEnabled) {
             // Show only the latest point (head)
             const QPointF& c = screenPts.last();
             QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
             drawMarker(p, c, group.headPointStyle, group.headPointSize, headCol);
-            p.setPen(QPen(Qt::white));
-            p.drawText(c + QPointF(8, -8), group.name);
+                if (show3DGroupNames_) {
+                    p.setPen(QPen(Qt::white));
+                    p.drawText(c + QPointF(8, -8), group.name);
+                }
         } else {
             // Optionally filter points by tailTimeSpanSec (only keep those within last T seconds)
             if (group.tailTimeSpanSec > 0.0) {
@@ -962,58 +1224,317 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                 QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
                 drawMarker(p, screenPts.first(), group.headPointStyle, group.headPointSize, headCol);
             } else {
-                for (int i = 0; i < NM-1; ++i) {
-                    double alphaFrac = double(i) / double(qMax(1, NM-1)); // 0..1 older->newer
-                    int alpha = int(80 + alphaFrac * 175); // range [80,255]
-                    QColor col = group.tailLineColor.isValid() ? group.tailLineColor : group.color; col.setAlpha(alpha);
-                    int lw = qMax(1, group.tailLineWidth);
-                    p.setPen(QPen(col, lw));
-                    p.drawLine(screenPts[i], screenPts[i+1]);
+                // If configured as scatter-only tail, draw only markers for points and highlight last as head
+                // Determine whether to show points/lines based on style selections.
+                const bool showPoints = (group.tailPointStyle != "None");
+                const bool showLines = (group.tailLineStyle != "None");
+
+                // Points will be drawn once below (after lines if present), so avoid double-drawing here.
+                // If lines requested, draw fading polyline using group's line style and dash pattern
+                if (showLines) {
+                    for (int i = 0; i < NM-1; ++i) {
+                        double alphaFrac = double(i) / double(qMax(1, NM-1)); // 0..1 older->newer
+                        int alpha = int(80 + alphaFrac * 175); // range [80,255]
+                        QColor col = group.tailLineColor.isValid() ? group.tailLineColor : group.color; col.setAlpha(alpha);
+                        int lw = qMax(1, group.tailLineWidth);
+                        QPen pen(col, lw);
+                        // handle dash patterns
+                        if (group.tailLineStyle == "Solid") {
+                            pen.setStyle(Qt::SolidLine);
+                        } else if (group.tailLineStyle == "Dash") {
+                            pen.setStyle(Qt::CustomDashLine);
+                            pen.setDashPattern({double(group.tailDashLength), double(group.tailGapLength)});
+                        } else if (group.tailLineStyle == "Double Dash") {
+                            pen.setStyle(Qt::CustomDashLine);
+                            pen.setDashPattern({double(group.tailDashLength), double(group.tailGapLength), double(group.tailDashLength), double(group.tailGapLength)});
+                        } else if (group.tailLineStyle == "Dash-Dot") {
+                            pen.setStyle(Qt::CustomDashLine);
+                            pen.setDashPattern({double(group.tailDashLength), double(group.tailGapLength), 1.0, double(group.tailGapLength)});
+                        } else if (group.tailLineStyle == "Dash-Dot-Dot") {
+                            pen.setStyle(Qt::CustomDashLine);
+                            pen.setDashPattern({double(group.tailDashLength), double(group.tailGapLength), 1.0, double(group.tailGapLength), 1.0, double(group.tailGapLength)});
+                        } else {
+                            pen.setStyle(Qt::SolidLine);
+                        }
+                        p.setPen(pen);
+                        p.drawLine(screenPts[i], screenPts[i+1]);
+                    }
                 }
-                // Draw markers for each point (small) and highlight last
-                for (int i = 0; i < NM; ++i) {
-                    if (i == NM-1) {
-                        // Head marker: respect headColor and head style/size
-                        QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
-                        drawMarker(p, screenPts[i], group.headPointStyle, group.headPointSize, headCol);
-                    } else {
-                        // Tail markers: use tail point color (faded) and tail style/size
+
+                // Draw tail markers (excluding the head) only when tail point style is enabled
+                if (showPoints) {
+                    for (int i = 0; i < NM-1; ++i) {
                         int sz = group.tailPointSize;
                         QColor col = group.tailPointColor.isValid() ? group.tailPointColor : group.color; col.setAlpha(200);
                         drawMarker(p, screenPts[i], group.tailPointStyle, sz, col);
                     }
                 }
+
+                // Draw the head marker using the head-specific style/size unless head style is "None"
+                if (group.headPointStyle != "None") {
+                    QColor headCol = group.headColor.isValid() ? group.headColor : group.color;
+                    drawMarker(p, screenPts.last(), group.headPointStyle, group.headPointSize, headCol);
+                }
+
                 // Label at last point
-                p.setPen(QPen(Qt::white));
-                p.drawText(screenPts.last() + QPointF(8, -8), group.name);
+                if (show3DGroupNames_) {
+                    p.setPen(QPen(Qt::white));
+                    p.drawText(screenPts.last() + QPointF(8, -8), group.name);
+                }
             }
         }
     }
 
-    // Draw simple axes with tick marks and labels
-    p.setPen(QPen(Qt::gray, 1, Qt::DashLine));
-    const int axisLen = int(scale * 1.5);
-    p.drawLine(centerX - axisLen, centerY, centerX + axisLen, centerY); // X axis
-    p.drawLine(centerX, centerY - axisLen, centerX, centerY + axisLen); // Y axis
-    // ticks and simple numeric labels for -1,0,1 normalized space
-    p.setPen(QPen(Qt::lightGray));
-    for (int i = -1; i <= 1; ++i) {
-        int x = centerX + int(i * axisLen);
-        p.drawLine(x, centerY-4, x, centerY+4);
-        p.drawText(x-10, centerY+18, QString::number(i));
-        int y = centerY - int(i * axisLen);
-        p.drawLine(centerX-4, y, centerX+4, y);
-        p.drawText(centerX+8, y+4, QString::number(i));
+    // Draw world-aligned inertial axes based on bounding box ranges (minX..maxX etc.).
+    // These axes are defined in world coordinates and their tick marks/labels are projected
+    // into screen space so they stay locked to the inertial frame while remaining readable.
+    auto projectWorld = [&](const QVector3D& v)->QPointF{
+        // Normalize into [-1,1] cube using global min/max (computed above)
+        auto normv_local = [](double val, double lo, double hi){ if (hi - lo <= 0.0) return 0.0; return 2.0 * ( (val - lo) / (hi - lo) ) - 1.0; };
+        QVector3D npt(normv_local(v.x(), minX, maxX), normv_local(v.y(), minY, maxY), normv_local(v.z(), minZ, maxZ));
+        // rotate using quaternion orientation
+        QVector3D r = cameraOrientation_.rotatedVector(npt);
+        float sx = centerX + r.x() * scale / cameraDistance_;
+        float sy = centerY - r.y() * scale / cameraDistance_;
+        return QPointF(sx, sy);
+    };
+
+    // Axis endpoints in world coordinates (origin at min corner)
+    QVector3D origin(minX, minY, minZ);
+    QVector3D xEnd(maxX, minY, minZ);
+    QVector3D yEnd(minX, maxY, minZ);
+    QVector3D zEnd(minX, minY, maxZ);
+
+    QPointF p0 = projectWorld(origin);
+    QPointF px = projectWorld(xEnd);
+    QPointF py = projectWorld(yEnd);
+    QPointF pz = projectWorld(zEnd);
+
+    // Optional: draw arcball visualization (circle) in the center of the canvas
+    // Arcball visualization: draw a projected wireframe sphere (sectors/bands) with fade
+    if (showArcball_) {
+        // update fade progress
+        if (arcFadeDirection_ != 0) {
+            qint64 now = monotonic_.elapsed();
+            qint64 dt = now - arcFadeStartMs_;
+            double t = double(dt) / double(qMax(1, arcFadeDurationMs_));
+            if (arcFadeDirection_ > 0) arcFadeProgress_ = qMin(1.0, t);
+            else arcFadeProgress_ = qMax(0.0, 1.0 - t);
+            if ((arcFadeDirection_ > 0 && arcFadeProgress_ >= 1.0) || (arcFadeDirection_ < 0 && arcFadeProgress_ <= 0.0)) {
+                // animation finished
+                arcFadeDirection_ = 0;
+            } else {
+                // keep animating
+                update();
+            }
+        }
+
+        if (arcFadeProgress_ > 1e-4) {
+            float visR = float(std::clamp(arcballRadius_, 0.05, 1.0) * qMin(rect.width(), rect.height()) * 0.5f);
+            QPointF center(centerX, centerY);
+            // Build sphere vertices in view-space and project through current camera orientation
+            const int nLong = arcSectorsLong_;
+            const int nLat = arcSectorsLat_;
+            QVector<QVector<QPointF>> projPts(nLat+1, QVector<QPointF>(nLong));
+            for (int lat = 0; lat <= nLat; ++lat) {
+                double v = double(lat) / double(nLat); // 0..1
+                double phi = (v - 0.5) * M_PI; // -pi/2 .. +pi/2
+                double cz = std::sin(phi);
+                double r0 = std::cos(phi);
+                for (int lon = 0; lon < nLong; ++lon) {
+                    double u = double(lon) / double(nLong);
+                    double theta = u * 2.0 * M_PI; // 0..2pi
+                    double x = r0 * std::cos(theta);
+                    double y = r0 * std::sin(theta);
+                    QVector3D worldPt(x, y, cz); // unit sphere in view space
+                    // rotate by camera orientation inverse so sphere aligns with view rotation
+                    QVector3D rotated = cameraOrientation_.rotatedVector(worldPt);
+                    // project: map rotated.x/y to screen using visR
+                    QPointF sp(centerX + rotated.x() * visR, centerY - rotated.y() * visR);
+                    projPts[lat][lon] = sp;
+                }
+            }
+
+            // determine active longitude/latitude sector from the actual last mouse
+            // screen position projected onto the same sphere (visR). This ensures the
+            // picked sector matches what's rendered on-screen.
+            int activeLon = -1;
+            int activeLat = -1;
+            if (!lastMousePos_.isNull()) {
+                // compute visR consistent with projection
+                float visR = float(std::clamp(arcballRadius_, 0.05, 1.0) * qMin(rect.width(), rect.height()) * 0.5f);
+                if (visR > 1e-6f) {
+                    float sx = float(lastMousePos_.x()) - centerX;
+                    float sy = float(centerY) - float(lastMousePos_.y());
+                    double nx = double(sx / visR);
+                    double ny = double(sy / visR);
+                    double len2 = nx*nx + ny*ny;
+                    double nz = 0.0;
+                    if (len2 <= 1.0) nz = std::sqrt(1.0 - len2);
+                    else {
+                        double inv = 1.0 / std::sqrt(len2);
+                        nx *= inv; ny *= inv; nz = 0.0;
+                    }
+                    // view-space vector (normalized) for clicked point
+                    QVector3D viewPt{float(nx), float(ny), float(nz)};
+                    // rotate into world-space by applying inverse camera orientation
+                    QVector3D worldPt = cameraOrientation_.inverted().rotatedVector(viewPt);
+                    double wx = worldPt.x();
+                    double wy = worldPt.y();
+                    double wz = worldPt.z();
+                    double horizLen = std::sqrt(wx*wx + wy*wy);
+                    if (horizLen > 1e-8) {
+                        double ang = std::atan2(wy, wx);
+                        if (ang < 0) ang += 2.0 * M_PI;
+                        activeLon = int(std::floor(ang / (2.0 * M_PI / nLong))) % nLong;
+                    }
+                    double phi = std::atan2(wz, horizLen);
+                    double latFrac = (phi + 0.5 * M_PI) / M_PI;
+                    int latIndex = int(std::floor(latFrac * double(nLat)));
+                    if (latIndex < 0) latIndex = 0;
+                    if (latIndex >= nLat) latIndex = nLat - 1;
+                    activeLat = latIndex;
+                }
+            }
+
+            // Draw wireframe: latitudinal and longitudinal lines
+            int baseAlpha = int(180 * arcFadeProgress_);
+            QPen wfPen(QColor(200,200,200, baseAlpha), 1);
+            p.setPen(wfPen);
+            // longitude lines
+            for (int lon = 0; lon < nLong; ++lon) {
+                QPainterPath path;
+                for (int lat = 0; lat <= nLat; ++lat) {
+                    QPointF pt = projPts[lat][lon % nLong];
+                    if (lat == 0) path.moveTo(pt); else path.lineTo(pt);
+                }
+                p.drawPath(path);
+            }
+            // latitude rings
+            for (int lat = 0; lat <= nLat; ++lat) {
+                QPainterPath path;
+                for (int lon = 0; lon <= nLong; ++lon) {
+                    QPointF pt = projPts[lat][lon % nLong];
+                    if (lon == 0) path.moveTo(pt); else path.lineTo(pt);
+                }
+                p.drawPath(path);
+            }
+
+            // Highlight active sector (intersection of longitude and latitude bands)
+            if (activeLon >= 0 && activeLat >= 0) {
+                QPen activePen(QColor(255,200,80, int(220 * arcFadeProgress_)), 2);
+                p.setPen(activePen);
+                int lon0 = activeLon;
+                int lon1 = (activeLon + 1) % nLong;
+                int lat0 = activeLat;
+                int lat1 = activeLat + 1; if (lat1 > nLat) lat1 = nLat;
+                // build quad path (lat0,lon0) -> (lat1,lon0) -> (lat1,lon1) -> (lat0,lon1)
+                QPainterPath perim;
+                perim.moveTo(projPts[lat0][lon0]);
+                perim.lineTo(projPts[lat1][lon0]);
+                perim.lineTo(projPts[lat1][lon1]);
+                perim.lineTo(projPts[lat0][lon1]);
+                perim.closeSubpath();
+                p.drawPath(perim);
+                // optionally fill with translucent color for clearer selection
+                QColor fillCol(255,200,80, int(80 * arcFadeProgress_));
+                p.fillPath(perim, fillCol);
+            }
+        }
     }
 
-    // Draw camera info
-    p.setPen(QPen(Qt::white));
-    // Use explicit number formatting to avoid mismatched QString::arg placeholders
-    QString info = QString("Camera: RotX=%1°, RotY=%2°, Dist=%3")
-                   .arg(QString::number(cameraRotationX_, 'f', 1))
-                   .arg(QString::number(cameraRotationY_, 'f', 1))
-                   .arg(QString::number(cameraDistance_, 'f', 1));
-    p.drawText(10, 20, info);
+    // Draw axis lines
+    p.setPen(QPen(Qt::gray, 1));
+    p.drawLine(p0, px);
+    p.drawLine(p0, py);
+    p.drawLine(p0, pz);
+
+    // Helper to compute a nice tick step (1,2,5 multiples)
+    auto niceStep = [](double range, int desiredTicks){
+        if (!(range > 0.0)) return 1.0;
+        double raw = range / double(qMax(2, desiredTicks));
+        double exp = std::pow(10.0, std::floor(std::log10(raw)));
+        double base = raw / exp;
+        double mult = 1.0;
+        if (base < 1.5) mult = 1.0; else if (base < 3.5) mult = 2.0; else if (base < 7.5) mult = 5.0; else mult = 10.0;
+        return mult * exp;
+    };
+
+    // Draw ticks and labels for each axis
+    const int desiredTicks = 5;
+    double stepX = niceStep(maxX - minX, desiredTicks);
+    double stepY = niceStep(maxY - minY, desiredTicks);
+    double stepZ = niceStep(maxZ - minZ, desiredTicks);
+
+    auto drawAxisTicks = [&](double lo, double hi, const QVector3D& anchorOffset, const QPointF& pAxisStart, const QPointF& pAxisEnd, const QString& axisName, int tickCountOverride, bool sciFlag){
+        if (!(hi > lo)) return;
+        double worldRange = hi - lo;
+        // Determine desired ticks: override from UI if provided, else base on axis screen length
+        QPointF axisDirScreen = pAxisEnd - pAxisStart;
+        double axisPixelLen = std::hypot(axisDirScreen.x(), axisDirScreen.y());
+        int desiredTicks = (tickCountOverride > 0) ? tickCountOverride : qBound(2, int(axisPixelLen / 80.0), 20);
+        double step = niceStep(worldRange, desiredTicks);
+        // Find first tick value >= lo
+        double first = std::ceil(lo / step) * step;
+        QVector<QPointF> tickPts; QVector<double> tickVals;
+        for (double v = first; v <= hi + 1e-12; v += step) {
+            QVector3D w(anchorOffset.x(), anchorOffset.y(), anchorOffset.z());
+            if (axisName == "X") w.setX(v);
+            else if (axisName == "Y") w.setY(v);
+            else if (axisName == "Z") w.setZ(v);
+            QPointF tp = projectWorld(w);
+            tickPts.append(tp); tickVals.append(v);
+        }
+        if (tickPts.isEmpty()) return;
+    if (axisPixelLen < 1e-6) return; // axis projects to ~0 pixels: avoid divide-by-zero and skip ticks
+    QPointF dirN = axisDirScreen / axisPixelLen;
+    QPointF perp(-dirN.y(), dirN.x());
+        const double tickLen = qMin(10.0, axisPixelLen * 0.02);
+        p.setPen(QPen(Qt::lightGray, 1));
+        QFontMetrics fm = p.fontMetrics();
+
+        // Format label helper
+        auto formatTick = [&](double v)->QString{
+            if (sciFlag) return QString::number(v, 'E', 1);
+            // pick precision based on step magnitude
+            double absStep = qAbs(step);
+            int prec = 0;
+            if (absStep > 0) {
+                prec = qMax(0, int(std::ceil(-std::log10(absStep))) + 1);
+                prec = qMin(6, prec);
+            }
+            return formatNumber(v, prec);
+        };
+
+        // Avoid label collisions: only draw labels when they fit and don't overlap previous drawn label
+        qreal lastLabelPos = -1e9;
+        for (int i = 0; i < tickPts.size(); ++i) {
+            QPointF t = tickPts[i];
+            QPointF a = t - perp * (tickLen/2.0);
+            QPointF b = t + perp * (tickLen/2.0);
+            p.drawLine(a, b);
+            QString label = formatTick(tickVals[i]);
+            int labelW = fm.horizontalAdvance(label);
+            // place label on the side of perp (outside axis) and check collisions by projected along axis coordinate
+            // use axis coordinate along dirN
+            qreal along = QPointF::dotProduct(t - pAxisStart, dirN);
+            if (along - lastLabelPos < labelW * 0.9) continue; // skip too close
+            QPointF labelPos = t + perp * (tickLen + 4) + QPointF(2, fm.height()/2.0);
+            p.drawText(labelPos, label);
+            lastLabelPos = along + labelW * 0.5;
+        }
+        // Draw axis name at endpoint
+        p.setPen(QPen(Qt::white));
+        p.drawText(pAxisEnd + QPointF(6, -6), axisName);
+    };
+
+    // anchorOffset is the origin (min corner)
+    QVector3D anchor(minX, minY, minZ);
+    drawAxisTicks(minX, maxX, anchor, p0, px, "X", tickCountX_, sciX_);
+    drawAxisTicks(minY, maxY, anchor, p0, py, "Y", tickCountY_, sciY_);
+    drawAxisTicks(minZ, maxZ, anchor, p0, pz, "Z", tickCountZ_, sciZ_);
+
+    // Camera overlay removed: camera rotation/distance are now shown in the 3D Camera settings panel
 }
 
 bool PlotCanvas::transformValue(const QString& id, double x, double& yOut) const {

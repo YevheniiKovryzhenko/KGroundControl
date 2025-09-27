@@ -26,8 +26,8 @@ Create3DGroupDialog::Create3DGroupDialog(const QVector<QString>& availableSignal
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &Create3DGroupDialog::validateAndAccept);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    // Initially disable OK if no name
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
+    // Initially set OK enabled state according to current text (callers may change text before exec)
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!ui->txtGroupName->text().trimmed().isEmpty());
 }
 
 Create3DGroupDialog::~Create3DGroupDialog() {
@@ -67,4 +67,10 @@ void Create3DGroupDialog::validateAndAccept() {
     }
 
     accept();
+}
+
+void Create3DGroupDialog::setGroupName(const QString& name) {
+    ui->txtGroupName->setText(name);
+    // Ensure the OK button state reflects the new name
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!ui->txtGroupName->text().trimmed().isEmpty());
 }

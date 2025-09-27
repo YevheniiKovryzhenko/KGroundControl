@@ -142,6 +142,10 @@ private:
     QTreeWidgetItem* camera3DSection = nullptr;
     QTreeWidgetItem* zAxisSection = nullptr;
     QTreeWidgetItem* groupStyleSection = nullptr;
+    // The tree item and content widget used for the Group Style section so we can update its
+    // size hint when controls hide/show (allow the section to shrink vertically).
+    QTreeWidgetItem* groupStyleItem = nullptr;
+    QWidget*        groupStyleContent = nullptr;
 
     // Group Style controls (3D-only, visible when a single 3D group is selected)
     // Tail (time-history) controls
@@ -149,15 +153,26 @@ private:
     QDoubleSpinBox* editTailTimeSpan = nullptr; // seconds (spin box for tail time span)
     QWidget*        tailColorDot = nullptr;
     QToolButton*    btnTailPickColor = nullptr;
+    QWidget*        tailPointColorRow = nullptr;
     QComboBox*      cmbTailPointStyle = nullptr;
     QSpinBox*       spinTailPointSize = nullptr;
     // Tail trajectory style (line/scatter similar to 2D signal style)
     QWidget*        tailLineColorDot = nullptr;
     QToolButton*    btnTailLinePickColor = nullptr;
+    QWidget*        tailLineColorRow = nullptr;
     QComboBox*      cmbTailLineStyle = nullptr;
     QSpinBox*       spinTailLineWidth = nullptr;
-    QComboBox*      cmbTailScatterStyle = nullptr;
-    QSpinBox*       spinTailScatterSize = nullptr;
+    // Row widgets so label+control can be hidden as a unit
+    QWidget*        tailTimeSpanRow = nullptr;
+    QWidget*        tailPointStyleRow = nullptr;
+    QWidget*        tailPointSizeRow = nullptr;
+    QWidget*        tailLineStyleRow = nullptr;
+    QWidget*        tailLineWidthRow = nullptr;
+    // Dash controls (mirror 2D Signal Style)
+    QWidget*        tailDashLengthRow = nullptr;
+    QWidget*        tailGapLengthRow = nullptr;
+    QSpinBox*       spinTailDashLength = nullptr;
+    QSpinBox*       spinTailGapLength = nullptr;
 
     // Head (single point) controls
     QWidget*        headColorDot = nullptr;

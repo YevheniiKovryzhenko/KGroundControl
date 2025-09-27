@@ -17,6 +17,7 @@ public:
     QString getXSignal() const;
     QString getYSignal() const;
     QString getZSignal() const;
+    void setGroupName(const QString& name);
 
 private slots:
     void validateAndAccept();

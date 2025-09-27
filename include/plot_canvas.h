@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QTimer>
+#include <QQuaternion>
 
 class PlotSignalRegistry;
 
@@ -21,16 +22,20 @@ struct Plot3DGroup {
     QString headPointStyle = "Circle";
     int headPointSize = 6;
     // Tail (time-history) customization
-    bool tailEnabled = false;
+    bool tailEnabled = true;
     double tailTimeSpanSec = 10.0; // duration in seconds
     QColor tailPointColor = QColor(Qt::blue);
-    QString tailPointStyle = "Circle";
-    int tailPointSize = 3;
-    QColor tailLineColor = QColor(Qt::blue);
+    QString tailPointStyle = "None";
+    int tailPointSize = 1;
+    QColor tailLineColor = QColor(Qt::lightGray);
     QString tailLineStyle = "Solid";
-    int tailLineWidth = 2;
-    QString tailScatterStyle = "None";
-    int tailScatterSize = 2;
+    int tailLineWidth = 1;
+    // legacy per-point scatter settings removed; use tailIsScatter + tailPointStyle/Size instead
+    // Tail rendering is controlled by tailPointStyle and tailLineStyle.
+    // Use "None" in either style to hide points or lines respectively.
+    // Dash/gap sizes used for custom dash patterns when tailLineStyle indicates a dashed pattern
+    int tailDashLength = 5;
+    int tailGapLength = 3;
 };
 
 class PlotCanvas : public QWidget {
@@ -102,6 +107,8 @@ public:
     void setShowLegend(bool show) { showLegend_ = show; update(); }
     void setShowGrid(bool show) { showGrid_ = show; update(); }
     void setBackgroundColor(const QColor& c) { bgColor_ = c; update(); }
+    // Control whether 3D group name labels are drawn near head points in 3D mode
+    void setShow3DGroupNames(bool show) { show3DGroupNames_ = show; update(); }
     void setXAxisUnitLabel(const QString& unit) { xUnitLabel_ = unit; update(); }
     void setYAxisUnitLabel(const QString& unit) { yUnitLabel_ = unit; update(); }
     void setTickCounts(int xTicks, int yTicks) { tickCountX_ = xTicks; tickCountY_ = yTicks; update(); }
@@ -125,26 +132,55 @@ public:
 
     // 3D plotting
     void setGroups3D(const QVector<Plot3DGroup>& groups) {
+        // If there were no enabled groups before and now there is at least one,
+        // trigger auto-range so newly shown content is fit to view.
+        bool hadAnyEnabled = false;
+        for (const auto& g : groups3D_) { if (g.enabled) { hadAnyEnabled = true; break; } }
+
         groups3D_ = groups;
+
         // Only repaint if in 3D mode and at least one group is enabled.
         if (mode_ == Mode3D) {
             bool anyGroupEnabled = false;
             for (const auto& g : groups3D_) { if (g.enabled) { anyGroupEnabled = true; break; } }
-            if (anyGroupEnabled) update();
+            if (anyGroupEnabled) {
+                update();
+                if (!hadAnyEnabled) {
+                    // first time showing 3D content, auto-range camera
+                    autoRangeCamera();
+                }
+            }
         }
     }
 
+    // Auto-range the 3D camera to fit currently visible content. Returns true if
+    // the camera distance was updated, false if there was no data to range.
+    bool autoRangeCamera();
+
     // Camera controls for 3D
-    void setCameraRotationX(float degrees) { cameraRotationX_ = degrees; update(); }
-    void setCameraRotationY(float degrees) { cameraRotationY_ = degrees; update(); }
-    void setCameraDistance(float distance) { cameraDistance_ = qMax(0.1f, distance); update(); }
+    void setCameraRotationX(float degrees);
+    void setCameraRotationY(float degrees);
+    void setCameraDistance(float distance);
+    float cameraRotationX() const { return cameraRotationX_; }
+    float cameraRotationY() const { return cameraRotationY_; }
+    float cameraDistance() const { return cameraDistance_; }
 
     void resetCamera();
+
+    // Arcball/trackball tuning: visualization and mapping parameters
+    void setShowArcball(bool show);
+    void setArcballRadius(double frac); // fraction of base radius (0.05..1.0)
+    void setArcballSensitivity(double s); // multiplier for rotation speed
+    bool showArcball() const { return showArcball_; }
+    double arcballRadius() const { return arcballRadius_; }
+    double arcballSensitivity() const { return arcballSensitivity_; }
 
 public slots:
     void requestRepaint();
 
 signals:
+    // Emitted when the camera parameters change (rotation X, rotation Y, distance)
+    void cameraChanged(float rotX, float rotY, float distance);
     // Emitted when Y auto-scaling is enabled and the visible Y range changes
     void yAutoRangeUpdated(double minVal, double maxVal);
 
@@ -153,6 +189,7 @@ protected:
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
     void mouseReleaseEvent(QMouseEvent* ev) override;
+    void wheelEvent(QWheelEvent* ev) override;
 
 private:
     PlotSignalRegistry* registry_ = nullptr;
@@ -242,11 +279,31 @@ private:
 
     // 3D groups
     QVector<Plot3DGroup> groups3D_;
+    // Toggle drawing of 3D group name labels near the head point. Controlled from PlottingManager "Show legend" checkbox.
+    bool show3DGroupNames_ = true;
 
     // 3D simulation (simple orthographic projection for now)
-    float cameraDistance_ = 5.0f;
-    float cameraRotationX_ = 30.0f; // degrees
-    float cameraRotationY_ = 45.0f; // degrees
+    float cameraDistance_ = 0.5f;
+    float cameraRotationX_ = 30.0f; // degrees (kept for UI compatibility)
+    float cameraRotationY_ = 45.0f; // degrees (kept for UI compatibility)
+    // Quaternion orientation used internally to avoid gimbal lock. Euler angles are derived from this for
+    // backward-compatible getters/setters; mouse deltas compose into this quaternion.
+    QQuaternion cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
     QPoint lastMousePos_;
     bool mousePressed_ = false;
+    // Arcball visualization and mapping parameters
+    bool showArcball_ = true; // draw the virtual sphere when interacting
+    double arcballRadius_ = 0.95; // fraction of min(width,height)/2
+    double arcballSensitivity_ = 0.85; // multiplier for rotation angle from arc deltas
+    // Last arcball drag vectors (in view space) for visualization
+    QVector3D lastArc_v0_ = QVector3D(0,0,1);
+    QVector3D lastArc_v1_ = QVector3D(0,0,1);
+    // Fade animation for arcball visualization
+    int arcFadeDirection_ = 0; // 0=idle, 1=fading in, -1=fading out
+    qint64 arcFadeStartMs_ = 0; // monotonic_.elapsed() at start
+    int arcFadeDurationMs_ = 300;
+    double arcFadeProgress_ = 0.0; // 0..1
+    // Wireframe resolution for sphere visualization
+    int arcSectorsLong_ = 12; // longitudinal slices
+    int arcSectorsLat_ = 6;   // latitudinal bands
 };

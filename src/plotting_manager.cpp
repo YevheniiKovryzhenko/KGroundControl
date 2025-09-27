@@ -29,7 +29,8 @@ PlottingManager::PlottingManager(QWidget* parent)
 
     // Prefer the right (plot) pane to grow more than the left settings panel
     if (ui->splitter) {
-        ui->splitter->setChildrenCollapsible(false);
+        // Allow users to fully collapse either child by dragging the splitter to the edge.
+        ui->splitter->setChildrenCollapsible(true);
         // Left (index 0) gets lower priority, right (index 1) grows more
         ui->splitter->setStretchFactor(0, 1);
         ui->splitter->setStretchFactor(1, 5);
@@ -185,6 +186,18 @@ void PlottingManager::setup3DGroupsTree() {
 
         // Show dialog to create new 3D group
         Create3DGroupDialog dialog(availableSignals, this);
+        // Compute a unique default group name like "Group 1", "Group 2", ...
+        int idx = 1;
+        auto nameInUse = [this](const QString& name){
+            for (const auto& g : groups3D_) if (g.name == name) return true;
+            return false;
+        };
+        QString defaultName;
+        do {
+            defaultName = QString("Group %1").arg(idx++);
+        } while (nameInUse(defaultName));
+        dialog.setGroupName(defaultName);
+
         if (dialog.exec() == QDialog::Accepted) {
             Plot3DGroup group;
             group.name = dialog.getGroupName();
@@ -263,7 +276,7 @@ void PlottingManager::connectSignals() {
     connect(spinMaxRate,    qOverload<int>(&QSpinBox::valueChanged),         this, &PlottingManager::onXAxisChanged);
     connect(cmbTimeUnits,   &QComboBox::currentTextChanged,                  this, &PlottingManager::onXAxisChanged);
 
-    // Force update tick (animated scroll without data)
+    // Force update tick (animated scroll without data) - drive the visible canvas regardless of mode
     connect(&forceTimer_, &QTimer::timeout, this, [this]{
         if (chkPause && chkPause->isChecked()) return; // paused stops UI updates
         if (ui && ui->plotCanvas) ui->plotCanvas->requestRepaint();
@@ -317,9 +330,10 @@ void PlottingManager::connectSignals() {
         }
     });
 
-    // Pause / Force update behaviour
+    // Pause / Force update behaviour - ensure both 2D and 3D canvases receive the commands
     if (chkPause) connect(chkPause, &QCheckBox::toggled, this, [this](bool on){
         if (ui && ui->plotCanvas) ui->plotCanvas->setPaused(on);
+        // If force update is enabled we disable data-driven repaints on the canvas(s)
         if (ui && ui->plotCanvas) ui->plotCanvas->setDataDrivenRepaintEnabled(!(chkForceUpdate && chkForceUpdate->isChecked()));
         if (on) {
             forceTimer_.stop();
@@ -329,10 +343,24 @@ void PlottingManager::connectSignals() {
         }
     });
     if (chkForceUpdate) connect(chkForceUpdate, &QCheckBox::toggled, this, [this](bool on){
+        // When force update toggles, enable/disable data-driven repainting on the canvas
         if (ui && ui->plotCanvas) ui->plotCanvas->setDataDrivenRepaintEnabled(!on);
+        // Restart/stop the periodic force timer based on new state and pause setting
         forceTimer_.stop();
         if (on && spinMaxRate && (!chkPause || !chkPause->isChecked())) {
             int hz = spinMaxRate->value(); int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
+            forceTimer_.start(ms);
+        }
+    });
+
+    // Ensure max rate changes apply to canvas throttling and to the force timer when active
+    if (spinMaxRate) connect(spinMaxRate, qOverload<int>(&QSpinBox::valueChanged), this, [this](int hz){
+        if (ui && ui->plotCanvas) ui->plotCanvas->setMaxPlotRateHz(hz);
+        // If force update currently drives the UI and pause is not set, restart timer with new interval
+        if (chkForceUpdate && chkForceUpdate->isChecked() && !(chkPause && chkPause->isChecked())) {
+            forceTimer_.stop();
+            if (hz <= 0) hz = 30;
+            int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
             forceTimer_.start(ms);
         }
     });
@@ -486,6 +514,27 @@ void PlottingManager::buildSettingsTree() {
         distLayout->addStretch(1);
         v->addLayout(distLayout);
 
+        // Arcball visualization and tuning
+        auto* arcballRow = new QWidget(cont);
+        auto* arcballLayout = new QHBoxLayout(arcballRow); arcballLayout->setContentsMargins(0,0,0,0);
+        auto* chkShowArcball = new QCheckBox("Show Arcball", arcballRow);
+        chkShowArcball->setToolTip("Show the virtual arcball sphere used for mouse rotation");
+        arcballLayout->addWidget(chkShowArcball);
+        arcballLayout->addStretch(1);
+        v->addWidget(arcballRow);
+
+        // Arcball radius and sensitivity
+        auto* arcParams = new QWidget(cont);
+        auto* apL = new QHBoxLayout(arcParams); apL->setContentsMargins(0,0,0,0);
+        auto* lblRadius = new QLabel("Radius:", arcParams); lblRadius->setMinimumWidth(70);
+        auto* spinRadius = new QDoubleSpinBox(arcParams); spinRadius->setRange(0.05, 1.0); spinRadius->setSingleStep(0.05); spinRadius->setDecimals(2); spinRadius->setValue(0.5);
+        spinRadius->setToolTip("Arcball radius as fraction of the smaller canvas dimension (0.05..1.0)");
+        auto* lblSens = new QLabel("Sensitivity:", arcParams); lblSens->setMinimumWidth(90);
+        auto* spinSens = new QDoubleSpinBox(arcParams); spinSens->setRange(0.01, 10.0); spinSens->setSingleStep(0.1); spinSens->setDecimals(2); spinSens->setValue(1.0);
+        spinSens->setToolTip("Multiplier for rotation speed produced by mouse drags (higher = faster)");
+        apL->addWidget(lblRadius); apL->addWidget(spinRadius); apL->addSpacing(8); apL->addWidget(lblSens); apL->addWidget(spinSens); apL->addStretch(1);
+        v->addWidget(arcParams);
+
         // Reset button
         auto* btnReset = new QToolButton(cont);
         btnReset->setText("Reset Camera");
@@ -502,7 +551,7 @@ void PlottingManager::buildSettingsTree() {
         // Initially hide camera section (shown only in 3D mode)
         camera3DSection->setHidden(true);
 
-        // Wiring
+        // Wiring: user controls update the canvas
         connect(spinRotX, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value){
             ui->plotCanvas->setCameraRotationX(value);
         });
@@ -515,14 +564,23 @@ void PlottingManager::buildSettingsTree() {
             ui->plotCanvas->setCameraDistance(value);
         });
 
-        connect(btnReset, &QToolButton::clicked, this, [this, spinRotX, spinRotY, spinDist]{
-            spinRotX->setValue(30);
-            spinRotY->setValue(45);
-            spinDist->setValue(5.0);
-            ui->plotCanvas->setCameraRotationX(30);
-            ui->plotCanvas->setCameraRotationY(45);
-            ui->plotCanvas->setCameraDistance(5.0);
+        // Arcball wiring
+        connect(chkShowArcball, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowArcball(on); });
+        connect(spinRadius, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ ui->plotCanvas->setArcballRadius(v); });
+        connect(spinSens, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ ui->plotCanvas->setArcballSensitivity(v); });
+
+
+        // And make the UI reflect changes made via mouse interaction by listening to cameraChanged
+        connect(ui->plotCanvas, &PlotCanvas::cameraChanged, this, [spinRotX, spinRotY, spinDist](float rotX, float rotY, float dist){
+            // Block signals to avoid feedback loop when setting values programmatically
+            spinRotX->blockSignals(true); spinRotY->blockSignals(true); spinDist->blockSignals(true);
+            spinRotX->setValue(int(std::lround(rotX)));
+            spinRotY->setValue(int(std::lround(rotY)));
+            spinDist->setValue(dist);
+            spinRotX->blockSignals(false); spinRotY->blockSignals(false); spinDist->blockSignals(false);
         });
+
+        connect(btnReset, &QToolButton::clicked, this, [this]{ui->plotCanvas->resetCamera();});
 
         // Connect to mode changes
         connect(ui->cmbPlotMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index){
@@ -545,6 +603,8 @@ void PlottingManager::buildSettingsTree() {
         auto* headBox = new QGroupBox("Head", cont);
         auto* headL = new QVBoxLayout(headBox);
         headBox->setLayout(headL);
+        // Make Head box expand horizontally so controls fill available width like Tail
+        headBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         // head color swatch + pick button
         {
             auto* row = new QWidget(headBox);
@@ -557,7 +617,7 @@ void PlottingManager::buildSettingsTree() {
             headL->addWidget(row);
         }
         cmbHeadPointStyle = new QComboBox(headBox);
-        cmbHeadPointStyle->addItems({"Circle","Cross","Square","Diamond"});
+        cmbHeadPointStyle->addItems({"None","Circle","Cross","Square","Diamond"});
         spinHeadPointSize = new QSpinBox(headBox); spinHeadPointSize->setRange(1, 40); spinHeadPointSize->setValue(6);
         headL->addWidget(makeRow(headBox, "Point Style:", cmbHeadPointStyle));
         headL->addWidget(makeRow(headBox, "Point Size:", spinHeadPointSize));
@@ -574,74 +634,131 @@ void PlottingManager::buildSettingsTree() {
         editTailTimeSpan->setSingleStep(0.5);
         editTailTimeSpan->setSuffix(" s");
         editTailTimeSpan->setToolTip("Tail time span in seconds");
-        // tail color swatch + pick button
+        // tail color swatch + pick button (as a row so the label can hide)
+        tailPointColorRow = new QWidget(tailBox);
         {
-            auto* r = new QWidget(tailBox);
+            auto* r = tailPointColorRow;
             auto* h = new QHBoxLayout(r); h->setContentsMargins(0,0,0,0); h->setSpacing(8);
             auto* lbl = new QLabel("Tail Point Color:", r); lbl->setMinimumWidth(120);
             tailColorDot = new QWidget(r); tailColorDot->setFixedSize(16,16); tailColorDot->setStyleSheet("border-radius:8px; border:1px solid palette(dark);");
             btnTailPickColor = new QToolButton(r); btnTailPickColor->setText("Pick…"); btnTailPickColor->setToolTip("Pick tail point color");
             h->addWidget(lbl); h->addWidget(tailColorDot); h->addWidget(btnTailPickColor); h->addStretch(1);
-            tailL->addWidget(r);
+            // row will be added later in the correct order
         }
         cmbTailPointStyle = new QComboBox(tailBox); cmbTailPointStyle->addItems({"None","Circle","Cross","Square","Diamond"});
         spinTailPointSize = new QSpinBox(tailBox); spinTailPointSize->setRange(1, 40); spinTailPointSize->setValue(3);
-        // Tail trajectory style (line/scatter) - line color swatch + pick
+        // Allow independent control for points and lines. Use "None" to hide either.
+
+        // Tail trajectory style (line color swatch + pick) as a row so the label can hide
+        tailLineColorRow = new QWidget(tailBox);
         {
-            auto* r = new QWidget(tailBox);
+            auto* r = tailLineColorRow;
             auto* h = new QHBoxLayout(r); h->setContentsMargins(0,0,0,0); h->setSpacing(8);
             auto* lbl = new QLabel("Tail Line Color:", r); lbl->setMinimumWidth(120);
             tailLineColorDot = new QWidget(r); tailLineColorDot->setFixedSize(16,16); tailLineColorDot->setStyleSheet("border-radius:8px; border:1px solid palette(dark);");
             btnTailLinePickColor = new QToolButton(r); btnTailLinePickColor->setText("Pick…"); btnTailLinePickColor->setToolTip("Pick tail line color");
             h->addWidget(lbl); h->addWidget(tailLineColorDot); h->addWidget(btnTailLinePickColor); h->addStretch(1);
-            tailL->addWidget(r);
+            // row will be added later in the correct order
         }
-        cmbTailLineStyle = new QComboBox(tailBox); cmbTailLineStyle->addItems({"Solid","Dash","Dot","DashDot"});
+        cmbTailLineStyle = new QComboBox(tailBox); cmbTailLineStyle->addItems({"None","Solid","Dash","Double Dash","Dash-Dot","Dash-Dot-Dot"});
         spinTailLineWidth = new QSpinBox(tailBox); spinTailLineWidth->setRange(1, 10); spinTailLineWidth->setValue(2);
-        cmbTailScatterStyle = new QComboBox(tailBox); cmbTailScatterStyle->addItems({"None","Circle","Cross","Square","Diamond"});
-        spinTailScatterSize = new QSpinBox(tailBox); spinTailScatterSize->setRange(1, 20); spinTailScatterSize->setValue(2);
+        // Dash/gap controls (mirror 2D dash controls)
+        spinTailDashLength = new QSpinBox(tailBox); spinTailDashLength->setRange(1, 20); spinTailDashLength->setValue(5);
+        spinTailGapLength = new QSpinBox(tailBox); spinTailGapLength->setRange(1, 20); spinTailGapLength->setValue(3);
+        tailDashLengthRow = makeRow(tailBox, "Dash Length:", spinTailDashLength);
+        tailGapLengthRow = makeRow(tailBox, "Gap Length:", spinTailGapLength);
+
 
         tailL->addWidget(chkTailEnable);
-    tailL->addWidget(makeRow(tailBox, "Time Span:", editTailTimeSpan));
-    // tail color row already added above
-        tailL->addWidget(makeRow(tailBox, "Point Style:", cmbTailPointStyle));
-        tailL->addWidget(makeRow(tailBox, "Point Size:", spinTailPointSize));
-    // tail line color row already added above
-        tailL->addWidget(makeRow(tailBox, "Line Style:", cmbTailLineStyle));
-        tailL->addWidget(makeRow(tailBox, "Line Width:", spinTailLineWidth));
-        tailL->addWidget(makeRow(tailBox, "Scatter Style:", cmbTailScatterStyle));
-        tailL->addWidget(makeRow(tailBox, "Scatter Size:", spinTailScatterSize));
+        // Create persistent rows so label+control can be hidden together
+        tailTimeSpanRow = makeRow(tailBox, "Time Span:", editTailTimeSpan);
+        tailL->addWidget(tailTimeSpanRow);
+            // tailPlotTypeGroup removed; point/line styles are independent
+            // Insert Tail Point Color row immediately before point style
+        tailL->addWidget(tailPointColorRow);
+        tailPointStyleRow = makeRow(tailBox, "Point Style:", cmbTailPointStyle);
+        tailL->addWidget(tailPointStyleRow);
+        tailPointSizeRow = makeRow(tailBox, "Point Size:", spinTailPointSize);
+        tailL->addWidget(tailPointSizeRow);
+            // Insert Tail Line Color row immediately before line style
+        tailL->addWidget(tailLineColorRow);
+        tailLineStyleRow = makeRow(tailBox, "Line Style:", cmbTailLineStyle);
+        tailL->addWidget(tailLineStyleRow);
+        tailLineWidthRow = makeRow(tailBox, "Line Width:", spinTailLineWidth);
+        tailL->addWidget(tailLineWidthRow);
+        tailL->addWidget(tailDashLengthRow);
+        tailL->addWidget(tailGapLengthRow);
 
         v->addWidget(headBox);
         v->addWidget(tailBox);
 
+        // Keep a handle to the tree item and content widget so we can update the
+        // size hint when child rows are hidden/shown (allow the section to shrink).
         auto* it = new QTreeWidgetItem(groupStyleSection);
         it->setFirstColumnSpanned(true);
         tree->setItemWidget(it, 0, cont);
-        cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        // Allow the content to shrink vertically when children are hidden
+        // but keep horizontal expansion so controls use full width as before.
+        cont->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+        tailBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
         cont->adjustSize();
         it->setSizeHint(0, cont->sizeHint());
+        // store references for later updates
+        groupStyleItem = it;
+        groupStyleContent = cont;
 
         // Initially hidden (only show in 3D mode when a group is selected)
         groupStyleSection->setHidden(true);
 
         // Wiring: color pickers
-    connect(btnHeadPickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Head Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].headColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (headColorDot) headColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
-    connect(btnTailPickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Tail Point Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailPointColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (tailColorDot) tailColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
-    connect(btnTailLinePickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Tail Line Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailLineColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (tailLineColorDot) tailLineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
+        connect(btnHeadPickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Head Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].headColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (headColorDot) headColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
+        connect(btnTailPickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Tail Point Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailPointColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (tailColorDot) tailColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
+        connect(btnTailLinePickColor, &QToolButton::clicked, this, [this]{ QColor c = QColorDialog::getColor(Qt::white, this, "Select Tail Line Color"); if (c.isValid()) { if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailLineColor = c; ui->plotCanvas->setGroups3D(groups3D_); } if (tailLineColorDot) tailLineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(c.name())); } });
 
         // Wire checkbox to enable/disable tail and toggle visibility of tail controls
-    connect(chkTailEnable, &QCheckBox::toggled, this, [this](bool on){ if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailEnabled = on; ui->plotCanvas->setGroups3D(groups3D_); } editTailTimeSpan->setVisible(on); if (tailColorDot) tailColorDot->setVisible(on); if (btnTailPickColor) btnTailPickColor->setVisible(on); cmbTailPointStyle->setVisible(on); spinTailPointSize->setVisible(on); if (tailLineColorDot) tailLineColorDot->setVisible(on); if (btnTailLinePickColor) btnTailLinePickColor->setVisible(on); cmbTailLineStyle->setVisible(on); spinTailLineWidth->setVisible(on); cmbTailScatterStyle->setVisible(on); spinTailScatterSize->setVisible(on); });
+        connect(chkTailEnable, &QCheckBox::toggled, this, [this](bool on){
+            if (selectedGroupIndex_ >=0 && selectedGroupIndex_ < groups3D_.size()) {
+                groups3D_[selectedGroupIndex_].tailEnabled = on;
+                ui->plotCanvas->setGroups3D(groups3D_);
+            }
+            if (tailTimeSpanRow) tailTimeSpanRow->setVisible(on);
+            if (tailPointColorRow) tailPointColorRow->setVisible(on);
+            if (tailPointStyleRow) tailPointStyleRow->setVisible(on);
+            if (tailPointSizeRow) tailPointSizeRow->setVisible(on);
+            if (tailLineColorRow) tailLineColorRow->setVisible(on);
+            if (tailLineStyleRow) tailLineStyleRow->setVisible(on);
+            if (tailLineWidthRow) tailLineWidthRow->setVisible(on);
+            // Dash/gap rows visible only when line style is dashed and tail enabled
+            bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot"));
+            if (tailDashLengthRow) tailDashLengthRow->setVisible(on && isDashed);
+            if (tailGapLengthRow) tailGapLengthRow->setVisible(on && isDashed);
+            // Update the stored content widget size hint so the tree shrinks
+            if (groupStyleContent && groupStyleItem) {
+                groupStyleContent->adjustSize();
+                groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+            }
+        });
 
         // Other tail control wiring: when changed, update groups3D_ and notify canvas
-    // When the spin value changes, update the group's tailTimeSpanSec and notify the canvas
-    connect(editTailTimeSpan, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailTimeSpanSec = val; ui->plotCanvas->setGroups3D(groups3D_); } });
+        // When the spin value changes, update the group's tailTimeSpanSec and notify the canvas
+        connect(editTailTimeSpan, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailTimeSpanSec = val; ui->plotCanvas->setGroups3D(groups3D_); } });
         connect(cmbTailPointStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailPointStyle = cmbTailPointStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); } });
         connect(spinTailPointSize, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailPointSize = spinTailPointSize->value(); ui->plotCanvas->setGroups3D(groups3D_); } });
-        connect(cmbTailLineStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailLineStyle = cmbTailLineStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); } });
+        // Tail plot type wiring
+        connect(cmbTailLineStyle, &QComboBox::currentTextChanged, this, [this](const QString&){
+            if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailLineStyle = cmbTailLineStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); }
+            bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot"));
+            if (tailDashLengthRow) tailDashLengthRow->setVisible(isDashed && (chkTailEnable && chkTailEnable->isChecked()));
+            if (tailGapLengthRow) tailGapLengthRow->setVisible(isDashed && (chkTailEnable && chkTailEnable->isChecked()));
+            // After changing visibility, update stored size hint so the tree row resizes immediately
+            if (groupStyleContent && groupStyleItem) {
+                groupStyleContent->adjustSize();
+                groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+            }
+        });
         connect(spinTailLineWidth, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailLineWidth = spinTailLineWidth->value(); ui->plotCanvas->setGroups3D(groups3D_); } });
-        connect(cmbTailScatterStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailScatterStyle = cmbTailScatterStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); } });
-        connect(spinTailScatterSize, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailScatterSize = spinTailScatterSize->value(); ui->plotCanvas->setGroups3D(groups3D_); } });
+        connect(spinTailDashLength, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailDashLength = v; ui->plotCanvas->setGroups3D(groups3D_); } });
+        connect(spinTailGapLength, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].tailGapLength = v; ui->plotCanvas->setGroups3D(groups3D_); } });
 
         // Head controls wiring
         connect(cmbHeadPointStyle, &QComboBox::currentTextChanged, this, [this](const QString&){ if (selectedGroupIndex_>=0 && selectedGroupIndex_ < groups3D_.size()) { groups3D_[selectedGroupIndex_].headPointStyle = cmbHeadPointStyle->currentText(); ui->plotCanvas->setGroups3D(groups3D_); } });
@@ -651,49 +768,49 @@ void PlottingManager::buildSettingsTree() {
     // Ensure Group Style is hidden when switching out of 3D mode
     connect(ui->cmbPlotMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index){
         bool is3D = (index == 1);
-        if (groupStyleSection) groupStyleSection->setHidden(!is3D || selectedGroupIndex_ < 0);
+    if (groupStyleSection) groupStyleSection->setHidden(!is3D || selectedGroupIndex_ < 0);
     });
 
     // X-Axis section
     QTreeWidgetItem* xsec = addSection("X-Axis");
     {
-    // Build two separate container widgets: one for 2D (time controls) and one for 3D (manual X controls).
-    // 2D widget
+        // Build two separate container widgets: one for 2D (time controls) and one for 3D (manual X controls).
+        // 2D widget
         auto* cont2D = new QWidget(tree);
         auto* v2D = new QVBoxLayout(cont2D);
         v2D->setContentsMargins(0,0,0,0); v2D->setSpacing(6);
-    // X label for 2D (keeps synced with 3D label)
-    auto* txtXUnits2D = new QLineEdit(cont2D);
-    txtXUnits2D->setPlaceholderText("e.g. Position [m]");
-    txtXUnits2D->setToolTip("Units label for X axis.");
-    v2D->addWidget(makeRow(cont2D, "X Label:", txtXUnits2D));
-    connect(txtXUnits2D, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setXAxisTitle(t); ui->plotCanvas->requestRepaint(); });
-        doubleTimeSpan = new QDoubleSpinBox(cont2D);
-        doubleTimeSpan->setRange(0.1, 3600.0);
-        doubleTimeSpan->setDecimals(2);
-        doubleTimeSpan->setValue(10.0);
-        doubleTimeSpan->setToolTip("Visible time window span. Older data scrolls off to the left.");
-        cmbTimeUnits = new QComboBox(cont2D);
-        cmbTimeUnits->addItems({"seconds", "milli-seconds", "nano-seconds"});
-        cmbTimeUnits->setToolTip("Display unit for X axis labels (affects labeling only).");
-        v2D->addWidget(makeRow(cont2D, "Time Span:", doubleTimeSpan));
-        v2D->addWidget(makeRow(cont2D, "Time Units:", cmbTimeUnits));
+        // X label for 2D (keeps synced with 3D label)
+        auto* txtXUnits2D = new QLineEdit(cont2D);
+        txtXUnits2D->setPlaceholderText("e.g. Position [m]");
+        txtXUnits2D->setToolTip("Units label for X axis.");
+        v2D->addWidget(makeRow(cont2D, "X Label:", txtXUnits2D));
+        connect(txtXUnits2D, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setXAxisTitle(t); ui->plotCanvas->requestRepaint(); });
+            doubleTimeSpan = new QDoubleSpinBox(cont2D);
+            doubleTimeSpan->setRange(0.1, 3600.0);
+            doubleTimeSpan->setDecimals(2);
+            doubleTimeSpan->setValue(10.0);
+            doubleTimeSpan->setToolTip("Visible time window span. Older data scrolls off to the left.");
+            cmbTimeUnits = new QComboBox(cont2D);
+            cmbTimeUnits->addItems({"seconds", "milli-seconds", "nano-seconds"});
+            cmbTimeUnits->setToolTip("Display unit for X axis labels (affects labeling only).");
+            v2D->addWidget(makeRow(cont2D, "Time Span:", doubleTimeSpan));
+            v2D->addWidget(makeRow(cont2D, "Time Units:", cmbTimeUnits));
 
         // 3D/manual X widget
         auto* cont3D = new QWidget(tree);
         auto* v3D = new QVBoxLayout(cont3D);
         v3D->setContentsMargins(0,0,0,0); v3D->setSpacing(6);
-    cmbXType = new QComboBox(cont3D);
-    // X label for 3D (keeps synced with 2D label)
-    auto* txtXUnits3D = new QLineEdit(cont3D);
-    txtXUnits3D->setPlaceholderText("e.g. Position [m]");
-    txtXUnits3D->setToolTip("Units label for X axis.");
-    v3D->insertWidget(0, makeRow(cont3D, "X Label:", txtXUnits3D));
-    connect(txtXUnits3D, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setXAxisTitle(t); ui->plotCanvas->requestRepaint(); });
+        cmbXType = new QComboBox(cont3D);
+        // X label for 3D (keeps synced with 2D label)
+        auto* txtXUnits3D = new QLineEdit(cont3D);
+        txtXUnits3D->setPlaceholderText("e.g. Position [m]");
+        txtXUnits3D->setToolTip("Units label for X axis.");
+        v3D->insertWidget(0, makeRow(cont3D, "X Label:", txtXUnits3D));
+        connect(txtXUnits3D, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setXAxisTitle(t); ui->plotCanvas->requestRepaint(); });
 
-    // Keep 2D/3D X label edits synchronized
-    connect(txtXUnits2D, &QLineEdit::textChanged, txtXUnits3D, [txtXUnits3D](const QString& t){ if (txtXUnits3D->text() != t) txtXUnits3D->setText(t); });
-    connect(txtXUnits3D, &QLineEdit::textChanged, txtXUnits2D, [txtXUnits2D](const QString& t){ if (txtXUnits2D->text() != t) txtXUnits2D->setText(t); });
+        // Keep 2D/3D X label edits synchronized
+        connect(txtXUnits2D, &QLineEdit::textChanged, txtXUnits3D, [txtXUnits3D](const QString& t){ if (txtXUnits3D->text() != t) txtXUnits3D->setText(t); });
+        connect(txtXUnits3D, &QLineEdit::textChanged, txtXUnits2D, [txtXUnits2D](const QString& t){ if (txtXUnits2D->text() != t) txtXUnits2D->setText(t); });
         cmbXType->addItems({"Linear", "Log"});
         auto* rowAutoX = new QWidget(cont3D);
         auto* hAutoX = new QHBoxLayout(rowAutoX);
@@ -724,9 +841,9 @@ void PlottingManager::buildSettingsTree() {
         v3D->addWidget(makeRow(cont3D, "X Min:", doubleXMin));
         // X ticks, visibility, scientific
         spinXTicks = new QSpinBox(cont3D); spinXTicks->setRange(0, 20); spinXTicks->setValue(0);
-    spinXTicks->setToolTip("Override automatic X tick count (0 keeps auto).");
-    chkShowXTicks = new QCheckBox("Show tick labels", cont3D);
-    chkShowXTicks->setChecked(true);
+        spinXTicks->setToolTip("Override automatic X tick count (0 keeps auto).");
+        chkShowXTicks = new QCheckBox("Show tick labels", cont3D);
+        chkShowXTicks->setChecked(true);
         chkShowXTicks->setToolTip("Show or hide X axis tick marks and labels.");
         chkSciX = new QCheckBox("Use scientific notation", cont3D); chkSciX->setChecked(false);
         chkSciX->setToolTip("Display X axis tick labels in scientific notation (e.g., 1.5E3). Also formats min/max fields.");
@@ -775,158 +892,158 @@ void PlottingManager::buildSettingsTree() {
         v->setContentsMargins(4,4,4,4);
         v->setSpacing(6);
 
-    // The Y label control is intentionally created in the shared extras container below
-    // so it doesn't float if the temporary `cont` goes unused during the refactor.
+        // The Y label control is intentionally created in the shared extras container below
+        // so it doesn't float if the temporary `cont` goes unused during the refactor.
 
-            // Build two separate containers for 2D and 3D Y settings so we can swap them cleanly
-            auto* cont2D = new QWidget(tree);
-            auto* v2D = new QVBoxLayout(cont2D);
-            v2D->setContentsMargins(0,0,0,0);
-            v2D->setSpacing(6);
-            // 2D controls
-            cmbYType2D = new QComboBox(cont2D);
-            cmbYType2D->addItems({"Linear", "Log"});
-            auto* rowAuto2D = new QWidget(cont2D);
-            auto* hAuto2D = new QHBoxLayout(rowAuto2D);
-            hAuto2D->setContentsMargins(0,0,0,0);
-            hAuto2D->setSpacing(12);
-            auto* lblAuto2D = new QLabel("Auto scale range:", rowAuto2D);
-            lblAuto2D->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
-            checkYAutoExpand2D = new QCheckBox("Expand", rowAuto2D);
-            checkYAutoExpand2D->setChecked(ySettings2D_.autoExpand);
-            checkYAutoShrink2D = new QCheckBox("Shrink", rowAuto2D);
-            checkYAutoShrink2D->setChecked(ySettings2D_.autoShrink);
-            hAuto2D->addWidget(lblAuto2D);
-            hAuto2D->addWidget(checkYAutoExpand2D);
-            hAuto2D->addWidget(checkYAutoShrink2D);
-            hAuto2D->addStretch(1);
-            doubleYMin2D = new SciDoubleSpinBox(cont2D);
-            doubleYMin2D->setRange(-1e9, 1e9);
-            doubleYMin2D->setValue(ySettings2D_.minVal);
-            doubleYMax2D = new SciDoubleSpinBox(cont2D);
-            doubleYMax2D->setRange(-1e9, 1e9);
-            doubleYMax2D->setValue(ySettings2D_.maxVal);
-            cmbYType2D->setToolTip("Linear or logarithmic Y axis for 2D plots. Log requires positive values.");
-            v2D->addWidget(makeRow(cont2D, "Type:", cmbYType2D));
-            doubleYMax2D->setToolTip("Upper Y limit when manual scaling is active (2D).");
-            doubleYMin2D->setToolTip("Lower Y limit when manual scaling is active (2D).");
-            v2D->addWidget(rowAuto2D);
-            v2D->addWidget(makeRow(cont2D, "Y Max:", doubleYMax2D));
-            v2D->addWidget(makeRow(cont2D, "Y Min:", doubleYMin2D));
+        // Build two separate containers for 2D and 3D Y settings so we can swap them cleanly
+        auto* cont2D = new QWidget(tree);
+        auto* v2D = new QVBoxLayout(cont2D);
+        v2D->setContentsMargins(0,0,0,0);
+        v2D->setSpacing(6);
+        // 2D controls
+        cmbYType2D = new QComboBox(cont2D);
+        cmbYType2D->addItems({"Linear", "Log"});
+        auto* rowAuto2D = new QWidget(cont2D);
+        auto* hAuto2D = new QHBoxLayout(rowAuto2D);
+        hAuto2D->setContentsMargins(0,0,0,0);
+        hAuto2D->setSpacing(12);
+        auto* lblAuto2D = new QLabel("Auto scale range:", rowAuto2D);
+        lblAuto2D->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
+        checkYAutoExpand2D = new QCheckBox("Expand", rowAuto2D);
+        checkYAutoExpand2D->setChecked(ySettings2D_.autoExpand);
+        checkYAutoShrink2D = new QCheckBox("Shrink", rowAuto2D);
+        checkYAutoShrink2D->setChecked(ySettings2D_.autoShrink);
+        hAuto2D->addWidget(lblAuto2D);
+        hAuto2D->addWidget(checkYAutoExpand2D);
+        hAuto2D->addWidget(checkYAutoShrink2D);
+        hAuto2D->addStretch(1);
+        doubleYMin2D = new SciDoubleSpinBox(cont2D);
+        doubleYMin2D->setRange(-1e9, 1e9);
+        doubleYMin2D->setValue(ySettings2D_.minVal);
+        doubleYMax2D = new SciDoubleSpinBox(cont2D);
+        doubleYMax2D->setRange(-1e9, 1e9);
+        doubleYMax2D->setValue(ySettings2D_.maxVal);
+        cmbYType2D->setToolTip("Linear or logarithmic Y axis for 2D plots. Log requires positive values.");
+        v2D->addWidget(makeRow(cont2D, "Type:", cmbYType2D));
+        doubleYMax2D->setToolTip("Upper Y limit when manual scaling is active (2D).");
+        doubleYMin2D->setToolTip("Lower Y limit when manual scaling is active (2D).");
+        v2D->addWidget(rowAuto2D);
+        v2D->addWidget(makeRow(cont2D, "Y Max:", doubleYMax2D));
+        v2D->addWidget(makeRow(cont2D, "Y Min:", doubleYMin2D));
 
-            // 3D controls
-            auto* cont3D = new QWidget(tree);
-            auto* v3D = new QVBoxLayout(cont3D);
-            v3D->setContentsMargins(0,0,0,0);
-            v3D->setSpacing(6);
-            cmbYType3D = new QComboBox(cont3D);
-            cmbYType3D->addItems({"Linear", "Log"});
-            auto* rowAuto3D = new QWidget(cont3D);
-            auto* hAuto3D = new QHBoxLayout(rowAuto3D);
-            hAuto3D->setContentsMargins(0,0,0,0);
-            hAuto3D->setSpacing(12);
-            auto* lblAuto3D = new QLabel("Auto scale range:", rowAuto3D);
-            lblAuto3D->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
-            checkYAutoExpand3D = new QCheckBox("Expand", rowAuto3D);
-            checkYAutoExpand3D->setChecked(ySettings3D_.autoExpand);
-            checkYAutoShrink3D = new QCheckBox("Shrink", rowAuto3D);
-            checkYAutoShrink3D->setChecked(ySettings3D_.autoShrink);
-            hAuto3D->addWidget(lblAuto3D);
-            hAuto3D->addWidget(checkYAutoExpand3D);
-            hAuto3D->addWidget(checkYAutoShrink3D);
-            hAuto3D->addStretch(1);
-            doubleYMin3D = new SciDoubleSpinBox(cont3D);
-            doubleYMin3D->setRange(-1e9, 1e9);
-            doubleYMin3D->setValue(ySettings3D_.minVal);
-            doubleYMax3D = new SciDoubleSpinBox(cont3D);
-            doubleYMax3D->setRange(-1e9, 1e9);
-            doubleYMax3D->setValue(ySettings3D_.maxVal);
-            cmbYType3D->setToolTip("Linear or logarithmic Y axis for 3D plots. Log requires positive values.");
-            v3D->addWidget(makeRow(cont3D, "Type:", cmbYType3D));
-            doubleYMax3D->setToolTip("Upper Y limit when manual scaling is active (3D).");
-            doubleYMin3D->setToolTip("Lower Y limit when manual scaling is active (3D).");
-            v3D->addWidget(rowAuto3D);
-            v3D->addWidget(makeRow(cont3D, "Y Max:", doubleYMax3D));
-            v3D->addWidget(makeRow(cont3D, "Y Min:", doubleYMin3D));
+        // 3D controls
+        auto* cont3D = new QWidget(tree);
+        auto* v3D = new QVBoxLayout(cont3D);
+        v3D->setContentsMargins(0,0,0,0);
+        v3D->setSpacing(6);
+        cmbYType3D = new QComboBox(cont3D);
+        cmbYType3D->addItems({"Linear", "Log"});
+        auto* rowAuto3D = new QWidget(cont3D);
+        auto* hAuto3D = new QHBoxLayout(rowAuto3D);
+        hAuto3D->setContentsMargins(0,0,0,0);
+        hAuto3D->setSpacing(12);
+        auto* lblAuto3D = new QLabel("Auto scale range:", rowAuto3D);
+        lblAuto3D->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
+        checkYAutoExpand3D = new QCheckBox("Expand", rowAuto3D);
+        checkYAutoExpand3D->setChecked(ySettings3D_.autoExpand);
+        checkYAutoShrink3D = new QCheckBox("Shrink", rowAuto3D);
+        checkYAutoShrink3D->setChecked(ySettings3D_.autoShrink);
+        hAuto3D->addWidget(lblAuto3D);
+        hAuto3D->addWidget(checkYAutoExpand3D);
+        hAuto3D->addWidget(checkYAutoShrink3D);
+        hAuto3D->addStretch(1);
+        doubleYMin3D = new SciDoubleSpinBox(cont3D);
+        doubleYMin3D->setRange(-1e9, 1e9);
+        doubleYMin3D->setValue(ySettings3D_.minVal);
+        doubleYMax3D = new SciDoubleSpinBox(cont3D);
+        doubleYMax3D->setRange(-1e9, 1e9);
+        doubleYMax3D->setValue(ySettings3D_.maxVal);
+        cmbYType3D->setToolTip("Linear or logarithmic Y axis for 3D plots. Log requires positive values.");
+        v3D->addWidget(makeRow(cont3D, "Type:", cmbYType3D));
+        doubleYMax3D->setToolTip("Upper Y limit when manual scaling is active (3D).");
+        doubleYMin3D->setToolTip("Lower Y limit when manual scaling is active (3D).");
+        v3D->addWidget(rowAuto3D);
+        v3D->addWidget(makeRow(cont3D, "Y Max:", doubleYMax3D));
+        v3D->addWidget(makeRow(cont3D, "Y Min:", doubleYMin3D));
 
-            // Shared Y-axis extras container
-            auto* contExtras = new QWidget(tree);
-            auto* vExtras = new QVBoxLayout(contExtras);
-            vExtras->setContentsMargins(0,0,0,0);
-            vExtras->setSpacing(6);
-            spinYTicks = new QSpinBox(contExtras); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
-            spinYTicks->setToolTip("Override automatic Y tick count (0 keeps auto).");
-            // Y axis unit label (shared extras)
-            txtYUnits = new QLineEdit(contExtras);
-            txtYUnits->setPlaceholderText("e.g. Acceleration [m/s^2]");
-            txtYUnits->setToolTip("Units label for Y axis.");
-            connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
+        // Shared Y-axis extras container
+        auto* contExtras = new QWidget(tree);
+        auto* vExtras = new QVBoxLayout(contExtras);
+        vExtras->setContentsMargins(0,0,0,0);
+        vExtras->setSpacing(6);
+        spinYTicks = new QSpinBox(contExtras); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
+        spinYTicks->setToolTip("Override automatic Y tick count (0 keeps auto).");
+        // Y axis unit label (shared extras)
+        txtYUnits = new QLineEdit(contExtras);
+        txtYUnits->setPlaceholderText("e.g. Acceleration [m/s^2]");
+        txtYUnits->setToolTip("Units label for Y axis.");
+        connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
 
-            chkShowYTicks = new QCheckBox("Show tick labels", contExtras); chkShowYTicks->setChecked(true);
-            chkShowYTicks->setToolTip("Show or hide Y axis tick marks and labels.");
-            chkSciY = new QCheckBox("Use scientific notation", contExtras); chkSciY->setChecked(false);
-            chkSciY->setToolTip("Display Y axis tick labels in scientific notation (e.g., 1.5E3). Also formats min/max fields.");
-            vExtras->addWidget(makeRow(contExtras, "Y Label:", txtYUnits));
-            vExtras->addWidget(makeRow(contExtras, "Y ticks (0=auto):", spinYTicks));
-            vExtras->addWidget(chkShowYTicks);
-            vExtras->addWidget(chkSciY);
+        chkShowYTicks = new QCheckBox("Show tick labels", contExtras); chkShowYTicks->setChecked(true);
+        chkShowYTicks->setToolTip("Show or hide Y axis tick marks and labels.");
+        chkSciY = new QCheckBox("Use scientific notation", contExtras); chkSciY->setChecked(false);
+        chkSciY->setToolTip("Display Y axis tick labels in scientific notation (e.g., 1.5E3). Also formats min/max fields.");
+        vExtras->addWidget(makeRow(contExtras, "Y Label:", txtYUnits));
+        vExtras->addWidget(makeRow(contExtras, "Y ticks (0=auto):", spinYTicks));
+        vExtras->addWidget(chkShowYTicks);
+        vExtras->addWidget(chkSciY);
 
-            // Insert items into the tree: two mode-specific items and one extras item
-            yAxis2DItem = new QTreeWidgetItem(ysec);
-            yAxis2DItem->setFirstColumnSpanned(true);
-            tree->setItemWidget(yAxis2DItem, 0, cont2D);
+        // Insert items into the tree: two mode-specific items and one extras item
+        yAxis2DItem = new QTreeWidgetItem(ysec);
+        yAxis2DItem->setFirstColumnSpanned(true);
+        tree->setItemWidget(yAxis2DItem, 0, cont2D);
 
-            yAxis3DItem = new QTreeWidgetItem(ysec);
-            yAxis3DItem->setFirstColumnSpanned(true);
-            tree->setItemWidget(yAxis3DItem, 0, cont3D);
+        yAxis3DItem = new QTreeWidgetItem(ysec);
+        yAxis3DItem->setFirstColumnSpanned(true);
+        tree->setItemWidget(yAxis3DItem, 0, cont3D);
 
-            auto* extrasItem = new QTreeWidgetItem(ysec);
-            extrasItem->setFirstColumnSpanned(true);
-            tree->setItemWidget(extrasItem, 0, contExtras);
+        auto* extrasItem = new QTreeWidgetItem(ysec);
+        extrasItem->setFirstColumnSpanned(true);
+        tree->setItemWidget(extrasItem, 0, contExtras);
 
-            cont2D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            cont3D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            contExtras->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            cont2D->adjustSize(); cont3D->adjustSize(); contExtras->adjustSize();
-            yAxis2DItem->setSizeHint(0, cont2D->sizeHint());
-            yAxis3DItem->setSizeHint(0, cont3D->sizeHint());
-            extrasItem->setSizeHint(0, contExtras->sizeHint());
+        cont2D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        cont3D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        contExtras->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        cont2D->adjustSize(); cont3D->adjustSize(); contExtras->adjustSize();
+        yAxis2DItem->setSizeHint(0, cont2D->sizeHint());
+        yAxis3DItem->setSizeHint(0, cont3D->sizeHint());
+        extrasItem->setSizeHint(0, contExtras->sizeHint());
 
-            // Initially show 2D controls only
-            yAxis2DItem->setHidden(false);
-            yAxis3DItem->setHidden(true);
+        // Initially show 2D controls only
+        yAxis2DItem->setHidden(false);
+        yAxis3DItem->setHidden(true);
 
-            // Initialize disabled/read-only state for current mode
-            updateYAxisControlsVisibility();
+        // Initialize disabled/read-only state for current mode
+        updateYAxisControlsVisibility();
 
-            // Re-wire the existing connects to the new widgets (2D/3D handlers)
-            // 2D wiring
-            connect(cmbYType2D, &QComboBox::currentTextChanged, this, [this](const QString& text){
-                if (ui->cmbPlotMode->currentIndex() == 0) {
-                    bool log = text.contains("log", Qt::CaseInsensitive);
-                    ySettings2D_.logScale = log;
-                    ui->plotCanvas->setYAxisLog(log);
-                    ui->plotCanvas->requestRepaint();
-                }
-            });
-            connect(checkYAutoExpand2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
-            connect(checkYAutoShrink2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
-            connect(doubleYMin2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
-            connect(doubleYMax2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
-            // 3D wiring
-            connect(cmbYType3D, &QComboBox::currentTextChanged, this, [this](const QString& text){ if (ui->cmbPlotMode->currentIndex() == 1) { bool log = text.contains("log", Qt::CaseInsensitive); ySettings3D_.logScale = log; ui->plotCanvas->setYAxisLog(log); ui->plotCanvas->requestRepaint(); } });
-            connect(checkYAutoExpand3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
-            connect(checkYAutoShrink3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
-            connect(doubleYMin3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
-            connect(doubleYMax3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
+        // Re-wire the existing connects to the new widgets (2D/3D handlers)
+        // 2D wiring
+        connect(cmbYType2D, &QComboBox::currentTextChanged, this, [this](const QString& text){
+            if (ui->cmbPlotMode->currentIndex() == 0) {
+                bool log = text.contains("log", Qt::CaseInsensitive);
+                ySettings2D_.logScale = log;
+                ui->plotCanvas->setYAxisLog(log);
+                ui->plotCanvas->requestRepaint();
+            }
+        });
+        connect(checkYAutoExpand2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
+        connect(checkYAutoShrink2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
+        connect(doubleYMin2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
+        connect(doubleYMax2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
+        // 3D wiring
+        connect(cmbYType3D, &QComboBox::currentTextChanged, this, [this](const QString& text){ if (ui->cmbPlotMode->currentIndex() == 1) { bool log = text.contains("log", Qt::CaseInsensitive); ySettings3D_.logScale = log; ui->plotCanvas->setYAxisLog(log); ui->plotCanvas->requestRepaint(); } });
+        connect(checkYAutoExpand3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
+        connect(checkYAutoShrink3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
+        connect(doubleYMin3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
+        connect(doubleYMax3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
 
-            // Wiring for shared Y extras
-            connect(spinYTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts((spinXTicks ? (spinXTicks->value()<=0 ? -1 : spinXTicks->value()) : -1), ny); });
-            connect(chkShowYTicks, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowYTicks(on); });
-            connect(chkSciY, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setScientificTicksY(on);
-                if (ui->cmbPlotMode->currentIndex() == 0) { if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin2D)) s1->setScientific(on); if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax2D)) s2->setScientific(on); }
-                else { if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin3D)) s1->setScientific(on); if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax3D)) s2->setScientific(on); }
-                ui->plotCanvas->requestRepaint(); });
+        // Wiring for shared Y extras
+        connect(spinYTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts((spinXTicks ? (spinXTicks->value()<=0 ? -1 : spinXTicks->value()) : -1), ny); });
+        connect(chkShowYTicks, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowYTicks(on); });
+        connect(chkSciY, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setScientificTicksY(on);
+            if (ui->cmbPlotMode->currentIndex() == 0) { if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin2D)) s1->setScientific(on); if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax2D)) s2->setScientific(on); }
+            else { if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleYMin3D)) s1->setScientific(on); if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleYMax3D)) s2->setScientific(on); }
+            ui->plotCanvas->requestRepaint(); });
     }
 
     // Z-Axis section (shown only in 3D mode)
@@ -1355,7 +1472,9 @@ void PlottingManager::buildSettingsTree() {
         cont->adjustSize();
         it->setSizeHint(0, cont->sizeHint());
 
-        connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShowLegend);
+    connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShowLegend);
+    // Also use the same checkbox to control visibility of 3D group name labels
+    connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShow3DGroupNames);
         connect(chkGrid, &QCheckBox::toggled,   ui->plotCanvas, &PlotCanvas::setShowGrid);
         auto updateBgDot = [this]{
             // try reading palette of canvas background or stored color; we track via setBackgroundColor calls
@@ -1520,22 +1639,36 @@ void PlottingManager::onPlotModeChanged(int index) {
     // Propagate mode to the canvas so it switches rendering paths
     if (ui && ui->plotCanvas) ui->plotCanvas->setPlotMode(is2D ? PlotCanvas::Mode2D : PlotCanvas::Mode3D);
 
-    ui->plotCanvas->requestRepaint();
+    // Hide or show Signal Style section depending on mode (Signal Style is 2D-only)
+    if (signalStyleSection) signalStyleSection->setHidden(!is2D);
 
-    // Ensure time-driven updates run while in 2D mode: start the force timer (which calls requestRepaint)
-    if (is2D) {
-        if (chkPause && chkPause->isChecked()) {
-            forceTimer_.stop();
-        } else if (spinMaxRate) {
+    // Sync global canvas settings (pause, max-rate, data-driven repaint) so the canvas starts in
+    // the correct state immediately after switching modes.
+    if (ui && ui->plotCanvas) {
+        // Pause state
+        bool paused = (chkPause && chkPause->isChecked());
+        ui->plotCanvas->setPaused(paused);
+        // Max rate
+        if (spinMaxRate) ui->plotCanvas->setMaxPlotRateHz(spinMaxRate->value());
+        // Data-driven repaint enabled is the inverse of Force Update
+        bool forceOn = (chkForceUpdate && chkForceUpdate->isChecked());
+        ui->plotCanvas->setDataDrivenRepaintEnabled(!forceOn);
+    }
+
+    // Request an immediate repaint to reflect the new mode and synced settings
+    if (ui && ui->plotCanvas) ui->plotCanvas->requestRepaint();
+
+    // Start or stop the periodic force timer based on the Force Update and Pause controls.
+    // This applies regardless of current plot mode so 3D behaves like 2D when Force Update is enabled.
+    if (chkForceUpdate && chkForceUpdate->isChecked() && !(chkPause && chkPause->isChecked())) {
+        if (spinMaxRate) {
             int hz = spinMaxRate->value(); if (hz <= 0) hz = 30;
             int ms = qMax(1, int(1000.0 / double(hz) + 0.5));
             forceTimer_.start(ms);
         } else {
-            // fallback interval
             forceTimer_.start(33);
         }
     } else {
-        // Stop force timer in 3D mode to avoid unnecessary repaints
         forceTimer_.stop();
     }
 }
@@ -2133,20 +2266,28 @@ void PlottingManager::updateGroups3DList(QTreeWidget* tree) {
     if (tailLineColorDot) tailLineColorDot->setStyleSheet(QString("border-radius:8px; border:1px solid palette(dark); background:%1;").arg(g.tailLineColor.name()));
         if (cmbTailLineStyle) { int pos = cmbTailLineStyle->findText(g.tailLineStyle); if (pos>=0) cmbTailLineStyle->setCurrentIndex(pos); }
         if (spinTailLineWidth) spinTailLineWidth->setValue(g.tailLineWidth);
-        if (cmbTailScatterStyle) { int pos = cmbTailScatterStyle->findText(g.tailScatterStyle); if (pos>=0) cmbTailScatterStyle->setCurrentIndex(pos); }
-        if (spinTailScatterSize) spinTailScatterSize->setValue(g.tailScatterSize);
+        if (spinTailDashLength) spinTailDashLength->setValue(g.tailDashLength);
+        if (spinTailGapLength) spinTailGapLength->setValue(g.tailGapLength);
+    // No plot-type widget; point/line visibility is derived from styles.
         // Toggle visibility of tail controls depending on enabled state
-    if (editTailTimeSpan) editTailTimeSpan->setVisible(g.tailEnabled);
-    if (tailColorDot) tailColorDot->setVisible(g.tailEnabled);
-    if (btnTailPickColor) btnTailPickColor->setVisible(g.tailEnabled);
-        if (cmbTailPointStyle) cmbTailPointStyle->setVisible(g.tailEnabled);
-        if (spinTailPointSize) spinTailPointSize->setVisible(g.tailEnabled);
-    if (tailLineColorDot) tailLineColorDot->setVisible(g.tailEnabled);
-    if (btnTailLinePickColor) btnTailLinePickColor->setVisible(g.tailEnabled);
-        if (cmbTailLineStyle) cmbTailLineStyle->setVisible(g.tailEnabled);
-        if (spinTailLineWidth) spinTailLineWidth->setVisible(g.tailEnabled);
-        if (cmbTailScatterStyle) cmbTailScatterStyle->setVisible(g.tailEnabled);
-        if (spinTailScatterSize) spinTailScatterSize->setVisible(g.tailEnabled);
+    if (tailTimeSpanRow) tailTimeSpanRow->setVisible(g.tailEnabled);
+    if (tailPointColorRow) tailPointColorRow->setVisible(g.tailEnabled);
+    if (tailPointStyleRow) tailPointStyleRow->setVisible(g.tailEnabled);
+    if (tailPointSizeRow) tailPointSizeRow->setVisible(g.tailEnabled);
+    if (tailLineColorRow) tailLineColorRow->setVisible(g.tailEnabled);
+    if (tailLineStyleRow) tailLineStyleRow->setVisible(g.tailEnabled);
+    if (tailLineWidthRow) tailLineWidthRow->setVisible(g.tailEnabled);
+    // Dash rows depend on both enabled and dashed style
+    bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot"));
+    if (tailDashLengthRow) tailDashLengthRow->setVisible(g.tailEnabled && isDashed);
+    if (tailGapLengthRow) tailGapLengthRow->setVisible(g.tailEnabled && isDashed);
+    if (tailDashLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailDashLengthRow->setVisible(g.tailEnabled && isDashed); }
+    if (tailGapLengthRow) { bool isDashed = (cmbTailLineStyle && (cmbTailLineStyle->currentText() == "Dash" || cmbTailLineStyle->currentText() == "Double Dash" || cmbTailLineStyle->currentText() == "Dash-Dot" || cmbTailLineStyle->currentText() == "Dash-Dot-Dot")); tailGapLengthRow->setVisible(g.tailEnabled && isDashed); }
+    // Update the stored content widget size hint so the tree shrinks to fit
+    if (groupStyleContent && groupStyleItem) {
+        groupStyleContent->adjustSize();
+        groupStyleItem->setSizeHint(0, groupStyleContent->sizeHint());
+    }
     });
 
 }
