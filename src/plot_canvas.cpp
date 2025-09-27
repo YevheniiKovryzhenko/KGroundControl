@@ -1345,7 +1345,18 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                             if (!s_r.isEmpty() && !s_p.isEmpty() && !s_y.isEmpty()) {
                                 roll = s_r.last().value; pitch = s_p.last().value; yaw = s_y.last().value; ok=true;
                             }
-                            if (ok) orient = QQuaternion::fromEulerAngles(float(roll), float(pitch), float(yaw));
+                                if (ok) {
+                                    // Heuristic: many sources provide Euler angles in radians. QQuaternion::fromEulerAngles
+                                    // expects degrees. If the measured magnitudes are within a typical radian range
+                                    // (<= 2*pi), convert to degrees. This preserves degrees input as-is.
+                                    double maxAbs = qMax(qAbs(roll), qMax(qAbs(pitch), qAbs(yaw)));
+                                    if (maxAbs <= (2.0 * M_PI + 1e-9)) {
+                                        roll  = roll  * 180.0 / M_PI;
+                                        pitch = pitch * 180.0 / M_PI;
+                                        yaw   = yaw   * 180.0 / M_PI;
+                                    }
+                                    orient = QQuaternion::fromEulerAngles(float(roll), float(pitch), float(yaw));
+                                }
                         }
                         drawAxesHead(p, screenPts.last(), orient, group.headPointSize);
                     } else {
