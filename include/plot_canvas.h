@@ -69,6 +69,9 @@ public:
     void setShowCenterAxes(bool show) { showCenterAxes_ = show; update(); }
     bool showCenterAxes() const { return showCenterAxes_; }
 
+    void setProportionalAxes(bool prop) { proportionalAxes_ = prop; update(); }
+    bool proportionalAxes() const { return proportionalAxes_; }
+
     explicit PlotCanvas(QWidget* parent = nullptr);
     ~PlotCanvas() override;
 
@@ -180,13 +183,15 @@ public:
     // the camera distance was updated, false if there was no data to range.
     bool autoRangeCamera();
 
-    // Camera controls for 3D
-    void setCameraRotationX(float degrees);
-    void setCameraRotationY(float degrees);
+    // Camera controls for 3D (quaternion-based internally)
+    void setCameraOrientation(const QQuaternion& orientation);
     void setCameraDistance(float distance);
-    float cameraRotationX() const { return cameraRotationX_; }
-    float cameraRotationY() const { return cameraRotationY_; }
+    QQuaternion cameraOrientation() const { return cameraOrientation_; }
     float cameraDistance() const { return cameraDistance_; }
+    
+    // UI helpers: convert between quaternion and Euler angles (roll, pitch, yaw)
+    void setCameraFromEuler(float roll, float pitch, float yaw);
+    void getCameraEuler(float& roll, float& pitch, float& yaw) const;
 
     void resetCamera();
 
@@ -202,10 +207,12 @@ public slots:
     void requestRepaint();
 
 signals:
-    // Emitted when the camera parameters change (rotation X, rotation Y, distance)
-    void cameraChanged(float rotX, float rotY, float distance);
-    // Emitted when Y auto-scaling is enabled and the visible Y range changes
+    // Emitted when the camera parameters change (quaternion orientation, distance)
+    void cameraChanged(const QQuaternion& orientation, float distance);
+    // Emitted when auto-scaling is enabled and the visible range changes
+    void xAutoRangeUpdated(double minVal, double maxVal);
     void yAutoRangeUpdated(double minVal, double maxVal);
+    void zAutoRangeUpdated(double minVal, double maxVal);
 
 protected:
     void paintEvent(QPaintEvent* ev) override;
@@ -274,8 +281,9 @@ private:
     // visuals
     bool showCornerAxes_ = true;
     bool showCenterAxes_ = false;
+    bool proportionalAxes_ = true; // Scale axes proportionally to their data ranges
     bool showLegend_ = true;
-    bool showGrid_ = true;
+    bool showGrid_ = false;
     QColor bgColor_ = QColor(Qt::black);
     QString xUnitLabel_ = "s";
     QString yUnitLabel_ = ""; // only draw unit text, not axis label
@@ -299,9 +307,13 @@ private:
     bool draggingLegend_ = false;
     QPoint dragOffset_;
 
-    // last auto Y-range broadcast
+    // Track last auto ranges to avoid redundant signals
+    double lastAutoXMin_ = std::numeric_limits<double>::quiet_NaN();
+    double lastAutoXMax_ = std::numeric_limits<double>::quiet_NaN();
     double lastAutoYMin_ = std::numeric_limits<double>::quiet_NaN();
     double lastAutoYMax_ = std::numeric_limits<double>::quiet_NaN();
+    double lastAutoZMin_ = std::numeric_limits<double>::quiet_NaN();
+    double lastAutoZMax_ = std::numeric_limits<double>::quiet_NaN();
 
     // Default color palette for auto-assignment
     QVector<QColor> paletteColors_;
@@ -313,12 +325,10 @@ private:
     bool show3DGroupNames_ = true;
 
     // 3D simulation (simple orthographic projection for now)
-    float cameraDistance_ = 0.5f;
-    float cameraRotationX_ = 30.0f; // degrees (kept for UI compatibility)
-    float cameraRotationY_ = 45.0f; // degrees (kept for UI compatibility)
-    // Quaternion orientation used internally to avoid gimbal lock. Euler angles are derived from this for
-    // backward-compatible getters/setters; mouse deltas compose into this quaternion.
-    QQuaternion cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    float cameraDistance_ = 0.35f;
+    // Quaternion orientation - THE canonical representation. No Euler angle storage.
+    // All rotations are applied directly to this quaternion to avoid gimbal lock.
+    QQuaternion cameraOrientation_ = QQuaternion::fromEulerAngles(-176.0f, -115.0f, 77.0f);
     QPoint lastMousePos_;
     bool mousePressed_ = false;
     // Arcball visualization and mapping parameters

@@ -51,8 +51,8 @@ PlottingManager::PlottingManager(QWidget* parent)
     // Wire up controls and timers (restores original 2D behaviour)
     connectSignals();
 
-    // Adjust scroll areas to compute sensible single-step sizes
-    adjustScrollAreas();
+    // Set scroll mode to ScrollPerPixel for smooth scrolling
+    connectTreeSignals();
 
     // Configure force update timer to drive canvas repaints when 'Force Max Update Rate' is enabled.
     forceTimer_.setSingleShot(false);
@@ -325,6 +325,28 @@ void PlottingManager::connectSignals() {
         }
     });
 
+    // X Axis live-update
+    connect(ui->plotCanvas, &PlotCanvas::xAutoRangeUpdated, this, [this](double mn, double mx){
+        if (!ui) return;
+        const int mode = ui->cmbPlotMode ? ui->cmbPlotMode->currentIndex() : 0; // 0=2D, 1=3D
+        if (mode == 1) { // Only update for 3D mode
+            if (!(checkXAutoExpand && checkXAutoExpand->isChecked()) && !(checkXAutoShrink && checkXAutoShrink->isChecked())) return;
+            if (doubleXMin) { doubleXMin->blockSignals(true); doubleXMin->setValue(mn); doubleXMin->blockSignals(false); }
+            if (doubleXMax) { doubleXMax->blockSignals(true); doubleXMax->setValue(mx); doubleXMax->blockSignals(false); }
+        }
+    });
+
+    // Z Axis live-update
+    connect(ui->plotCanvas, &PlotCanvas::zAutoRangeUpdated, this, [this](double mn, double mx){
+        if (!ui) return;
+        const int mode = ui->cmbPlotMode ? ui->cmbPlotMode->currentIndex() : 0; // 0=2D, 1=3D
+        if (mode == 1) { // Only update for 3D mode
+            if (!(checkZAutoExpand && checkZAutoExpand->isChecked()) && !(checkZAutoShrink && checkZAutoShrink->isChecked())) return;
+            if (doubleZMin) { doubleZMin->blockSignals(true); doubleZMin->setValue(mn); doubleZMin->blockSignals(false); }
+            if (doubleZMax) { doubleZMax->blockSignals(true); doubleZMax->setValue(mx); doubleZMax->blockSignals(false); }
+        }
+    });
+
     // Style
     connect(cmbLineStyle,  &QComboBox::currentTextChanged, this, &PlottingManager::onStyleChanged);
     connect(spinLineWidth, qOverload<int>(&QSpinBox::valueChanged), this, &PlottingManager::onStyleChanged);
@@ -499,38 +521,60 @@ void PlottingManager::buildSettingsTree() {
         v->setContentsMargins(4,4,4,4);
         v->setSpacing(6);
 
-        // Rotation X
-        auto* rotXLayout = new QHBoxLayout();
-        rotXLayout->addWidget(new QLabel("Rotation X:", cont));
-        auto* spinRotX = new QSpinBox(cont);
-        spinRotX->setRange(-180, 180);
-        spinRotX->setValue(30);
-        spinRotX->setSuffix("°");
-        rotXLayout->addWidget(spinRotX);
-        rotXLayout->addStretch(1);
-        v->addLayout(rotXLayout);
+        // Roll (rotation around X-axis / longitudinal)
+        auto* rollLayout = new QHBoxLayout();
+        rollLayout->addWidget(new QLabel("Roll:", cont));
+        auto* spinRoll = new QSpinBox(cont);
+        spinRoll->setRange(-180, 180);
+        spinRoll->setValue(-115);
+        spinRoll->setSuffix("°");
+        spinRoll->setToolTip("Roll angle (rotation around X/longitudinal axis)");
+        rollLayout->addWidget(spinRoll);
+        rollLayout->addStretch(1);
+        v->addLayout(rollLayout);
 
-        // Rotation Y
-        auto* rotYLayout = new QHBoxLayout();
-        rotYLayout->addWidget(new QLabel("Rotation Y:", cont));
-        auto* spinRotY = new QSpinBox(cont);
-        spinRotY->setRange(-180, 180);
-        spinRotY->setValue(45);
-        spinRotY->setSuffix("°");
-        rotYLayout->addWidget(spinRotY);
-        rotYLayout->addStretch(1);
-        v->addLayout(rotYLayout);
+        // Pitch (rotation around Y-axis / lateral)
+        auto* pitchLayout = new QHBoxLayout();
+        pitchLayout->addWidget(new QLabel("Pitch:", cont));
+        auto* spinPitch = new QSpinBox(cont);
+        spinPitch->setRange(-180, 180);
+        spinPitch->setValue(77);
+        spinPitch->setSuffix("°");
+        spinPitch->setToolTip("Pitch angle (rotation around Y/lateral axis)");
+        pitchLayout->addWidget(spinPitch);
+        pitchLayout->addStretch(1);
+        v->addLayout(pitchLayout);
+
+        // Yaw (rotation around Z-axis / vertical)
+        auto* yawLayout = new QHBoxLayout();
+        yawLayout->addWidget(new QLabel("Yaw:", cont));
+        auto* spinYaw = new QSpinBox(cont);
+        spinYaw->setRange(-180, 180);
+        spinYaw->setValue(-176);
+        spinYaw->setSuffix("°");
+        spinYaw->setToolTip("Yaw angle (rotation around Z/vertical axis)");
+        yawLayout->addWidget(spinYaw);
+        yawLayout->addStretch(1);
+        v->addLayout(yawLayout);
 
         // Distance
         auto* distLayout = new QHBoxLayout();
         distLayout->addWidget(new QLabel("Distance:", cont));
         auto* spinDist = new QDoubleSpinBox(cont);
         spinDist->setRange(0.1, 20.0);
-        spinDist->setValue(5.0);
+        spinDist->setValue(0.35);
         spinDist->setSingleStep(0.5);
         distLayout->addWidget(spinDist);
         distLayout->addStretch(1);
         v->addLayout(distLayout);
+
+        // Initialize camera orientation from spinbox values (convert Euler to quaternion internally)
+        ui->plotCanvas->setCameraFromEuler(
+            float(spinRoll->value()),
+            float(spinPitch->value()),
+            float(spinYaw->value())
+        );
+        ui->plotCanvas->setCameraDistance(spinDist->value());
 
         // Arcball visualization and tuning
         auto* arcballRow = new QWidget(cont);
@@ -538,6 +582,7 @@ void PlottingManager::buildSettingsTree() {
         auto* chkShowArcball = new QCheckBox("Show Arcball", arcballRow);
         chkShowArcball->setToolTip("Show the virtual arcball sphere used for mouse rotation");
         arcballLayout->addWidget(chkShowArcball);
+        chkShowArcball->setCheckState(Qt::Checked);
         arcballLayout->addStretch(1);
         v->addWidget(arcballRow);
 
@@ -569,14 +614,17 @@ void PlottingManager::buildSettingsTree() {
         // Initially hide camera section (shown only in 3D mode)
         camera3DSection->setHidden(true);
 
-        // Wiring: user controls update the canvas
-        connect(spinRotX, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value){
-            ui->plotCanvas->setCameraRotationX(value);
-        });
-
-        connect(spinRotY, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value){
-            ui->plotCanvas->setCameraRotationY(value);
-        });
+        // Wiring: user controls update the canvas (convert Euler to quaternion)
+        auto updateCameraEuler = [this, spinRoll, spinPitch, spinYaw]() {
+            ui->plotCanvas->setCameraFromEuler(
+                float(spinRoll->value()),
+                float(spinPitch->value()),
+                float(spinYaw->value())
+            );
+        };
+        connect(spinRoll, qOverload<int>(&QSpinBox::valueChanged), this, updateCameraEuler);
+        connect(spinPitch, qOverload<int>(&QSpinBox::valueChanged), this, updateCameraEuler);
+        connect(spinYaw, qOverload<int>(&QSpinBox::valueChanged), this, updateCameraEuler);
 
         connect(spinDist, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double value){
             ui->plotCanvas->setCameraDistance(value);
@@ -588,14 +636,19 @@ void PlottingManager::buildSettingsTree() {
         connect(spinSens, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ ui->plotCanvas->setArcballSensitivity(v); });
 
 
-        // And make the UI reflect changes made via mouse interaction by listening to cameraChanged
-        connect(ui->plotCanvas, &PlotCanvas::cameraChanged, this, [spinRotX, spinRotY, spinDist](float rotX, float rotY, float dist){
+        // And make the UI reflect changes made via mouse interaction (convert quaternion to Euler for display)
+        connect(ui->plotCanvas, &PlotCanvas::cameraChanged, this, [this, spinRoll, spinPitch, spinYaw, spinDist](const QQuaternion& quat, float dist){
+            // Convert quaternion to Euler angles for UI display
+            float roll, pitch, yaw;
+            ui->plotCanvas->getCameraEuler(roll, pitch, yaw);
+            
             // Block signals to avoid feedback loop when setting values programmatically
-            spinRotX->blockSignals(true); spinRotY->blockSignals(true); spinDist->blockSignals(true);
-            spinRotX->setValue(int(std::lround(rotX)));
-            spinRotY->setValue(int(std::lround(rotY)));
+            spinRoll->blockSignals(true); spinPitch->blockSignals(true); spinYaw->blockSignals(true); spinDist->blockSignals(true);
+            spinRoll->setValue(int(std::lround(roll)));
+            spinPitch->setValue(int(std::lround(pitch)));
+            spinYaw->setValue(int(std::lround(yaw)));
             spinDist->setValue(dist);
-            spinRotX->blockSignals(false); spinRotY->blockSignals(false); spinDist->blockSignals(false);
+            spinRoll->blockSignals(false); spinPitch->blockSignals(false); spinYaw->blockSignals(false); spinDist->blockSignals(false);
         });
 
         connect(btnReset, &QToolButton::clicked, this, [this]{ui->plotCanvas->resetCamera();});
@@ -628,6 +681,11 @@ void PlottingManager::buildSettingsTree() {
         if (ui && ui->plotCanvas) chkShowCenterAxes->setChecked(ui->plotCanvas->showCenterAxes());
         v->addWidget(chkShowCenterAxes);
 
+        auto* chkProportionalAxes = new QCheckBox("Proportional Axes", cont);
+        chkProportionalAxes->setToolTip("Scale axis lengths proportionally to their data ranges, creating a proper bounding box visualization.");
+        if (ui && ui->plotCanvas) chkProportionalAxes->setChecked(ui->plotCanvas->proportionalAxes());
+        v->addWidget(chkProportionalAxes);
+
         auto* it = new QTreeWidgetItem(coordinateSection);
         it->setFirstColumnSpanned(true);
         tree->setItemWidget(it, 0, cont);
@@ -638,6 +696,7 @@ void PlottingManager::buildSettingsTree() {
         // Wiring
         connect(chkShowCornerAxes, &QCheckBox::toggled, this, [this](bool on){ if (ui && ui->plotCanvas) ui->plotCanvas->setShowCornerAxes(on); });
         connect(chkShowCenterAxes, &QCheckBox::toggled, this, [this](bool on){ if (ui && ui->plotCanvas) ui->plotCanvas->setShowCenterAxes(on); });
+        connect(chkProportionalAxes, &QCheckBox::toggled, this, [this](bool on){ if (ui && ui->plotCanvas) ui->plotCanvas->setProportionalAxes(on); });
 
         // Initially hidden (only show in 3D mode)
         coordinateSection->setHidden(true);
@@ -918,6 +977,7 @@ void PlottingManager::buildSettingsTree() {
         connect(txtXUnits2D, &QLineEdit::textChanged, txtXUnits3D, [txtXUnits3D](const QString& t){ if (txtXUnits3D->text() != t) txtXUnits3D->setText(t); });
         connect(txtXUnits3D, &QLineEdit::textChanged, txtXUnits2D, [txtXUnits2D](const QString& t){ if (txtXUnits2D->text() != t) txtXUnits2D->setText(t); });
         cmbXType->addItems({"Linear", "Log"});
+        cmbXType->setCurrentIndex(xSettings3D_.logScale ? 1 : 0);
         auto* rowAutoX = new QWidget(cont3D);
         auto* hAutoX = new QHBoxLayout(rowAutoX);
         hAutoX->setContentsMargins(0,0,0,0);
@@ -925,19 +985,19 @@ void PlottingManager::buildSettingsTree() {
         auto* lblAutoX = new QLabel("Auto scale range:", rowAutoX);
         lblAutoX->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
         checkXAutoExpand = new QCheckBox("Expand", rowAutoX);
-        checkXAutoExpand->setChecked(true);
+        checkXAutoExpand->setChecked(xSettings3D_.autoExpand);
         checkXAutoShrink = new QCheckBox("Shrink", rowAutoX);
-        checkXAutoShrink->setChecked(true);
+        checkXAutoShrink->setChecked(xSettings3D_.autoShrink);
         hAutoX->addWidget(lblAutoX);
         hAutoX->addWidget(checkXAutoExpand);
         hAutoX->addWidget(checkXAutoShrink);
         hAutoX->addStretch(1);
         doubleXMin = new SciDoubleSpinBox(cont3D);
         doubleXMin->setRange(-1e9, 1e9);
-        doubleXMin->setValue(-1.0);
+        doubleXMin->setValue(xSettings3D_.minVal);
         doubleXMax = new SciDoubleSpinBox(cont3D);
         doubleXMax->setRange(-1e9, 1e9);
-        doubleXMax->setValue(1.0);
+        doubleXMax->setValue(xSettings3D_.maxVal);
         cmbXType->setToolTip("Linear or logarithmic X axis. Log requires positive values.");
         v3D->addWidget(makeRow(cont3D, "Type:", cmbXType));
         doubleXMax->setToolTip("Upper X limit when manual scaling is active.");
@@ -976,9 +1036,10 @@ void PlottingManager::buildSettingsTree() {
         xAxis2DItem->setHidden(false);
         xAxis3DItem->setHidden(true);
 
-        // Initially hide X-axis manual min/max
-        doubleXMin->setEnabled(false); doubleXMin->setReadOnly(true);
-        doubleXMax->setEnabled(false); doubleXMax->setReadOnly(true);
+        // Initialize X-axis manual min/max enabled state based on auto settings
+        bool xAutoEnabled = !(xSettings3D_.autoExpand && xSettings3D_.autoShrink);
+        doubleXMin->setEnabled(xAutoEnabled); doubleXMin->setReadOnly(!xAutoEnabled);
+        doubleXMax->setEnabled(xAutoEnabled); doubleXMax->setReadOnly(!xAutoEnabled);
         // Wiring for X extras
         connect(spinXTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int nx = spinXTicks->value(); if (nx <= 0) nx = -1; ui->plotCanvas->setTickCounts(nx, (spinYTicks ? (spinYTicks->value()<=0 ? -1 : spinYTicks->value()) : -1)); });
         connect(chkShowXTicks, &QCheckBox::toggled, this, [this](bool on){ ui->plotCanvas->setShowXTicks(on); });
@@ -987,6 +1048,44 @@ void PlottingManager::buildSettingsTree() {
             if (auto* s1 = dynamic_cast<SciDoubleSpinBox*>(doubleXMin)) s1->setScientific(on);
             if (auto* s2 = dynamic_cast<SciDoubleSpinBox*>(doubleXMax)) s2->setScientific(on);
             ui->plotCanvas->requestRepaint();
+        });
+
+        // Wiring for X-axis 3D controls
+        connect(cmbXType, &QComboBox::currentTextChanged, this, [this](const QString& text){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                bool log = text.contains("log", Qt::CaseInsensitive);
+                xSettings3D_.logScale = log;
+                ui->plotCanvas->setXAxisLog(log);
+                onXAxisChanged();
+            }
+        });
+        connect(checkXAutoExpand, &QCheckBox::toggled, this, [this](bool checked){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                xSettings3D_.autoExpand = checked;
+                ui->plotCanvas->setXAxisAutoExpand(checked);
+                onXAxisChanged();
+            }
+        });
+        connect(checkXAutoShrink, &QCheckBox::toggled, this, [this](bool checked){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                xSettings3D_.autoShrink = checked;
+                ui->plotCanvas->setXAxisAutoShrink(checked);
+                onXAxisChanged();
+            }
+        });
+        connect(doubleXMin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                xSettings3D_.minVal = val;
+                ui->plotCanvas->setXAxisRange(xSettings3D_.minVal, xSettings3D_.maxVal);
+                onXAxisChanged();
+            }
+        });
+        connect(doubleXMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                xSettings3D_.maxVal = val;
+                ui->plotCanvas->setXAxisRange(xSettings3D_.minVal, xSettings3D_.maxVal);
+                onXAxisChanged();
+            }
         });
     }
 
@@ -1042,8 +1141,15 @@ void PlottingManager::buildSettingsTree() {
         auto* v3D = new QVBoxLayout(cont3D);
         v3D->setContentsMargins(0,0,0,0);
         v3D->setSpacing(6);
+        // Y label for 3D
+        txtYUnits = new QLineEdit(cont3D);
+        txtYUnits->setPlaceholderText("e.g. Acceleration [m/s^2]");
+        txtYUnits->setToolTip("Units label for Y axis.");
+        v3D->addWidget(makeRow(cont3D, "Y Label:", txtYUnits));
+        connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
         cmbYType3D = new QComboBox(cont3D);
         cmbYType3D->addItems({"Linear", "Log"});
+        cmbYType3D->setCurrentIndex(ySettings3D_.logScale ? 1 : 0);
         auto* rowAuto3D = new QWidget(cont3D);
         auto* hAuto3D = new QHBoxLayout(rowAuto3D);
         hAuto3D->setContentsMargins(0,0,0,0);
@@ -1071,30 +1177,19 @@ void PlottingManager::buildSettingsTree() {
         v3D->addWidget(rowAuto3D);
         v3D->addWidget(makeRow(cont3D, "Y Max:", doubleYMax3D));
         v3D->addWidget(makeRow(cont3D, "Y Min:", doubleYMin3D));
-
-        // Shared Y-axis extras container
-        auto* contExtras = new QWidget(tree);
-        auto* vExtras = new QVBoxLayout(contExtras);
-        vExtras->setContentsMargins(0,0,0,0);
-        vExtras->setSpacing(6);
-        spinYTicks = new QSpinBox(contExtras); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
+        // Y ticks, visibility, scientific
+        spinYTicks = new QSpinBox(cont3D); spinYTicks->setRange(0, 20); spinYTicks->setValue(0);
         spinYTicks->setToolTip("Override automatic Y tick count (0 keeps auto).");
-        // Y axis unit label (shared extras)
-        txtYUnits = new QLineEdit(contExtras);
-        txtYUnits->setPlaceholderText("e.g. Acceleration [m/s^2]");
-        txtYUnits->setToolTip("Units label for Y axis.");
-        connect(txtYUnits, &QLineEdit::textChanged, this, [this](const QString& t){ ui->plotCanvas->setYAxisUnitLabel(t); ui->plotCanvas->requestRepaint(); });
-
-        chkShowYTicks = new QCheckBox("Show tick labels", contExtras); chkShowYTicks->setChecked(true);
+        chkShowYTicks = new QCheckBox("Show tick labels", cont3D);
+        chkShowYTicks->setChecked(true);
         chkShowYTicks->setToolTip("Show or hide Y axis tick marks and labels.");
-        chkSciY = new QCheckBox("Use scientific notation", contExtras); chkSciY->setChecked(false);
+        chkSciY = new QCheckBox("Use scientific notation", cont3D); chkSciY->setChecked(false);
         chkSciY->setToolTip("Display Y axis tick labels in scientific notation (e.g., 1.5E3). Also formats min/max fields.");
-        vExtras->addWidget(makeRow(contExtras, "Y Label:", txtYUnits));
-        vExtras->addWidget(makeRow(contExtras, "Y ticks (0=auto):", spinYTicks));
-        vExtras->addWidget(chkShowYTicks);
-        vExtras->addWidget(chkSciY);
+        v3D->addWidget(makeRow(cont3D, "Y ticks (0=auto):", spinYTicks));
+        v3D->addWidget(chkShowYTicks);
+        v3D->addWidget(chkSciY);
 
-        // Insert items into the tree: two mode-specific items and one extras item
+        // Insert items into the tree: two mode-specific items (no more shared extras)
         yAxis2DItem = new QTreeWidgetItem(ysec);
         yAxis2DItem->setFirstColumnSpanned(true);
         tree->setItemWidget(yAxis2DItem, 0, cont2D);
@@ -1103,17 +1198,11 @@ void PlottingManager::buildSettingsTree() {
         yAxis3DItem->setFirstColumnSpanned(true);
         tree->setItemWidget(yAxis3DItem, 0, cont3D);
 
-        auto* extrasItem = new QTreeWidgetItem(ysec);
-        extrasItem->setFirstColumnSpanned(true);
-        tree->setItemWidget(extrasItem, 0, contExtras);
-
         cont2D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         cont3D->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        contExtras->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        cont2D->adjustSize(); cont3D->adjustSize(); contExtras->adjustSize();
+        cont2D->adjustSize(); cont3D->adjustSize();
         yAxis2DItem->setSizeHint(0, cont2D->sizeHint());
         yAxis3DItem->setSizeHint(0, cont3D->sizeHint());
-        extrasItem->setSizeHint(0, contExtras->sizeHint());
 
         // Initially show 2D controls only
         yAxis2DItem->setHidden(false);
@@ -1133,15 +1222,46 @@ void PlottingManager::buildSettingsTree() {
             }
         });
         connect(checkYAutoExpand2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
-        connect(checkYAutoShrink2D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
+        connect(checkYAutoShrink2D, &QCheckBox::toggled, this, [this](bool checked){
+            if (ui->cmbPlotMode->currentIndex() == 0) {
+                ySettings2D_.autoShrink = checked;
+                ui->plotCanvas->setYAxisAutoShrink(checked);
+                onYAxisChanged();
+            }
+        });
         connect(doubleYMin2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
         connect(doubleYMax2D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 0) { ySettings2D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal); ui->plotCanvas->requestRepaint(); } });
         // 3D wiring
-        connect(cmbYType3D, &QComboBox::currentTextChanged, this, [this](const QString& text){ if (ui->cmbPlotMode->currentIndex() == 1) { bool log = text.contains("log", Qt::CaseInsensitive); ySettings3D_.logScale = log; ui->plotCanvas->setYAxisLog(log); ui->plotCanvas->requestRepaint(); } });
+        connect(cmbYType3D, &QComboBox::currentTextChanged, this, [this](const QString& text){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                bool log = text.contains("log", Qt::CaseInsensitive);
+                ySettings3D_.logScale = log;
+                ui->plotCanvas->setYAxisLog(log);
+                onYAxisChanged();
+            }
+        });
         connect(checkYAutoExpand3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoExpand = checked; ui->plotCanvas->setYAxisAutoExpand(checked); onYAxisChanged(); } });
-        connect(checkYAutoShrink3D, &QCheckBox::toggled, this, [this](bool checked){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.autoShrink = checked; ui->plotCanvas->setYAxisAutoShrink(checked); onYAxisChanged(); } });
-        connect(doubleYMin3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.minVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
-        connect(doubleYMax3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ if (ui->cmbPlotMode->currentIndex() == 1) { ySettings3D_.maxVal = val; ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal); ui->plotCanvas->requestRepaint(); } });
+        connect(checkYAutoShrink3D, &QCheckBox::toggled, this, [this](bool checked){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                ySettings3D_.autoShrink = checked;
+                ui->plotCanvas->setYAxisAutoShrink(checked);
+                onYAxisChanged();
+            }
+        });
+        connect(doubleYMin3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                ySettings3D_.minVal = val;
+                ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal);
+                onYAxisChanged();
+            }
+        });
+        connect(doubleYMax3D, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
+            if (ui->cmbPlotMode->currentIndex() == 1) {
+                ySettings3D_.maxVal = val;
+                ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal);
+                onYAxisChanged();
+            }
+        });
 
         // Wiring for shared Y extras
         connect(spinYTicks, qOverload<int>(&QSpinBox::valueChanged), this, [this](int){ int ny = spinYTicks->value(); if (ny <= 0) ny = -1; ui->plotCanvas->setTickCounts((spinXTicks ? (spinXTicks->value()<=0 ? -1 : spinXTicks->value()) : -1), ny); });
@@ -1168,7 +1288,7 @@ void PlottingManager::buildSettingsTree() {
 
         cmbZType = new QComboBox(cont);
         cmbZType->addItems({"Linear", "Log"});
-        cmbZType->setCurrentIndex(zSettings_.logScale ? 1 : 0);
+        cmbZType->setCurrentIndex(zSettings3D_.logScale ? 1 : 0);
         auto* rowAutoZ = new QWidget(cont);
         auto* hAutoZ = new QHBoxLayout(rowAutoZ);
         hAutoZ->setContentsMargins(0,0,0,0);
@@ -1176,19 +1296,19 @@ void PlottingManager::buildSettingsTree() {
         auto* lblAutoZ = new QLabel("Auto scale range:", rowAutoZ);
         lblAutoZ->setToolTip("Autoscale behavior: Expand grows outward; Shrink tightens inward. Uncheck both for manual min/max.");
         checkZAutoExpand = new QCheckBox("Expand", rowAutoZ);
-        checkZAutoExpand->setChecked(zSettings_.autoExpand);
+        checkZAutoExpand->setChecked(zSettings3D_.autoExpand);
         checkZAutoShrink = new QCheckBox("Shrink", rowAutoZ);
-        checkZAutoShrink->setChecked(zSettings_.autoShrink);
+        checkZAutoShrink->setChecked(zSettings3D_.autoShrink);
         hAutoZ->addWidget(lblAutoZ);
         hAutoZ->addWidget(checkZAutoExpand);
         hAutoZ->addWidget(checkZAutoShrink);
         hAutoZ->addStretch(1);
         doubleZMin = new SciDoubleSpinBox(cont);
         doubleZMin->setRange(-1e9, 1e9);
-        doubleZMin->setValue(zSettings_.minVal);
+        doubleZMin->setValue(zSettings3D_.minVal);
         doubleZMax = new SciDoubleSpinBox(cont);
         doubleZMax->setRange(-1e9, 1e9);
-        doubleZMax->setValue(zSettings_.maxVal);
+        doubleZMax->setValue(zSettings3D_.maxVal);
         cmbZType->setToolTip("Linear or logarithmic Z axis. Log requires positive values.");
         v->addWidget(makeRow(cont, "Type:", cmbZType));
         doubleZMax->setToolTip("Upper Z limit when manual scaling is active.");
@@ -1215,44 +1335,36 @@ void PlottingManager::buildSettingsTree() {
         // Initially hide Z-axis section (shown only in 3D mode)
         zAxisSection->setHidden(true);
         // Initialize disabled/read-only state while any Auto is checked
-        bool zAutoEnabled = !(zSettings_.autoExpand && zSettings_.autoShrink);
+        bool zAutoEnabled = !(zSettings3D_.autoExpand && zSettings3D_.autoShrink);
         doubleZMin->setEnabled(zAutoEnabled); doubleZMin->setReadOnly(!zAutoEnabled);
         doubleZMax->setEnabled(zAutoEnabled); doubleZMax->setReadOnly(!zAutoEnabled);
         
         // Wiring for Z-axis controls
         connect(cmbZType, &QComboBox::currentTextChanged, this, [this](const QString& text){
             bool log = text.contains("log", Qt::CaseInsensitive);
-            zSettings_.logScale = log;
+            zSettings3D_.logScale = log;
             ui->plotCanvas->setZAxisLog(log);
-            ui->plotCanvas->requestRepaint();
+            onZAxisChanged();
         });
         connect(checkZAutoExpand, &QCheckBox::toggled, this, [this](bool checked){
-            zSettings_.autoExpand = checked;
+            zSettings3D_.autoExpand = checked;
             ui->plotCanvas->setZAxisAutoExpand(checked);
+            onZAxisChanged();
         });
         connect(checkZAutoShrink, &QCheckBox::toggled, this, [this](bool checked){
-            zSettings_.autoShrink = checked;
+            zSettings3D_.autoShrink = checked;
             ui->plotCanvas->setZAxisAutoShrink(checked);
-            // Update enabled state of min/max controls
-            bool autoEnabled = !(zSettings_.autoExpand && zSettings_.autoShrink);
-            if (doubleZMin) {
-                doubleZMin->setEnabled(autoEnabled);
-                doubleZMin->setReadOnly(!autoEnabled);
-            }
-            if (doubleZMax) {
-                doubleZMax->setEnabled(autoEnabled);
-                doubleZMax->setReadOnly(!autoEnabled);
-            }
+            onZAxisChanged();
         });
         connect(doubleZMin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
-            zSettings_.minVal = val;
-            ui->plotCanvas->setZAxisRange(zSettings_.minVal, zSettings_.maxVal);
-            ui->plotCanvas->requestRepaint();
+            zSettings3D_.minVal = val;
+            ui->plotCanvas->setZAxisRange(zSettings3D_.minVal, zSettings3D_.maxVal);
+            onZAxisChanged();
         });
         connect(doubleZMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
-            zSettings_.maxVal = val;
-            ui->plotCanvas->setZAxisRange(zSettings_.minVal, zSettings_.maxVal);
-            ui->plotCanvas->requestRepaint();
+            zSettings3D_.maxVal = val;
+            ui->plotCanvas->setZAxisRange(zSettings3D_.minVal, zSettings3D_.maxVal);
+            onZAxisChanged();
         });
         
         // Wiring for Z extras
@@ -1625,36 +1737,23 @@ void PlottingManager::buildSettingsTree() {
     onZAxisChanged();
 }
 
-void PlottingManager::adjustScrollAreas() {
-    // Helper to set finer single-step for vertical scrollbars inside top/bottom scroll areas
-    auto adjustFor = [&](QScrollArea* scroll){
-        if (!scroll) return;
-        if (auto* v = scroll->verticalScrollBar()) {
-            // Set a small single step so mouse wheel scroll moves a few pixels rather than large jumps
-            v->setSingleStep(qMax(1, scroll->viewport()->height() / 20));
-            // Use page step as viewport height
-            v->setPageStep(scroll->viewport()->height());
-        }
-        // Ensure the widget is resizable to compute proper extents
-        scroll->setWidgetResizable(true);
+void PlottingManager::connectTreeSignals() {
+    // Connect to expand/collapse events for tree widgets so we recompute scroll steps when layout changes
+    // IMPORTANT: This must only be called ONCE to avoid creating duplicate connections that leak memory
+    if (!ui) return;
+    
+    auto connectTree = [this](QTreeWidget* tree){
+        if (!tree) return;
+        
+        // Set scroll mode to ScrollPerPixel for smooth, fine-grained scrolling
+        // Qt will automatically use appropriate pixel-based steps instead of page-based jumps
+        tree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        tree->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     };
-
-    if (ui) {
-        if (auto* st = ui->scrollTop) adjustFor(st);
-        if (auto* sb = ui->scrollBottom) adjustFor(sb);
-    }
-
-    // Also connect to expand/collapse events for any tree children so we recompute steps when layout changes
-    if (ui) {
-        auto connectTree = [&](QTreeWidget* tree){
-            if (!tree) return;
-            connect(tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem*){ adjustScrollAreas(); });
-            connect(tree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem*){ adjustScrollAreas(); });
-        };
-        connectTree(ui->treeSettings);
-        connectTree(ui->tree3DGroups);
-        if (auto* t = ui->scrollBottomContents->findChild<QTreeWidget*>("treeSignals")) connectTree(t);
-    }
+    
+    connectTree(ui->treeSettings);
+    connectTree(ui->tree3DGroups);
+    if (auto* t = ui->scrollBottomContents->findChild<QTreeWidget*>("treeSignals")) connectTree(t);
 }
 
 void PlottingManager::updateYAxisControlsVisibility() {
@@ -1714,22 +1813,31 @@ void PlottingManager::onPlotModeChanged(int index) {
         ui->plotCanvas->setYAxisAutoShrink(ySettings2D_.autoShrink);
         ui->plotCanvas->setYAxisRange(ySettings2D_.minVal, ySettings2D_.maxVal);
     } else { // 3D mode
+        ui->plotCanvas->setXAxisLog(xSettings3D_.logScale);
+        ui->plotCanvas->setXAxisAutoExpand(xSettings3D_.autoExpand);
+        ui->plotCanvas->setXAxisAutoShrink(xSettings3D_.autoShrink);
+        ui->plotCanvas->setXAxisRange(xSettings3D_.minVal, xSettings3D_.maxVal);
+
         ui->plotCanvas->setYAxisLog(ySettings3D_.logScale);
         ui->plotCanvas->setYAxisAutoExpand(ySettings3D_.autoExpand);
         ui->plotCanvas->setYAxisAutoShrink(ySettings3D_.autoShrink);
         ui->plotCanvas->setYAxisRange(ySettings3D_.minVal, ySettings3D_.maxVal);
         
         // Apply Z-axis settings for 3D mode
-        ui->plotCanvas->setZAxisLog(zSettings_.logScale);
-        ui->plotCanvas->setZAxisAutoExpand(zSettings_.autoExpand);
-        ui->plotCanvas->setZAxisAutoShrink(zSettings_.autoShrink);
-        ui->plotCanvas->setZAxisRange(zSettings_.minVal, zSettings_.maxVal);
+        ui->plotCanvas->setZAxisLog(zSettings3D_.logScale);
+        ui->plotCanvas->setZAxisAutoExpand(zSettings3D_.autoExpand);
+        ui->plotCanvas->setZAxisAutoShrink(zSettings3D_.autoShrink);
+        ui->plotCanvas->setZAxisRange(zSettings3D_.minVal, zSettings3D_.maxVal);
     }
     // Toggle X-axis control visibility and apply mode-specific settings via helpers
     bool is2D = (index == 0);
     // Toggle the X-axis tree items/widgets so only the active mode's controls are present
     if (xAxis2DItem) xAxis2DItem->setHidden(!is2D);
     if (xAxis3DItem) xAxis3DItem->setHidden(is2D);
+    
+    // Toggle the Y-axis tree items/widgets so only the active mode's controls are present
+    if (yAxis2DItem) yAxis2DItem->setHidden(!is2D);
+    if (yAxis3DItem) yAxis3DItem->setHidden(is2D);
 
     // Also keep individual widgets in sync (backwards compatibility)
     if (doubleTimeSpan) doubleTimeSpan->setVisible(is2D);
@@ -1744,6 +1852,15 @@ void PlottingManager::onPlotModeChanged(int index) {
 
     // Propagate mode to the canvas so it switches rendering paths
     if (ui && ui->plotCanvas) ui->plotCanvas->setPlotMode(is2D ? PlotCanvas::Mode2D : PlotCanvas::Mode3D);
+
+    // Update axis control interactivity (enabled/disabled state of min/max based on autoscale toggles)
+    if (!is2D) {
+        onXAxisChanged(); // Updates X-axis min/max enabled state for 3D mode
+    }
+    onYAxisChanged(); // Updates Y-axis min/max enabled state for current mode
+    if (!is2D) {
+        onZAxisChanged(); // Updates Z-axis min/max enabled state for 3D mode
+    }
 
     // Hide or show Signal Style section depending on mode (Signal Style is 2D-only)
     if (signalStyleSection) signalStyleSection->setHidden(!is2D);
@@ -1791,10 +1908,14 @@ void PlottingManager::apply2DAxisSettings() {
 }
 
 void PlottingManager::apply3DAxisSettings() {
-    if (doubleXMin && doubleXMax) ui->plotCanvas->setXAxisRange(doubleXMin->value(), doubleXMax->value());
-    if (cmbXType) ui->plotCanvas->setXAxisLog(cmbXType->currentText().contains("log", Qt::CaseInsensitive));
-    ui->plotCanvas->setXAxisAutoExpand(checkXAutoExpand ? checkXAutoExpand->isChecked() : false);
-    ui->plotCanvas->setXAxisAutoShrink(checkXAutoShrink ? checkXAutoShrink->isChecked() : false);
+    // Apply X-axis 3D settings from structure (same pattern as Y and Z)
+    ui->plotCanvas->setXAxisLog(xSettings3D_.logScale);
+    ui->plotCanvas->setXAxisAutoExpand(xSettings3D_.autoExpand);
+    ui->plotCanvas->setXAxisAutoShrink(xSettings3D_.autoShrink);
+    ui->plotCanvas->setXAxisRange(xSettings3D_.minVal, xSettings3D_.maxVal);
+
+    // Y-axis already applied in onPlotModeChanged
+    // Z-axis already applied in onPlotModeChanged
 }
 
 void PlottingManager::refreshSignalList() {
@@ -2076,6 +2197,7 @@ void PlottingManager::onXAxisChanged() {
         return;
     }
 
+    // 3D mode - use xSettings3D_ structure (same pattern as Y and Z)
     if (!cmbXType) return;
     const bool autoExpand = (checkXAutoExpand ? checkXAutoExpand->isChecked() : false);
     const bool autoShrink = (checkXAutoShrink ? checkXAutoShrink->isChecked() : false);
@@ -2083,9 +2205,12 @@ void PlottingManager::onXAxisChanged() {
     // Gray out and make read-only when any autoscale is on; restore otherwise
     if (doubleXMin) { doubleXMin->setEnabled(!anyAuto); doubleXMin->setReadOnly(anyAuto); }
     if (doubleXMax) { doubleXMax->setEnabled(!anyAuto); doubleXMax->setReadOnly(anyAuto); }
+    xSettings3D_.autoExpand = autoExpand;
+    xSettings3D_.autoShrink = autoShrink;
     ui->plotCanvas->setXAxisAutoExpand(autoExpand);
     ui->plotCanvas->setXAxisAutoShrink(autoShrink);
     const bool log = cmbXType->currentText().contains("log", Qt::CaseInsensitive);
+    xSettings3D_.logScale = log;
     ui->plotCanvas->setXAxisLog(log);
     // Update X min/max display precision dynamically when autoscale updates; also honor scientific toggle
     if (!anyAuto) {
@@ -2102,13 +2227,10 @@ void PlottingManager::onXAxisChanged() {
             };
             setPrec(doubleXMin);
             setPrec(doubleXMax);
-            ui->plotCanvas->setXAxisRange(doubleXMin->value(), doubleXMax->value());
+            xSettings3D_.minVal = doubleXMin->value();
+            xSettings3D_.maxVal = doubleXMax->value();
+            ui->plotCanvas->setXAxisRange(xSettings3D_.minVal, xSettings3D_.maxVal);
         }
-    }
-    // If scientific X is on, we keep spin boxes numeric but increase decimals as above; label formatting handled in canvas
-    if (!anyAuto) {
-        if (doubleXMin && doubleXMax)
-            ui->plotCanvas->setXAxisRange(doubleXMin->value(), doubleXMax->value());
     }
     ui->plotCanvas->requestRepaint();
 }
@@ -2345,9 +2467,6 @@ void PlottingManager::updateGroups3DList(QTreeWidget* tree) {
     tree->header()->setSectionResizeMode(2, QHeaderView::Fixed);
     tree->setColumnWidth(1, gcol1w);
     tree->setColumnWidth(2, gcol2w);
-
-    // Recompute scroll area steps since the tree size changed
-    adjustScrollAreas();
 
     // Selection handling: when a single group is selected, show Group Style section and populate controls
     connect(tree, &QTreeWidget::itemClicked, this, [this, tree](QTreeWidgetItem* item, int col){

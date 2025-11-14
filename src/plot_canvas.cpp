@@ -86,28 +86,40 @@ void PlotCanvas::setEnabledSignals(const QVector<QString>& ids) {
     update();
 }
 
-void PlotCanvas::setCameraRotationX(float degrees) {
-    cameraRotationX_ = degrees;
-    // Clamp to valid range
-    cameraRotationX_ = qBound(-180.0f, cameraRotationX_, 180.0f);
-    // update quaternion to match new euler listing (X then Y)
-    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+// Quaternion-based camera orientation setter
+void PlotCanvas::setCameraOrientation(const QQuaternion& orientation) {
+    cameraOrientation_ = orientation.normalized();
     update();
-    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
-}
-
-void PlotCanvas::setCameraRotationY(float degrees) {
-    cameraRotationY_ = degrees;
-    cameraRotationY_ = qBound(-180.0f, cameraRotationY_, 180.0f);
-    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
-    update();
-    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+    emit cameraChanged(cameraOrientation_, cameraDistance_);
 }
 
 void PlotCanvas::setCameraDistance(float distance) {
     cameraDistance_ = qMax(0.1f, distance);
     update();
-    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+    emit cameraChanged(cameraOrientation_, cameraDistance_);
+}
+
+// UI helper: set camera from Euler angles (converts to quaternion internally)
+void PlotCanvas::setCameraFromEuler(float roll, float pitch, float yaw) {
+    // Clamp angles
+    roll = qBound(-180.0f, roll, 180.0f);
+    pitch = qBound(-180.0f, pitch, 180.0f);
+    yaw = qBound(-180.0f, yaw, 180.0f);
+    
+    // Convert to quaternion (QQuaternion::fromEulerAngles uses pitch, yaw, roll order)
+    cameraOrientation_ = QQuaternion::fromEulerAngles(pitch, yaw, roll);
+    cameraOrientation_.normalize();
+    
+    update();
+    emit cameraChanged(cameraOrientation_, cameraDistance_);
+}
+
+// UI helper: get Euler angles from quaternion
+void PlotCanvas::getCameraEuler(float& roll, float& pitch, float& yaw) const {
+    QVector3D euler = cameraOrientation_.toEulerAngles();
+    pitch = euler.x();
+    yaw = euler.y();
+    roll = euler.z();
 }
 
 void PlotCanvas::setTimeWindowSec(double seconds) {
@@ -189,15 +201,14 @@ void PlotCanvas::setPaused(bool paused) {
 
 void PlotCanvas::resetCamera() {
     // Reset rotations to sensible defaults and auto-range distance to fit data
-    cameraRotationX_ = 30.0f;
-    cameraRotationY_ = 45.0f;
-    cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    cameraOrientation_ = QQuaternion::fromEulerAngles(-176.0f, -115.0f, 77.0f);
+    cameraOrientation_.normalize();
     // If data exists, compute distance to fit it; otherwise fall back to default
     if (!autoRangeCamera()) {
-        cameraDistance_ = 5.0f;
+        cameraDistance_ = 0.35f;
     }
     update();
-    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+    emit cameraChanged(cameraOrientation_, cameraDistance_);
 }
 
 bool PlotCanvas::autoRangeCamera() {
@@ -268,7 +279,7 @@ bool PlotCanvas::autoRangeCamera() {
     if (maxAbs <= 1e-6f) {
         // Degenerate: all points collapse to a single spot; pick a reasonable distance
         cameraDistance_ = 5.0f;
-        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+        emit cameraChanged(cameraOrientation_, cameraDistance_);
         update();
         return true;
     }
@@ -278,7 +289,7 @@ bool PlotCanvas::autoRangeCamera() {
     // Ensure reasonable bounds
     desired = qBound(0.05f, desired, 1e6f);
     cameraDistance_ = desired;
-    emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+    emit cameraChanged(cameraOrientation_, cameraDistance_);
     update();
     return true;
 }
@@ -322,15 +333,8 @@ void PlotCanvas::paintEvent(QPaintEvent* ev) {
     if (!registry_) return;
 
     // In 3D mode we render based on 3D groups (not per-signal enabled list).
-    // Allow entering 3D even when `enabledIds_` is empty as long as there is
-    // at least one enabled 3D group. In 2D we still require enabled signals.
+    // Always render 3D scene (axes, grid) even if no groups are enabled yet
     if (mode_ == Mode3D) {
-        bool anyGroupEnabled = false;
-        for (const auto& g : groups3D_) {
-            if (g.enabled) { anyGroupEnabled = true; break; }
-        }
-        if (!anyGroupEnabled) return;
-
         // 3D mode - render groups as 3D points
         // Always render the 3D scene even when paused so the last frame remains visible
         render3D(p, rect());
@@ -886,15 +890,10 @@ void PlotCanvas::mouseMoveEvent(QMouseEvent* ev) {
                 QQuaternion qDelta = QQuaternion::fromAxisAndAngle(axis_world, angleDeg);
                 cameraOrientation_ = cameraOrientation_ * qDelta;
                 cameraOrientation_.normalize();
-
-                // Update Euler approximation for UI
-                QVector3D e = cameraOrientation_.toEulerAngles();
-                cameraRotationX_ = e.x();
-                cameraRotationY_ = e.y();
         }
 
         update();
-        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+        emit cameraChanged(cameraOrientation_, cameraDistance_);
         ev->accept();
         return;
     } else if (mode_ == Mode2D && draggingLegend_) {
@@ -916,7 +915,7 @@ void PlotCanvas::mouseReleaseEvent(QMouseEvent* ev) {
         arcFadeStartMs_ = monotonic_.elapsed();
         // leave lastArc_v0_/v1_ so the release arc can be shown during fade-out
         update();
-        emit cameraChanged(cameraRotationX_, cameraRotationY_, cameraDistance_);
+        emit cameraChanged(cameraOrientation_, cameraDistance_);
         ev->accept();
         return;
     } else if (mode_ == Mode2D && draggingLegend_) {
@@ -990,11 +989,16 @@ QString PlotCanvas::legendTextFor(const QString& id) const {
 }
 
 void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
-    if (!registry_ || groups3D_.isEmpty()) {
+    if (!registry_) {
         p.setPen(QPen(Qt::white));
-        p.drawText(rect, Qt::AlignCenter, "3D Mode\nCreate groups and assign signals\nto start plotting");
+        p.drawText(rect, Qt::AlignCenter, "3D Mode\nNo signal registry available");
         return;
     }
+
+    // Choose text color contrasting with background (same as 2D mode)
+    QColor baseBg = bgColor_.isValid() ? bgColor_ : palette().base().color();
+    const int yiq = ((baseBg.red()*299) + (baseBg.green()*587) + (baseBg.blue()*114)) / 1000;
+    const QColor axisColor = (yiq < 128) ? QColor(220,220,220) : QColor(60,60,60);
 
     // Set up 3D projection matrices
     const float centerX = rect.width() / 2.0f;
@@ -1002,9 +1006,7 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     const float scale = qMin(rect.width(), rect.height()) / 10.0f; // Scale to fit in view
 
     // Use quaternion orientation for rotation to avoid gimbal lock
-    // Ensure cameraOrientation_ is up-to-date with Euler angles if it was never set
-    // (cameraRotationX_/Y_ kept for backward compatibility)
-    if (cameraOrientation_.isIdentity()) cameraOrientation_ = QQuaternion::fromEulerAngles(cameraRotationX_, cameraRotationY_, 0.0f);
+    cameraOrientation_.normalize();
 
     // Collect samples for each signal and compute per-dimension min/max across recent samples
     QHash<QString, double> latestValues;
@@ -1083,6 +1085,21 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     minX = xr.first; maxX = xr.second;
     minY = yr.first; maxY = yr.second;
     minZ = zr.first; maxZ = zr.second;
+    
+    // Emit signals only when values actually change to avoid UI freeze from redundant updates
+    if ((xAutoExpand_ || xAutoShrink_) && (!qFuzzyCompare(lastAutoXMin_, minX) || !qFuzzyCompare(lastAutoXMax_, maxX))) {
+        lastAutoXMin_ = minX; lastAutoXMax_ = maxX;
+        emit xAutoRangeUpdated(minX, maxX);
+    }
+    if ((yAutoExpand_ || yAutoShrink_) && (!qFuzzyCompare(lastAutoYMin_, minY) || !qFuzzyCompare(lastAutoYMax_, maxY))) {
+        lastAutoYMin_ = minY; lastAutoYMax_ = maxY;
+        emit yAutoRangeUpdated(minY, maxY);
+    }
+    if ((zAutoExpand_ || zAutoShrink_) && (!qFuzzyCompare(lastAutoZMin_, minZ) || !qFuzzyCompare(lastAutoZMax_, maxZ))) {
+        lastAutoZMin_ = minZ; lastAutoZMax_ = maxZ;
+        emit zAutoRangeUpdated(minZ, maxZ);
+    }
+    
     // Cache the ranges used for projection so drawCenterAxes can project world (0,0,0) consistently
     renderMinX_ = minX; renderMaxX_ = maxX;
     renderMinY_ = minY; renderMaxY_ = maxY;
@@ -1157,11 +1174,26 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         // Ensure ranges valid
         ensureRange(gminX, gmaxX); ensureRange(gminY, gmaxY); ensureRange(gminZ, gmaxZ);
 
-        // Normalize points into [-1,1] cube and transform/project each one
-        auto normv = [](double v, double lo, double hi){ if (hi - lo <= 0) return 0.0; return 2.0 * ( (v - lo) / (hi - lo) ) - 1.0; };
+        // Use global axis bounds for normalization to keep data aligned with axes
+        // (data will be clipped to axis ranges)
+        auto normv = [](double v, double lo, double hi, bool logScale) {
+            if (hi - lo <= 0) return 0.0;
+            if (logScale) {
+                // Apply log transform: ensure positive values
+                if (v <= 0 || lo <= 0 || hi <= 0) return 0.0; // Skip invalid values for log scale
+                double logV = std::log10(v);
+                double logLo = std::log10(lo);
+                double logHi = std::log10(hi);
+                if (logHi - logLo <= 0) return 0.0;
+                return 2.0 * ((logV - logLo) / (logHi - logLo)) - 1.0;
+            } else {
+                return 2.0 * ((v - lo) / (hi - lo)) - 1.0;
+            }
+        };
         QVector<QPointF> screenPts; screenPts.reserve(pts.size());
         for (const auto& v : pts) {
-            QVector3D npt(normv(v.x(), gminX, gmaxX), normv(v.y(), gminY, gmaxY), normv(v.z(), gminZ, gmaxZ));
+            // Use global axis min/max (minX, maxX, etc.) for normalization
+            QVector3D npt(normv(v.x(), minX, maxX, xLog_), normv(v.y(), minY, maxY, yLog_), normv(v.z(), minZ, maxZ, zLog_));
             // rotate using quaternion
             QVector3D r = cameraOrientation_.rotatedVector(npt);
             float sx = centerX + r.x() * scale / cameraDistance_;
@@ -1253,13 +1285,21 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         } else {
             // Optionally filter points by tailTimeSpanSec (only keep those within last T seconds)
             if (group.tailTimeSpanSec > 0.0) {
-                // timesOrdered aligns with pts/screenPts indices
-                qint64 lastT = timesOrdered.last();
+                // Use current time (or paused time) instead of last data timestamp so old data expires even when updates stop
+                qint64 nowNs = paused_ ? pausedTimeNs_ : (QDateTime::currentMSecsSinceEpoch() * 1000000LL); // Convert ms to ns
                 double spanNs = group.tailTimeSpanSec * 1e9;
-                int startIdx = 0;
+                int startIdx = -1; // -1 means no valid points found
                 for (int i = 0; i < timesOrdered.size(); ++i) {
-                    if (timesOrdered.at(i) >= lastT - qint64(spanNs)) { startIdx = i; break; }
+                    if (timesOrdered.at(i) >= nowNs - qint64(spanNs)) { 
+                        startIdx = i; 
+                        break; 
+                    }
                 }
+                // If all data is too old, clear the display
+                if (startIdx < 0) {
+                    continue; // Skip this group entirely - all data expired
+                }
+                // Otherwise filter to keep only recent points
                 if (startIdx > 0) {
                     QVector<QPointF> tmp; tmp.reserve(M - startIdx);
                     for (int i = startIdx; i < screenPts.size(); ++i) tmp.append(screenPts[i]);
@@ -1376,6 +1416,8 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     // Draw world-aligned inertial axes based on bounding box ranges (minX..maxX etc.).
     // These axes are defined in world coordinates and their tick marks/labels are projected
     // into screen space so they stay locked to the inertial frame while remaining readable.
+    
+    // Standard projection for data points (no proportional scaling)
     auto projectWorld = [&](const QVector3D& v)->QPointF{
         // Normalize into [-1,1] cube using global min/max (computed above)
         auto normv_local = [](double val, double lo, double hi){ if (hi - lo <= 0.0) return 0.0; return 2.0 * ( (val - lo) / (hi - lo) ) - 1.0; };
@@ -1386,17 +1428,45 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         float sy = centerY - r.y() * scale / cameraDistance_;
         return QPointF(sx, sy);
     };
+    
+    // Calculate scale factors for proportional axes (if enabled)
+    double xScale = 1.0, yScale = 1.0, zScale = 1.0;
+    if (proportionalAxes_) {
+        double xRange = maxX - minX;
+        double yRange = maxY - minY;
+        double zRange = maxZ - minZ;
+        double maxRange = qMax(xRange, qMax(yRange, zRange));
+        if (maxRange > 0.0) {
+            xScale = xRange / maxRange;
+            yScale = yRange / maxRange;
+            zScale = zRange / maxRange;
+        }
+    }
+    
+    // Projection for axes with proportional scaling applied
+    auto projectWorldAxis = [&](const QVector3D& v)->QPointF{
+        // Normalize into [-1,1] cube using global min/max, then apply proportional scaling
+        auto normv_local = [](double val, double lo, double hi){ if (hi - lo <= 0.0) return 0.0; return 2.0 * ( (val - lo) / (hi - lo) ) - 1.0; };
+        QVector3D npt(normv_local(v.x(), minX, maxX) * xScale, 
+                      normv_local(v.y(), minY, maxY) * yScale, 
+                      normv_local(v.z(), minZ, maxZ) * zScale);
+        // rotate using quaternion orientation
+        QVector3D r = cameraOrientation_.rotatedVector(npt);
+        float sx = centerX + r.x() * scale / cameraDistance_;
+        float sy = centerY - r.y() * scale / cameraDistance_;
+        return QPointF(sx, sy);
+    };
 
-    // Axis endpoints in world coordinates (origin at min corner)
+    // Axis endpoints in world coordinates (origin at min corner) - always use full ranges
     QVector3D origin(minX, minY, minZ);
     QVector3D xEnd(maxX, minY, minZ);
     QVector3D yEnd(minX, maxY, minZ);
     QVector3D zEnd(minX, minY, maxZ);
 
-    QPointF p0 = projectWorld(origin);
-    QPointF px = projectWorld(xEnd);
-    QPointF py = projectWorld(yEnd);
-    QPointF pz = projectWorld(zEnd);
+    QPointF p0 = projectWorldAxis(origin);
+    QPointF px = projectWorldAxis(xEnd);
+    QPointF py = projectWorldAxis(yEnd);
+    QPointF pz = projectWorldAxis(zEnd);
 
     // Optional: draw arcball visualization (circle) in the center of the canvas
     // Arcball visualization: draw a projected wireframe sphere (sectors/bands) with fade
@@ -1554,7 +1624,7 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     double stepY = niceStep(maxY - minY, desiredTicks);
     double stepZ = niceStep(maxZ - minZ, desiredTicks);
 
-    auto drawAxisTicks = [&](double lo, double hi, const QVector3D& anchorOffset, const QPointF& pAxisStart, const QPointF& pAxisEnd, const QString& axisName, int tickCountOverride, bool sciFlag){
+    auto drawAxisTicks = [&](double lo, double hi, const QVector3D& anchorOffset, const QPointF& pAxisStart, const QPointF& pAxisEnd, const QString& axisName, const QString& userLabel, int tickCountOverride, bool sciFlag){
         if (!(hi > lo)) return;
         double worldRange = hi - lo;
         // Determine desired ticks: override from UI if provided, else base on axis screen length
@@ -1570,7 +1640,7 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
             if (axisName == "X") w.setX(v);
             else if (axisName == "Y") w.setY(v);
             else if (axisName == "Z") w.setZ(v);
-            QPointF tp = projectWorld(w);
+            QPointF tp = projectWorldAxis(w);
             tickPts.append(tp); tickVals.append(v);
         }
         if (tickPts.isEmpty()) return;
@@ -1578,7 +1648,7 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     QPointF dirN = axisDirScreen / axisPixelLen;
     QPointF perp(-dirN.y(), dirN.x());
         const double tickLen = qMin(10.0, axisPixelLen * 0.02);
-        p.setPen(QPen(Qt::lightGray, 1));
+        p.setPen(QPen(axisColor, 1));
         QFontMetrics fm = p.fontMetrics();
 
         // Format label helper
@@ -1595,8 +1665,9 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         };
 
         // Avoid label collisions: only draw labels when they fit and don't overlap previous drawn label
+        // Skip first tick (i=0) to avoid overlapping labels at the origin where all axes meet
         qreal lastLabelPos = -1e9;
-        for (int i = 0; i < tickPts.size(); ++i) {
+        for (int i = 1; i < tickPts.size(); ++i) {
             QPointF t = tickPts[i];
             QPointF a = t - perp * (tickLen/2.0);
             QPointF b = t + perp * (tickLen/2.0);
@@ -1611,16 +1682,118 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
             p.drawText(labelPos, label);
             lastLabelPos = along + labelW * 0.5;
         }
-        // Draw axis name at endpoint
-        p.setPen(QPen(Qt::white));
-        p.drawText(pAxisEnd + QPointF(6, -6), axisName);
+        
+        // Draw fixed axis name (X, Y, or Z) directly along the axis, beyond the endpoint
+        p.save(); // Save state before making font bold
+        p.setPen(QPen(axisColor));
+        QFont boldFont = p.font(); boldFont.setBold(true); p.setFont(boldFont);
+        QFontMetrics fmBold(boldFont);
+        // Position label along axis direction, offset further beyond endpoint
+        double labelOffset = fmBold.horizontalAdvance(axisName) * 0.5 + 25; // Half label width + increased spacing
+        QPointF labelPos = pAxisEnd + dirN * labelOffset;
+        // Center the text at this position
+        p.drawText(labelPos - QPointF(fmBold.horizontalAdvance(axisName) * 0.5, -fmBold.height() * 0.3), axisName);
+        p.restore(); // Restore font to normal
+        
+        // Draw user-defined axis label at the center of the axis (if provided)
+        if (!userLabel.isEmpty()) {
+            QPointF axisCenter = (pAxisStart + pAxisEnd) / 2.0;
+            
+            p.save();
+            p.setPen(QPen(axisColor));
+            QFontMetrics fmUser = p.fontMetrics(); // Use current (normal) font
+            
+            // Calculate rotation angle from axis direction
+            double angle = std::atan2(dirN.y(), dirN.x()) * 180.0 / M_PI;
+            
+            // Flip label to opposite side if text would be upside down (angle > 90° or < -90°)
+            // This keeps text readable while maintaining parallel alignment with axis
+            QPointF labelSide = perp;
+            if (angle > 90.0 || angle < -90.0) {
+                angle += 180.0; // Rotate text 180° to keep it right-side up
+                labelSide = -perp; // Flip to opposite side of axis
+            }
+            
+            // Position label perpendicular to axis, further out than tick labels
+            QPointF labelOffset = labelSide * (tickLen + fm.height() + fmUser.height() + 15);
+            QPointF userLabelPos = axisCenter + labelOffset;
+            
+            p.translate(userLabelPos);
+            p.rotate(angle);
+            // Draw centered at origin after rotation
+            p.drawText(QPointF(-fmUser.horizontalAdvance(userLabel) * 0.5, fmUser.height() * 0.3), userLabel);
+            p.restore();
+        }
     };
 
     // anchorOffset is the origin (min corner)
     QVector3D anchor(minX, minY, minZ);
-    drawAxisTicks(minX, maxX, anchor, p0, px, "X", tickCountX_, sciX_);
-    drawAxisTicks(minY, maxY, anchor, p0, py, "Y", tickCountY_, sciY_);
-    drawAxisTicks(minZ, maxZ, anchor, p0, pz, "Z", tickCountZ_, sciZ_);
+    
+    // Draw 3D grid if enabled (on three faces adjacent to origin corner)
+    if (showGrid_) {
+        // Compute tick positions for each axis
+        auto computeTicks = [&](double lo, double hi, int tickCountOverride) -> QVector<double> {
+            QVector<double> ticks;
+            if (!(hi > lo)) return ticks;
+            double worldRange = hi - lo;
+            int desiredTicks = (tickCountOverride > 0) ? tickCountOverride : 5;
+            double step = niceStep(worldRange, desiredTicks);
+            double first = std::ceil(lo / step) * step;
+            for (double v = first; v <= hi + 1e-12; v += step) {
+                ticks.append(v);
+            }
+            return ticks;
+        };
+        
+        QVector<double> xTicks = computeTicks(minX, maxX, tickCountX_);
+        QVector<double> yTicks = computeTicks(minY, maxY, tickCountY_);
+        QVector<double> zTicks = computeTicks(minZ, maxZ, tickCountZ_);
+        
+        // Draw grid lines with subtle color
+        QPen gridPen(QColor(100, 100, 100), 1);
+        p.setPen(gridPen);
+        
+        // YZ plane (at minX) - grid parallel to Y and Z axes
+        for (double y : yTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(minX, y, minZ));
+            QPointF pt2 = projectWorldAxis(QVector3D(minX, y, maxZ));
+            p.drawLine(pt1, pt2);
+        }
+        for (double z : zTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(minX, minY, z));
+            QPointF pt2 = projectWorldAxis(QVector3D(minX, maxY, z));
+            p.drawLine(pt1, pt2);
+        }
+        
+        // XZ plane (at minY) - grid parallel to X and Z axes
+        for (double x : xTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(x, minY, minZ));
+            QPointF pt2 = projectWorldAxis(QVector3D(x, minY, maxZ));
+            p.drawLine(pt1, pt2);
+        }
+        for (double z : zTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(minX, minY, z));
+            QPointF pt2 = projectWorldAxis(QVector3D(maxX, minY, z));
+            p.drawLine(pt1, pt2);
+        }
+        
+        // XY plane (at minZ) - grid parallel to X and Y axes
+        for (double x : xTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(x, minY, minZ));
+            QPointF pt2 = projectWorldAxis(QVector3D(x, maxY, minZ));
+            p.drawLine(pt1, pt2);
+        }
+        for (double y : yTicks) {
+            QPointF pt1 = projectWorldAxis(QVector3D(minX, y, minZ));
+            QPointF pt2 = projectWorldAxis(QVector3D(maxX, y, minZ));
+            p.drawLine(pt1, pt2);
+        }
+    }
+    
+    // xTitle_, yUnitLabel_, zUnitLabel_ are user-defined axis labels
+    drawAxisTicks(minX, maxX, anchor, p0, px, "X", xTitle_, tickCountX_, sciX_);
+    drawAxisTicks(minY, maxY, anchor, p0, py, "Y", yUnitLabel_, tickCountY_, sciY_);
+    drawAxisTicks(minZ, maxZ, anchor, p0, pz, "Z", zUnitLabel_, tickCountZ_, sciZ_);
 
     // Draw small inertial axes frame in the bottom right corner if enabled
     if (showCornerAxes_)
@@ -1640,7 +1813,8 @@ void PlotCanvas::drawCornerAxes(QPainter& p, const QRect& rect) const {
     const double desiredPx = qBound(16.0, double(shortSide) * 0.08, 120.0);
     // Compute arrow/head size and add extra bottom inset so heads don't overlap the plot border
     const double arrowHead = qMax(6.0, desiredPx * 0.22);
-    QPoint origin(rect.right() - margin - int(desiredPx), rect.bottom() - margin - int(arrowHead * 1.2));
+    // Increased vertical offset to prevent running into lower boundary
+    QPoint origin(rect.right() - margin - int(desiredPx), rect.bottom() - margin - int(desiredPx));
 
     // Axes directions in 3D (unit vectors)
     QVector3D xAxis(1, 0, 0);
@@ -1688,7 +1862,7 @@ void PlotCanvas::drawCornerAxes(QPainter& p, const QRect& rect) const {
     drawArrowHead(yEnd, origin, Qt::green);
     drawArrowHead(zEnd, origin, Qt::blue);
 
-    // Axis labels (offset from arrow tips)
+    // Axis labels at tips - always show fixed X, Y, Z
     QFont font = p.font(); font.setBold(true); p.setFont(font);
     p.setPen(Qt::red);   p.drawText(xEnd + QPoint(4, 0), "X");
     p.setPen(Qt::green); p.drawText(yEnd + QPoint(-10, -4), "Y");
@@ -1763,7 +1937,7 @@ void PlotCanvas::drawCenterAxes(QPainter& p, const QRect& rect) const {
     drawArrowHead(py, pOrig, Qt::green);
     drawArrowHead(pz, pOrig, Qt::blue);
 
-    // Labels near tips
+    // Labels at tips - always fixed X, Y, Z
     QFont font = p.font(); font.setBold(true); p.setFont(font);
     p.setPen(Qt::red); p.drawText(px + QPointF(4, 0), "X");
     p.setPen(Qt::green); p.drawText(py + QPointF(-10, -4), "Y");

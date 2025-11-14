@@ -47,8 +47,8 @@ private:
     void updateYAxisControlsVisibility();
     void onPlotModeChanged(int index);
 
-    // Adjust scroll step sizes for contained scroll areas to make mouse-wheel scrolling finer-grained
-    void adjustScrollAreas();
+    // Set scroll mode to ScrollPerPixel for smooth, fine-grained scrolling
+    void connectTreeSignals();
 
     // Controls created programmatically and embedded into the tree
     QDoubleSpinBox* doubleTimeSpan = nullptr;
@@ -194,26 +194,29 @@ private:
 
     int selectedGroupIndex_ = -1;
 
-    // Separate Y-axis settings for 2D and 3D modes
-    struct YAxisSettings {
+    // Axis settings structure for 3D plotting (X, Y, Z all use same structure)
+    struct AxisSettings3D {
         bool autoExpand = true;
-        bool autoShrink = true;
+        bool autoShrink = false;
         double minVal = -1.0;
         double maxVal = 1.0;
         bool logScale = false;
     };
-    YAxisSettings ySettings2D_;
-    YAxisSettings ySettings3D_;
 
-    // Z-axis settings (for 3D plotting)
-    struct ZAxisSettings {
+    // 3D mode axis settings (X, Y, Z)
+    AxisSettings3D xSettings3D_;
+    AxisSettings3D ySettings3D_;
+    AxisSettings3D zSettings3D_;
+
+    // Separate Y-axis settings for 2D mode only
+    struct YAxisSettings2D {
         bool autoExpand = true;
-        bool autoShrink = true;
+        bool autoShrink = false;
         double minVal = -1.0;
         double maxVal = 1.0;
         bool logScale = false;
     };
-    ZAxisSettings zSettings_;
+    YAxisSettings2D ySettings2D_;
 
     // Force update timer to animate plot with no data
     QTimer          forceTimer_;
