@@ -101,10 +101,15 @@ void PlotCanvas::setCameraDistance(float distance) {
 
 // UI helper: set camera from Euler angles (converts to quaternion internally)
 void PlotCanvas::setCameraFromEuler(float roll, float pitch, float yaw) {
-    // Clamp angles
-    roll = qBound(-180.0f, roll, 180.0f);
-    pitch = qBound(-180.0f, pitch, 180.0f);
-    yaw = qBound(-180.0f, yaw, 180.0f);
+    // Wrap angles to [-180, 180] range instead of clamping
+    auto wrapAngle = [](float angle) -> float {
+        angle = std::fmod(angle + 180.0f, 360.0f);
+        if (angle < 0.0f) angle += 360.0f;
+        return angle - 180.0f;
+    };
+    roll = wrapAngle(roll);
+    pitch = wrapAngle(pitch);
+    yaw = wrapAngle(yaw);
     
     // Convert to quaternion (QQuaternion::fromEulerAngles uses pitch, yaw, roll order)
     cameraOrientation_ = QQuaternion::fromEulerAngles(pitch, yaw, roll);
@@ -120,6 +125,16 @@ void PlotCanvas::getCameraEuler(float& roll, float& pitch, float& yaw) const {
     pitch = euler.x();
     yaw = euler.y();
     roll = euler.z();
+    
+    // Wrap angles to [-180, 180] range for consistent UI display
+    auto wrapAngle = [](float angle) -> float {
+        angle = std::fmod(angle + 180.0f, 360.0f);
+        if (angle < 0.0f) angle += 360.0f;
+        return angle - 180.0f;
+    };
+    roll = wrapAngle(roll);
+    pitch = wrapAngle(pitch);
+    yaw = wrapAngle(yaw);
 }
 
 void PlotCanvas::setTimeWindowSec(double seconds) {
@@ -1376,7 +1391,10 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                             if (!s_qx.isEmpty() && !s_qy.isEmpty() && !s_qz.isEmpty() && !s_qw.isEmpty()) {
                                 qx = s_qx.last().value; qy = s_qy.last().value; qz = s_qz.last().value; qw = s_qw.last().value; ok=true;
                             }
-                            if (ok) orient = QQuaternion(float(qw), float(qx), float(qy), float(qz));
+                            if (ok) {
+                                orient = QQuaternion(float(qw), float(qx), float(qy), float(qz));
+                                orient.normalize();
+                            }
                         } else if (group.attitudeMode == "Euler") {
                             double roll=0,pitch=0,yaw=0; bool ok=false;
                             const auto s_r = registry_->getSamples(group.rollSignal);
@@ -1386,16 +1404,40 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                                 roll = s_r.last().value; pitch = s_p.last().value; yaw = s_y.last().value; ok=true;
                             }
                                 if (ok) {
-                                    // Heuristic: many sources provide Euler angles in radians. QQuaternion::fromEulerAngles
-                                    // expects degrees. If the measured magnitudes are within a typical radian range
-                                    // (<= 2*pi), convert to degrees. This preserves degrees input as-is.
-                                    double maxAbs = qMax(qAbs(roll), qMax(qAbs(pitch), qAbs(yaw)));
-                                    if (maxAbs <= (2.0 * M_PI + 1e-9)) {
-                                        roll  = roll  * 180.0 / M_PI;
-                                        pitch = pitch * 180.0 / M_PI;
-                                        yaw   = yaw   * 180.0 / M_PI;
+                                    // Wrap continuous angles first (handles multi-revolution data)
+                                    // This function wraps to [-pi, pi] for radians or [-180, 180] for degrees
+                                    auto wrapToPi = [](double angle) -> double {
+                                        angle = std::fmod(angle + M_PI, 2.0 * M_PI);
+                                        if (angle < 0.0) angle += 2.0 * M_PI;
+                                        return angle - M_PI;
+                                    };
+                                    auto wrapTo180 = [](double angle) -> double {
+                                        angle = std::fmod(angle + 180.0, 360.0);
+                                        if (angle < 0.0) angle += 360.0;
+                                        return angle - 180.0;
+                                    };
+                                    
+                                    // First, wrap assuming radians to detect the actual range
+                                    double roll_rad = wrapToPi(roll);
+                                    double pitch_rad = wrapToPi(pitch);
+                                    double yaw_rad = wrapToPi(yaw);
+                                    
+                                    // Heuristic: if wrapped values are within typical radian range, treat as radians
+                                    double maxAbs = qMax(qAbs(roll_rad), qMax(qAbs(pitch_rad), qAbs(yaw_rad)));
+                                    if (maxAbs <= (M_PI + 1e-9)) {
+                                        // Values are in radians, convert to degrees
+                                        roll  = roll_rad  * 180.0 / M_PI;
+                                        pitch = pitch_rad * 180.0 / M_PI;
+                                        yaw   = yaw_rad   * 180.0 / M_PI;
+                                    } else {
+                                        // Values are in degrees, just wrap them
+                                        roll  = wrapTo180(roll);
+                                        pitch = wrapTo180(pitch);
+                                        yaw   = wrapTo180(yaw);
                                     }
+                                    
                                     orient = QQuaternion::fromEulerAngles(float(roll), float(pitch), float(yaw));
+                                    orient.normalize();
                                 }
                         }
                         drawAxesHead(p, screenPts.last(), orient, group.headPointSize);
