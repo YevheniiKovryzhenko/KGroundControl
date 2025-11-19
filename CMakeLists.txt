@@ -140,18 +140,6 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     message(STATUS "Configuring for static Qt build")
     add_definitions(-DQT_STATICPLUGIN)
-
-    # For static builds, we need to link against all required Qt libraries
-    if(WIN32)
-        # Windows static linking may require additional libraries
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO")
-        if(MSVC)
-            # MSVC specific static linking flags
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:libcmt.lib /NODEFAULTLIB:msvcrt.lib")
-            # Additional flags for static Qt builds
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /FORCE:MULTIPLE")
-        endif()
-    endif()
 else()
     message(STATUS "Configuring for dynamic Qt build")
 endif()
@@ -316,7 +304,10 @@ target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # Link all the outside libraries used in this project (from libs folder):
 target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
-target_link_libraries(KGroundControl PRIVATE SDL2main SDL2-static)
+# Do not link SDL2main when using Qt (Qt provides its own WinMain entrypoint).
+# Define SDL_MAIN_HANDLED so SDL does not redefine main.
+target_compile_definitions(KGroundControl PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(KGroundControl PRIVATE SDL2-static)
 
 # Static Qt build additional libraries
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
