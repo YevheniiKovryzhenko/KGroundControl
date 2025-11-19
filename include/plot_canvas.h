@@ -132,6 +132,8 @@ public:
     // Visual toggles
     void setShowLegend(bool show) { showLegend_ = show; update(); }
     void setShowGrid(bool show) { showGrid_ = show; update(); }
+    bool showLegend() const { return showLegend_; }
+    bool showGrid() const { return showGrid_; }
     void setBackgroundColor(const QColor& c) { bgColor_ = c; update(); }
     // Control whether 3D group name labels are drawn near head points in 3D mode
     void setShow3DGroupNames(bool show) { show3DGroupNames_ = show; update(); }

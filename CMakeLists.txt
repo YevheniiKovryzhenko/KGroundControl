@@ -7,7 +7,8 @@ endif()
 
 project(KGroundControl VERSION 1.3 LANGUAGES CXX)
 
-set(QT_TARGET_VERSION 6.9.2)
+set(QT_TARGET_VERSION 6.10.0)
+#set(QT_TARGET_VERSION 6.9.2)
 # set(QT_TARGET_VERSION 6.7.2)
 
 # Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)

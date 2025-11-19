@@ -1690,10 +1690,16 @@ void PlottingManager::buildSettingsTree() {
         cont->adjustSize();
         it->setSizeHint(0, cont->sizeHint());
 
-    connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShowLegend);
-    // Also use the same checkbox to control visibility of 3D group name labels
-    connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShow3DGroupNames);
+        connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShowLegend);
+        // Also use the same checkbox to control visibility of 3D group name labels
+        connect(chkLegend, &QCheckBox::toggled, ui->plotCanvas, &PlotCanvas::setShow3DGroupNames);
+        // Ensure initial checkbox state matches the canvas (canvas may have been initialized
+        // with a saved/alternative value). Set the checkbox from the canvas so UI reflects
+        // the actual drawing state at startup.
+        chkLegend->setChecked(ui->plotCanvas->showLegend());
         connect(chkGrid, &QCheckBox::toggled,   ui->plotCanvas, &PlotCanvas::setShowGrid);
+        // Sync initial state for the grid checkbox as well
+        chkGrid->setChecked(ui->plotCanvas->showGrid());
         auto updateBgDot = [this]{
             // try reading palette of canvas background or stored color; we track via setBackgroundColor calls
             // We can't read from canvas easily, so we cache last set value locally by updating the dot style when user picks
