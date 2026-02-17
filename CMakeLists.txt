@@ -147,6 +147,19 @@ FetchContent_Declare(
 set(QSIMPLEUPDATER_EXAMPLE OFF CACHE BOOL "Do not build QSimpleUpdater examples" FORCE)
 FetchContent_MakeAvailable(QSimpleUpdater)
 
+# Fetch SDL2 for hardware I/O and graphics
+# Configure SDL2 for static compilation BEFORE declaring
+set(SDL_SHARED OFF CACHE BOOL "Build SDL2 as shared library" FORCE)
+set(SDL_STATIC ON CACHE BOOL "Build SDL2 as static library" FORCE)
+set(SDL_TEST OFF CACHE BOOL "Build SDL2 tests" FORCE)
+FetchContent_Declare(
+    SDL2
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG        release-2.30.3
+)
+FetchContent_Populate(SDL2)
+add_subdirectory(${sdl2_SOURCE_DIR} ${sdl2_BINARY_DIR})
+
 # Configure for static Qt builds
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     message(STATUS "Configuring for static Qt build")
@@ -342,13 +355,15 @@ target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # Link QSimpleUpdater for auto-update functionality
 target_link_libraries(KGroundControl PRIVATE QSimpleUpdater)
 
-# Link all the outside libraries used in this project (from libs folder):
+# Link all the outside libraries used in this project (from libs folder and FetchContent):
 target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
 # Do not link SDL2main when using Qt (Qt provides its own WinMain entrypoint).
 # Define SDL_MAIN_HANDLED so SDL does not redefine main.
 target_compile_definitions(KGroundControl PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(KGroundControl PRIVATE SDL2-static)
+# Add SDL2 include directory (from FetchContent)
+target_include_directories(KGroundControl PRIVATE ${sdl2_SOURCE_DIR}/include)
 
 # Static Qt build additional libraries
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
