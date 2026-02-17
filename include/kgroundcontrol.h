@@ -42,6 +42,7 @@
 #include "mavlink_inspector.h"
 #include "joystick_manager.h"
 #include "plotting_manager.h"
+#include "update_manager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -138,10 +139,29 @@ private slots:
 
     void on_btn_plotting_manager_clicked();
 
+    void on_btn_check_updates_clicked();
+    void on_chk_auto_update_toggled(bool checked);
+
+    // Update manager slots
+    void onUpdateAvailable(const QString &version, const QString &changelog);
+    void onNoUpdatesAvailable();
+    void onDownloadStarted();
+    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void onDownloadFinished(const QString &filepath);
+    void onUpdateError(const QString &error);
+
 private:
     Ui::KGroundControl *ui;
     QMutex *settings_mutex_ = nullptr;
     kgroundcontrol_settings settings;
+    UpdateManager* update_manager_ = nullptr;
+    QString pending_update_filepath_;  // Store downloaded update path
+    QTime download_start_time_;        // Track download start for speed calculation
+    qint64 last_bytes_received_ = 0;   // Track bytes for speed calculation
+    QTime last_progress_time_;         // Track time for speed calculation
+    QString declined_update_version_;  // Track declined version to avoid re-prompting in same session
+    bool install_update_on_exit_ = false;  // Flag to install update on app exit
+
     mocap_manager* mocap_manager_ = nullptr;
     connection_manager* connection_manager_ = nullptr;
 

@@ -50,6 +50,14 @@
 #include <QFontDatabase>
 #include <QSettings>
 #include <QMessageBox>
+#include <QStandardPaths>
+#include <QTime>
+#include <QTimer>
+
+// Ensure APP_VERSION is available for update checks
+#ifndef APP_VERSION
+#define APP_VERSION "1.3"
+#endif
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -57,6 +65,9 @@ KGroundControl::KGroundControl(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
+    
+    // Set window title with version
+    setWindowTitle(QString("KGroundControl v%1").arg(APP_VERSION));
 
     load_settings();
     // Apply plotting buffer duration globally
@@ -79,6 +90,21 @@ KGroundControl::KGroundControl(QWidget *parent)
     settings_mutex_ = new QMutex;
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
+
+    // Initialize Update Manager (safety-critical, non-blocking)
+    update_manager_ = new UpdateManager(this);
+    connect(update_manager_, &UpdateManager::updateAvailable,
+            this, &KGroundControl::onUpdateAvailable);
+    connect(update_manager_, &UpdateManager::noUpdatesAvailable,
+            this, &KGroundControl::onNoUpdatesAvailable);
+    connect(update_manager_, &UpdateManager::downloadStarted,
+            this, &KGroundControl::onDownloadStarted);
+    connect(update_manager_, &UpdateManager::downloadProgress,
+            this, &KGroundControl::onDownloadProgress);
+    connect(update_manager_, &UpdateManager::downloadFinished,
+            this, &KGroundControl::onDownloadFinished);
+    connect(update_manager_, &UpdateManager::updateError,
+            this, &KGroundControl::onUpdateError);
 
     connect(this, &KGroundControl::switch_emit_heartbeat, connection_manager_, &connection_manager::switch_emit_heartbeat, Qt::DirectConnection);
     connect(this, &KGroundControl::is_heartbeat_emited, connection_manager_, &connection_manager::is_heartbeat_emited, Qt::DirectConnection);
@@ -244,7 +270,30 @@ KGroundControl::KGroundControl(QWidget *parent)
     {
         connection_manager_->load_routing(qsettings);
         ui->list_connections->addItems(port_names);
-    }    
+    }
+    
+    // Auto-check for updates on startup (silent, non-intrusive)
+    // Only if user has enabled this in settings
+    QTimer::singleShot(2000, this, [this]() {
+        if (!settings.check_updates_on_startup) {
+            qDebug() << "[KGroundControl] Auto-update check disabled in settings";
+            return;
+        }
+        
+        // For testing, use local file:// URL
+        // For production, uncomment the GitHub Pages URL
+        QString updateUrl;
+        
+        // Production URL (GitHub Pages):
+        // updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+        
+        // Testing URL (local):
+        QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+        
+        qDebug() << "[KGroundControl] Auto-checking for updates on startup...";
+        update_manager_->checkForUpdates(updateUrl, true);  // silent=true, no "no updates" message
+    });
 }
 
 KGroundControl::~KGroundControl()
@@ -275,6 +324,9 @@ void KGroundControl::load_settings(void)
     qsettings.endGroup();
 
     settings.load(qsettings);
+    
+    // Restore UI state from settings
+    ui->chk_auto_update->setChecked(settings.check_updates_on_startup);
 }
 
 void KGroundControl::save_settings(void)
@@ -303,6 +355,19 @@ void KGroundControl::save_settings(void)
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
     emit about2close();
+    
+    // Check if we should install update on exit
+    if (install_update_on_exit_ && !pending_update_filepath_.isEmpty()) {
+        qDebug() << "[KGroundControl] Installing update on exit...";
+        
+        // Perform the binary swap without restarting
+        if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
+            qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
+        } else {
+            qWarning() << "[KGroundControl] Failed to install update on exit";
+        }
+    }
+    
     // save current state of the app:
     save_settings();
 
@@ -811,5 +876,215 @@ void KGroundControl::on_btn_plotting_manager_clicked()
     w->setAttribute(Qt::WA_DeleteOnClose, true);
     connect(this, &KGroundControl::about2close, w, &PlottingManager::close, Qt::DirectConnection);
     w->show();
+}
+
+void KGroundControl::on_btn_check_updates_clicked()
+{
+    qDebug() << "[KGroundControl] User requested update check";
+    
+    // Determine update URL
+    QString updateUrl;
+    
+    // For production use:
+    // updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+    
+    // For LOCAL TESTING, use file:// URL pointing to Downloads folder:
+    // NOTE: To properly test version updates, you need a binary with a DIFFERENT version.
+    // The version is defined in CMakeLists.txt line 8: project(KGroundControl VERSION 1.2.2 ...)
+    // Steps to test proper version update:
+    //   1. Build current version (e.g., 1.2.2)
+    //   2. Edit CMakeLists.txt to version 1.2.3
+    //   3. Rebuild: cmake --build build/Debug
+    //   4. Copy new binary: cp build/Debug/bin/KGroundControl ~/Downloads/KGroundControl_new
+    //   5. Edit CMakeLists.txt back to version 1.2.2
+    //   6. Rebuild: cmake --build build/Debug
+    //   7. Set updates.json to version "1.2.3"
+    //   8. Run the app and test update - after restart it should show v1.2.3 in title
+    QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+    
+    qDebug() << "[KGroundControl] Checking for updates from:" << updateUrl;
+    
+    // Non-blocking, safe check (not silent - will show "no updates" message)
+    update_manager_->checkForUpdates(updateUrl, false);
+}
+
+void KGroundControl::on_chk_auto_update_toggled(bool checked)
+{
+    qDebug() << "[KGroundControl] Auto-update checkbox toggled:" << checked;
+    settings.check_updates_on_startup = checked;
+    // Settings will be saved in save_settings() when app closes
+}
+
+void KGroundControl::onUpdateAvailable(const QString &version, const QString &changelog)
+{
+    qDebug() << "[KGroundControl] Update available:" << version;
+    
+    // Check if user already declined this version in this session
+    if (declined_update_version_ == version) {
+        qDebug() << "[KGroundControl] User already declined version" << version << "in this session, skipping prompt";
+        return;
+    }
+    
+    // Show non-intrusive dialog to user
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Update Available");
+    msgBox.setIcon(QMessageBox::Information);
+    msgBox.setText(QString("A new version (%1) of KGroundControl is available!").arg(version));
+    
+    QString detailedText = "Current version: " + QString(APP_VERSION) + "\n";
+    detailedText += "New version: " + version + "\n\n";
+    detailedText += "Changelog:\n" + changelog;
+    msgBox.setDetailedText(detailedText);
+    
+    QPushButton *downloadButton = msgBox.addButton("Download Now", QMessageBox::AcceptRole);
+    QPushButton *laterButton = msgBox.addButton("Later", QMessageBox::RejectRole);
+    
+    msgBox.setDefaultButton(laterButton);  // Safe default
+    msgBox.exec();
+    
+    if (msgBox.clickedButton() == downloadButton) {
+        qDebug() << "[KGroundControl] User chose to download update";
+        update_manager_->downloadUpdate();
+    } else {
+        qDebug() << "[KGroundControl] User postponed update";
+        // Remember that user declined this version for this session
+        declined_update_version_ = version;
+    }
+}
+
+void KGroundControl::onNoUpdatesAvailable()
+{
+    qDebug() << "[KGroundControl] No updates available";
+    
+    QMessageBox::information(this, "No Updates",
+                            QString("You are running the latest version (%1) of KGroundControl.")
+                                .arg(APP_VERSION),
+                            QMessageBox::Ok);
+}
+
+void KGroundControl::onDownloadStarted()
+{
+    qDebug() << "[KGroundControl] Download started";
+    
+    // Show progress widget
+    ui->update_progress_widget->setVisible(true);
+    ui->update_progress_bar->setValue(0);
+    ui->update_progress_label->setText("Preparing download...");
+    
+    // Disable update button during download
+    ui->btn_check_updates->setEnabled(false);
+    
+    // Initialize download tracking
+    download_start_time_ = QTime::currentTime();
+    last_bytes_received_ = 0;
+    last_progress_time_ = QTime::currentTime();
+}
+
+void KGroundControl::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
+{
+    if (bytesTotal <= 0) {
+        // Indeterminate progress
+        ui->update_progress_bar->setMaximum(0);
+        ui->update_progress_bar->setMinimum(0);
+        ui->update_progress_label->setText("Downloading...");
+        return;
+    }
+    
+    // Calculate progress percentage
+    int progress = (bytesReceived * 100) / bytesTotal;
+    ui->update_progress_bar->setMaximum(100);
+    ui->update_progress_bar->setValue(progress);
+    
+    // Calculate download speed (KB/s)
+    QTime currentTime = QTime::currentTime();
+    int elapsedMs = last_progress_time_.msecsTo(currentTime);
+    double speedKbps = 0.0;
+    
+    if (elapsedMs > 100) {  // Update speed every 100ms
+        qint64 bytesDelta = bytesReceived - last_bytes_received_;
+        speedKbps = (bytesDelta / 1024.0) / (elapsedMs / 1000.0);
+        last_bytes_received_ = bytesReceived;
+        last_progress_time_ = currentTime;
+    }
+    
+    // Format sizes
+    double receivedMB = bytesReceived / (1024.0 * 1024.0);
+    double totalMB = bytesTotal / (1024.0 * 1024.0);
+    
+    // Update label with progress info
+    QString progressText = QString("Downloading: %1 MB / %2 MB (%3%) - %4 KB/s")
+                              .arg(receivedMB, 0, 'f', 1)
+                              .arg(totalMB, 0, 'f', 1)
+                              .arg(progress)
+                              .arg(speedKbps, 0, 'f', 1);
+    ui->update_progress_label->setText(progressText);
+}
+
+void KGroundControl::onDownloadFinished(const QString &filepath)
+{
+    qDebug() << "[KGroundControl] Update downloaded:" << filepath;
+    pending_update_filepath_ = filepath;
+    
+    // Hide progress widget and re-enable button
+    ui->update_progress_widget->setVisible(false);
+    ui->btn_check_updates->setEnabled(true);
+    
+    // Ask user how to proceed with update
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Update Ready");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText("The update has been downloaded and is ready to install.");
+    msgBox.setInformativeText("You can install the update now (requires restart) or schedule it to install when you exit the application.");
+    
+    // Add buttons in order: Cancel (left), Install on Exit (middle), Install and Restart Now (right)
+    QPushButton *cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
+    QPushButton *installOnExitButton = msgBox.addButton("Install on Exit", QMessageBox::ActionRole);
+    QPushButton *installNowButton = msgBox.addButton("Install and Restart Now", QMessageBox::AcceptRole);
+    
+    msgBox.setDefaultButton(installOnExitButton);  // Safe default
+    msgBox.exec();
+    
+    if (msgBox.clickedButton() == installNowButton) {
+        qDebug() << "[KGroundControl] User chose to install and restart now";
+        
+        // Apply the update (this will restart the app)
+        if (!update_manager_->applyUpdate(filepath)) {
+            QMessageBox::critical(this, "Update Failed",
+                                 "Failed to apply the update. The update file is still available in:\n" +
+                                 filepath + "\n\nYou can try manually replacing the executable.",
+                                 QMessageBox::Ok);
+        }
+    } else if (msgBox.clickedButton() == installOnExitButton) {
+        qDebug() << "[KGroundControl] User chose to install on exit";
+        install_update_on_exit_ = true;
+        
+        QMessageBox::information(this, "Update Scheduled",
+                                "The update will be installed when you close KGroundControl.\n\n"
+                                "The updated version will be ready the next time you start the application.",
+                                QMessageBox::Ok);
+    } else {
+        qDebug() << "[KGroundControl] User cancelled installation";
+        QMessageBox::information(this, "Update Postponed",
+                                "The update has been saved to:\n" + filepath +
+                                "\n\nYou can install it later by clicking 'Check for Updates' again.",
+                                QMessageBox::Ok);
+    }
+}
+
+void KGroundControl::onUpdateError(const QString &error)
+{
+    // Silent error logging - don't bother user unless they manually checked
+    qWarning() << "[KGroundControl] Update error:" << error;
+    
+    // Only show error if it's not a network/offline issue
+    if (!error.contains("network", Qt::CaseInsensitive) &&
+        !error.contains("offline", Qt::CaseInsensitive) &&
+        !error.contains("timeout", Qt::CaseInsensitive)) {
+        
+        QMessageBox::warning(this, "Update Check Failed",
+                            "Could not check for updates: " + error,
+                            QMessageBox::Ok);
+    }
 }
 

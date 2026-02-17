@@ -251,6 +251,9 @@ public:
 
     // Plotting buffer (seconds)
     double plot_buffer_duration_sec = 60.0;
+    
+    // Auto-update preferences
+    bool check_updates_on_startup = true;
 
 
     QString get_QString(void);

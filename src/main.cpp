@@ -33,7 +33,6 @@
  ****************************************************************************/
 
 #include "kgroundcontrol.h"
-
 #include <QApplication>
 #include <QPalette>
 #include <QStyleFactory>

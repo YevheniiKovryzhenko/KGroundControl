@@ -292,6 +292,7 @@ void kgroundcontrol_settings::save(QSettings &settings)
     settings.setValue("font_family", font_family);
     settings.setValue("font_point_size", font_point_size);
     settings.setValue("plot_buffer_duration_sec", plot_buffer_duration_sec);
+    settings.setValue("check_updates_on_startup", check_updates_on_startup);
     settings.endGroup();
 }
 bool kgroundcontrol_settings::load(QSettings &settings)
@@ -308,6 +309,7 @@ bool kgroundcontrol_settings::load(QSettings &settings)
     font_family = settings.value("font_family", font_family).toString();
     font_point_size = settings.value("font_point_size", font_point_size).toInt();
     plot_buffer_duration_sec = settings.value("plot_buffer_duration_sec", plot_buffer_duration_sec).toDouble();
+    check_updates_on_startup = settings.value("check_updates_on_startup", check_updates_on_startup).toBool();
     settings.endGroup();
     return true;
 }

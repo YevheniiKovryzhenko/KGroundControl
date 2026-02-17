@@ -5,9 +5,9 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.3 LANGUAGES CXX)
+project(KGroundControl VERSION 1.2.3 LANGUAGES CXX)
 
-set(QT_TARGET_VERSION 6.10.0)
+set(QT_TARGET_VERSION 6.10.2)
 #set(QT_TARGET_VERSION 6.9.2)
 # set(QT_TARGET_VERSION 6.7.2)
 
@@ -136,6 +136,16 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
 
+# Fetch QSimpleUpdater for auto-update functionality
+include(FetchContent)
+FetchContent_Declare(
+    QSimpleUpdater
+    GIT_REPOSITORY https://github.com/alex-spataru/QSimpleUpdater.git
+    GIT_TAG        master
+)
+set(QSIMPLEUPDATER_EXAMPLE OFF CACHE BOOL "Do not build QSimpleUpdater examples" FORCE)
+FetchContent_MakeAvailable(QSimpleUpdater)
+
 # Configure for static Qt builds
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     message(STATUS "Configuring for static Qt build")
@@ -195,6 +205,7 @@ set(PROJECT_HEADERS
     include/plot_signal_registry.h
     include/plot_canvas.h
     include/create_3d_group_dialog.h
+    include/update_manager.h
 )
 
 set(PROJECT_SOURCES
@@ -220,6 +231,7 @@ set(PROJECT_SOURCES
     src/plot_signal_registry.cpp
     src/plot_canvas.cpp
     src/create_3d_group_dialog.cpp
+    src/update_manager.cpp
 )
 
 set(PROJECT_UI
@@ -296,10 +308,20 @@ target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/s
 # Include build directory for auto-generated UI headers
 target_include_directories(KGroundControl PRIVATE "${CMAKE_BINARY_DIR}/ui_autogen")
 
+# Define version information for auto-updater
+target_compile_definitions(KGroundControl PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+    APP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    APP_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+)
+
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Location)
+
+# Link QSimpleUpdater for auto-update functionality
+target_link_libraries(KGroundControl PRIVATE QSimpleUpdater)
 
 # Link all the outside libraries used in this project (from libs folder):
 target_link_libraries(KGroundControl PRIVATE mavlink)
