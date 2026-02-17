@@ -39,7 +39,7 @@ jobs:
         VERSION="${{ steps.version.outputs.VERSION }}"
         
         # Expected binary names
-        LINUX_BINARY="KGroundControl_v${VERSION}_Linux_x64"
+        LINUX_BINARY="KGroundControl_v${VERSION}_Ubuntu_24.04_x64"
         WINDOWS_BINARY="KGroundControl_v${VERSION}_Windows_x64.exe"
         
         # Get release assets using GitHub CLI

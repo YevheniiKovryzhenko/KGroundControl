@@ -434,7 +434,7 @@ if(WIN32)
     set(OS_NAME "Windows")
     set(BINARY_EXTENSION ".exe")
 elseif(UNIX AND NOT APPLE)
-    set(OS_NAME "Linux")
+    set(OS_NAME "Ubuntu_24.04")
     set(BINARY_EXTENSION "")
 elseif(APPLE)
     set(OS_NAME "macOS")
@@ -452,7 +452,7 @@ else()
     set(ARCH_NAME "unknown")
 endif()
 
-# Versioned binary name: KGroundControl_v1.2.3_Linux_x64
+# Versioned binary name: KGroundControl_v1.2.3_Ubuntu_24.04_x64
 set(VERSIONED_BINARY_NAME "KGroundControl_v${PROJECT_VERSION}_${OS_NAME}_${ARCH_NAME}${BINARY_EXTENSION}")
 message(STATUS "Versioned binary name: ${VERSIONED_BINARY_NAME}")
 
