@@ -1,4 +1,4 @@
-#include "fake_mocap_dialog.h"
+#include "mocap/fake_mocap_dialog.h"
 #include "ui_fake_mocap_dialog.h"
 
 #include <QDoubleValidator>

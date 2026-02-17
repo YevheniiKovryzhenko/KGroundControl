@@ -37,11 +37,11 @@
 #include <QCloseEvent>
 #include <QShowEvent>
 
-#include "mocap_manager.h"
+#include "mocap/mocap_manager.h"
 #include "ui_mocap_manager.h"
-#include "fake_mocap_dialog.h"
+#include "mocap/fake_mocap_dialog.h"
 #include "all/mavlink.h"
-#include "generic_port.h"
+#include "hardware_io/generic_port.h"
 #include <QtMath>
 #include <QGraphicsOpacityEffect>
 #include <QScrollBar>
@@ -55,7 +55,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include "plot_signal_registry.h"
+#include "plot/plot_signal_registry.h"
 // no extra includes needed; timer declared in header
 #include <QSettings>
 #include <QWindow>

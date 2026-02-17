@@ -42,8 +42,8 @@
 #include <QProgressBar>
 #include <QCheckBox>
 
-#include "joystick.h"
-#include "remote_control_manager.h"
+#include "hardware_io/joystick.h"
+#include "mavlink_communication/remote_control_manager.h"
 
 class JoystickAxisBar : public QProgressBar
 {

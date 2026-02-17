@@ -37,7 +37,7 @@
 //   Includes
 // ------------------------------------------------------------------------------
 #include <QErrorMessage>
-#include "serial_port.h"
+#include "hardware_io/serial_port.h"
 
 
 //#define DEBUG

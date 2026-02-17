@@ -8,8 +8,6 @@ endif()
 project(KGroundControl VERSION 1.2.3 LANGUAGES CXX)
 
 set(QT_TARGET_VERSION 6.10.2)
-#set(QT_TARGET_VERSION 6.9.2)
-# set(QT_TARGET_VERSION 6.7.2)
 
 # Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)
 if(MSVC OR CMAKE_GENERATOR MATCHES "Multi-Config")
@@ -115,6 +113,9 @@ set(CMAKE_AUTOUIC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/ui_autogen)
 set(CMAKE_AUTOMOC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/moc_autogen)
 set(CMAKE_AUTORCC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/rcc_autogen)
 
+# Set search path for UI files (moved to ui/ directory)
+set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
+
 # Suppress CMake developer warnings
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE INTERNAL "Suppress CMake developer warnings")
 
@@ -182,70 +183,88 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_
 endif()
 
 set(PROJECT_HEADERS
-    include/connection_manager.h
-    include/generic_port.h
     include/kgroundcontrol.h
-    include/mavlink_enum_types.h
-    include/mavlink_inspector.h
-    include/serial_port.h
     include/settings.h
     include/threads.h
-    include/udp_port.h
-    include/mocap_manager.h
     include/relaydialog.h
     include/signal_filters.h
-    include/keybinddialog.h
     # include/cartography.h
     include/default_ui_config.h
-    include/joystick.h
-    include/joystick_manager.h
-    include/remote_control_manager.h
-    include/fake_mocap_dialog.h
-    include/plotting_manager.h
-    include/plot_signal_registry.h
-    include/plot_canvas.h
-    include/create_3d_group_dialog.h
+    include/collapsible_group.h
     include/update_manager.h
+    
+    # Hardware I/O group
+    include/hardware_io/connection_manager.h
+    include/hardware_io/generic_port.h
+    include/hardware_io/joystick.h
+    include/hardware_io/joystick_manager.h
+    include/hardware_io/serial_port.h
+    include/hardware_io/udp_port.h
+    
+    # MAVLink Communication group
+    include/mavlink_communication/mavlink_enum_types.h
+    include/mavlink_communication/mavlink_inspector.h
+    include/mavlink_communication/remote_control_manager.h
+    include/mavlink_communication/keybinddialog.h
+    
+    # Motion Capture group
+    include/mocap/fake_mocap_dialog.h
+    include/mocap/mocap_manager.h
+    
+    # Plot group
+    include/plot/plotting_manager.h
+    include/plot/plot_signal_registry.h
+    include/plot/plot_canvas.h
+    include/plot/create_3d_group_dialog.h
+    include/plot/sci_doublespinbox.h
 )
 
 set(PROJECT_SOURCES
-    src/connection_manager.cpp
     src/kgroundcontrol.cpp
     src/main.cpp
-    src/mavlink_inspector.cpp
-    src/serial_port.cpp
     src/settings.cpp
     src/threads.cpp
-    src/udp_port.cpp
-    src/mocap_manager.cpp
     src/relaydialog.cpp
     src/signal_filters.cpp
-    src/keybinddialog.cpp
-    # src/cartography.cpp
     src/default_ui_config.cpp
-    src/joystick.cpp
-    src/joystick_manager.cpp
-    src/remote_control_manager.cpp
-    src/fake_mocap_dialog.cpp
-    src/plotting_manager.cpp
-    src/plot_signal_registry.cpp
-    src/plot_canvas.cpp
-    src/create_3d_group_dialog.cpp
+    src/collapsible_group.cpp
     src/update_manager.cpp
+    
+    # Hardware I/O group
+    src/hardware_io/connection_manager.cpp
+    src/hardware_io/joystick.cpp
+    src/hardware_io/joystick_manager.cpp
+    src/hardware_io/serial_port.cpp
+    src/hardware_io/udp_port.cpp
+    
+    # MAVLink Communication group
+    src/mavlink_communication/mavlink_inspector.cpp
+    src/mavlink_communication/remote_control_manager.cpp
+    src/mavlink_communication/keybinddialog.cpp
+    
+    # Motion Capture group
+    src/mocap/fake_mocap_dialog.cpp
+    src/mocap/mocap_manager.cpp
+    
+    # Plot group
+    src/plot/plotting_manager.cpp
+    src/plot/plot_signal_registry.cpp
+    src/plot/plot_canvas.cpp
+    src/plot/create_3d_group_dialog.cpp
 )
 
 set(PROJECT_UI
-    src/kgroundcontrol.ui
-    src/mavlink_inspector.ui
-    src/mocap_manager.ui
-    src/relaydialog.ui
-    src/mavlink_inspector_msg.ui
-    src/keybinddialog.ui
-    # src/cartography.ui
-    src/joystick_manager.ui
-    src/fake_mocap_dialog.ui
-    src/plotting_manager.ui
-    src/create_3d_group_dialog.ui
+    ui/kgroundcontrol.ui
+    ui/mavlink_inspector.ui
+    ui/mocap_manager.ui
+    ui/relaydialog.ui
+    ui/mavlink_inspector_msg.ui
+    ui/keybinddialog.ui
+    # ui/cartography.ui
+    ui/joystick_manager.ui
+    ui/fake_mocap_dialog.ui
+    ui/plotting_manager.ui
+    ui/create_3d_group_dialog.ui
 )
 
 set(PROJECT_RESOURCES
@@ -372,12 +391,13 @@ endif()
 
 # Include plugins (limit for Linux static builds to avoid pulling in QtPdf, etc.)
 if(UNIX AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
-    # Disable default plugin auto-imports and include only the Xcb platform plugin
+    # Disable default plugin auto-imports and include only essential plugins
     # to prevent linking optional plugins such as QtPdf on static builds.
     qt_import_plugins(KGroundControl
         NO_DEFAULT
         INCLUDE
             Qt6::QXcbIntegrationPlugin
+            Qt6::QTlsBackendOpenSSLPlugin
     )
 endif()
 

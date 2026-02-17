@@ -9,7 +9,7 @@ class QLayout;
 class CollapsibleGroup : public QWidget {
     Q_OBJECT
 public:
-    explicit CollapsibleGroup(const QString& title = QString(), QWidget* parent = nullptr);
+    explicit CollapsibleGroup(QWidget* parent = nullptr);
 
     void setTitle(const QString& title);
     void setContentLayout(QLayout* layout);

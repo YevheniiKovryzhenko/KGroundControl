@@ -32,7 +32,7 @@
  *
  ****************************************************************************/
 
-#include "joystick_manager.h"
+#include "hardware_io/joystick_manager.h"
 #include "ui_joystick_manager.h"
 #include "default_ui_config.h"
 

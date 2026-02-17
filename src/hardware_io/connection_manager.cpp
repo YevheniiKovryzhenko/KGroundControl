@@ -32,9 +32,9 @@
  *
  ****************************************************************************/
 
-#include "connection_manager.h"
-#include "serial_port.h"
-#include "udp_port.h"
+#include "hardware_io/connection_manager.h"
+#include "hardware_io/serial_port.h"
+#include "hardware_io/udp_port.h"
 
 #include <QDateTime>
 #include <QErrorMessage>

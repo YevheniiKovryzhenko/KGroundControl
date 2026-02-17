@@ -44,7 +44,7 @@
 #include <QSettings>
 
 #include "optitrack.hpp"
-#include "mavlink_enum_types.h"
+#include "mavlink_communication/mavlink_enum_types.h"
 
 enum connection_type
 {

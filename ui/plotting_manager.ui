@@ -159,7 +159,7 @@
   <customwidget>
    <class>PlotCanvas</class>
    <extends>QWidget</extends>
-   <header>plot_canvas.h</header>
+   <header>plot/plot_canvas.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

@@ -1,4 +1,4 @@
-#include "create_3d_group_dialog.h"
+#include "plot/create_3d_group_dialog.h"
 #include "ui_create_3d_group_dialog.h"
 
 #include <QMessageBox>

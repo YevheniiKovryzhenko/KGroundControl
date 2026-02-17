@@ -48,13 +48,13 @@
 #include <QCheckBox>
 #include <QScrollBar>
 
-#include "mavlink_inspector.h"
+#include "mavlink_communication/mavlink_inspector.h"
 #include "ui_mavlink_inspector.h"
 #include "ui_mavlink_inspector_msg.h"
-#include "keybinddialog.h"
+#include "mavlink_communication/keybinddialog.h"
 #include "default_ui_config.h"
 // Plotting registry for globally tagged signals
-#include "plot_signal_registry.h"
+#include "plot/plot_signal_registry.h"
 
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()

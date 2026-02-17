@@ -1,4 +1,4 @@
-#include "plot_signal_registry.h"
+#include "plot/plot_signal_registry.h"
 
 #include <algorithm>
 

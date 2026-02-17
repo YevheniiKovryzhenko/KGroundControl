@@ -38,7 +38,8 @@
 #include "settings.h"
 #include "relaydialog.h"
 #include "default_ui_config.h"
-#include "plot_signal_registry.h"
+#include "plot/plot_signal_registry.h"
+#include "collapsible_group.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -53,6 +54,13 @@
 #include <QStandardPaths>
 #include <QTime>
 #include <QTimer>
+#include <QTextEdit>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QProgressBar>
 
 // Ensure APP_VERSION is available for update checks
 #ifndef APP_VERSION
@@ -65,6 +73,9 @@ KGroundControl::KGroundControl(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
+    
+    // Setup collapsible groups in Settings page
+    setupSettingsGroups();
     
     // Set window title with version
     setWindowTitle(QString("KGroundControl v%1").arg(APP_VERSION));
@@ -105,6 +116,21 @@ KGroundControl::KGroundControl(QWidget *parent)
             this, &KGroundControl::onDownloadFinished);
     connect(update_manager_, &UpdateManager::updateError,
             this, &KGroundControl::onUpdateError);
+    connect(update_manager_, &UpdateManager::updateDeclined,
+            this, [this](const QString &version) {
+                declined_update_version_ = version;
+            });
+    // Disable check button while update dialog is active to prevent reopening issues
+    connect(update_manager_, &UpdateManager::updateAvailable,
+            this, [this]() {
+                ui->btn_check_updates->setEnabled(false);
+                ui->btn_check_updates->setDown(true);  // Make it look pressed
+            });
+    connect(update_manager_, &UpdateManager::dialogClosed,
+            this, [this]() {
+                ui->btn_check_updates->setEnabled(true);
+                ui->btn_check_updates->setDown(false);  // Restore normal state
+            });
 
     connect(this, &KGroundControl::switch_emit_heartbeat, connection_manager_, &connection_manager::switch_emit_heartbeat, Qt::DirectConnection);
     connect(this, &KGroundControl::is_heartbeat_emited, connection_manager_, &connection_manager::is_heartbeat_emited, Qt::DirectConnection);
@@ -238,7 +264,6 @@ KGroundControl::KGroundControl(QWidget *parent)
     if (ui->gridLayout_4) { ui->gridLayout_4->setColumnStretch(0, 0); ui->gridLayout_4->setColumnStretch(1, 1); ui->gridLayout_4->setColumnStretch(2, 0); }
     if (ui->gridLayout_5) { ui->gridLayout_5->setColumnStretch(0, 0); ui->gridLayout_5->setColumnStretch(1, 1); ui->gridLayout_5->setColumnStretch(2, 0); }
     if (ui->gridLayout_6) { ui->gridLayout_6->setColumnStretch(0, 0); ui->gridLayout_6->setColumnStretch(1, 1); ui->gridLayout_6->setColumnStretch(2, 0); }
-    if (ui->gridLayout_8) { ui->gridLayout_8->setColumnStretch(0, 0); ui->gridLayout_8->setColumnStretch(1, 1); }
 
     // Start of Settings Pannel //
     ui->txt_sysid->setMaxLength(3);
@@ -784,6 +809,63 @@ void KGroundControl::updateAllWidgetsFont(QWidget* parent, const QFont& font)
     }
 }
 
+void KGroundControl::setupSettingsGroups()
+{
+    // Create layout for General group
+    QGridLayout* generalLayout = new QGridLayout();
+    generalLayout->addWidget(ui->chk_auto_update, 0, 0);
+    ui->btn_check_updates->setMinimumWidth(150);  // Ensure button fits text
+    generalLayout->addWidget(ui->btn_check_updates, 0, 1);
+    generalLayout->addWidget(ui->settings_hard_reset_on_exit, 1, 0);
+    generalLayout->addWidget(ui->btn_settings_reset_now, 1, 1);
+    generalLayout->setColumnStretch(0, 1);
+    generalLayout->setColumnStretch(1, 0);
+    ui->group_general->setTitle("General");
+    ui->group_general->setContentLayout(generalLayout);
+    
+    // Create layout for User Interface group
+    QGridLayout* uiLayout = new QGridLayout();
+    QLabel* fontLabel = new QLabel("Font:");
+    QLabel* fontSizeLabel = new QLabel("Font Size:");
+    QLabel* plotBufferLabel = new QLabel("Plot Buffer Size:");
+    uiLayout->addWidget(fontLabel, 0, 0);
+    uiLayout->addWidget(ui->font_combo, 0, 1);
+    uiLayout->addWidget(fontSizeLabel, 1, 0);
+    uiLayout->addWidget(ui->font_size_combo, 1, 1);
+    uiLayout->addWidget(plotBufferLabel, 2, 0);
+    uiLayout->addWidget(ui->spin_plot_buffer, 2, 1);
+    uiLayout->setColumnStretch(0, 0);
+    uiLayout->setColumnStretch(1, 1);
+    ui->group_user_interface->setTitle("User Interface");
+    ui->group_user_interface->setContentLayout(uiLayout);
+    ui->group_user_interface->setCollapsed(true);  // Start collapsed
+    
+    // Create layout for Communication group
+    QGridLayout* commLayout = new QGridLayout();
+    QLabel* sysidLabel = new QLabel("System ID:");
+    QLabel* compidLabel = new QLabel("Component ID:");
+    commLayout->addWidget(sysidLabel, 0, 0);
+    commLayout->addWidget(ui->txt_sysid, 0, 1);
+    commLayout->addWidget(compidLabel, 1, 0);
+    commLayout->addWidget(ui->cmbx_compid, 1, 1);
+    commLayout->setColumnStretch(0, 0);
+    commLayout->setColumnStretch(1, 1);
+    ui->group_communication->setTitle("Communication");
+    ui->group_communication->setContentLayout(commLayout);
+    ui->group_communication->setCollapsed(true);  // Start collapsed
+    
+    // Show all widgets now that they're in groups (except progress widget which stays hidden)
+    ui->txt_sysid->setVisible(true);
+    ui->cmbx_compid->setVisible(true);
+    ui->font_combo->setVisible(true);
+    ui->font_size_combo->setVisible(true);
+    ui->spin_plot_buffer->setVisible(true);
+    ui->settings_hard_reset_on_exit->setVisible(true);
+    ui->btn_settings_reset_now->setVisible(true);
+    ui->chk_auto_update->setVisible(true);
+    ui->btn_check_updates->setVisible(true);
+}
+
 void KGroundControl::mocap_closed(void)
 {
     mocap_manager_ = nullptr;
@@ -880,6 +962,10 @@ void KGroundControl::on_btn_check_updates_clicked()
 {
     qDebug() << "[KGroundControl] User requested update check";
     
+    // Clear any previously declined version when user manually checks
+    // Manual checks should always show the dialog, even if user declined before
+    declined_update_version_.clear();
+    
     QString updateUrl;
     
     // Production URL (GitHub Pages) - default for releases:
@@ -923,31 +1009,8 @@ void KGroundControl::onUpdateAvailable(const QString &version, const QString &ch
         return;
     }
     
-    // Show non-intrusive dialog to user
-    QMessageBox msgBox(this);
-    msgBox.setWindowTitle("Update Available");
-    msgBox.setIcon(QMessageBox::Information);
-    msgBox.setText(QString("A new version (%1) of KGroundControl is available!").arg(version));
-    
-    QString detailedText = "Current version: " + QString(APP_VERSION) + "\n";
-    detailedText += "New version: " + version + "\n\n";
-    detailedText += "Changelog:\n" + changelog;
-    msgBox.setDetailedText(detailedText);
-    
-    QPushButton *downloadButton = msgBox.addButton("Download Now", QMessageBox::AcceptRole);
-    QPushButton *laterButton = msgBox.addButton("Later", QMessageBox::RejectRole);
-    
-    msgBox.setDefaultButton(laterButton);  // Safe default
-    msgBox.exec();
-    
-    if (msgBox.clickedButton() == downloadButton) {
-        qDebug() << "[KGroundControl] User chose to download update";
-        update_manager_->downloadUpdate();
-    } else {
-        qDebug() << "[KGroundControl] User postponed update";
-        // Remember that user declined this version for this session
-        declined_update_version_ = version;
-    }
+    // Show update dialog through UpdateManager
+    update_manager_->showUpdateDialog(APP_VERSION, this);
 }
 
 void KGroundControl::onNoUpdatesAvailable()
@@ -964,10 +1027,10 @@ void KGroundControl::onDownloadStarted()
 {
     qDebug() << "[KGroundControl] Download started";
     
-    // Show progress widget
-    ui->update_progress_widget->setVisible(true);
-    ui->update_progress_bar->setValue(0);
-    ui->update_progress_label->setText("Preparing download...");
+    // Forward to UpdateManager for progress display
+    if (update_manager_) {
+        update_manager_->onDownloadStartedInternal();
+    }
     
     // Disable update button during download
     ui->btn_check_updates->setEnabled(false);
@@ -980,42 +1043,10 @@ void KGroundControl::onDownloadStarted()
 
 void KGroundControl::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
 {
-    if (bytesTotal <= 0) {
-        // Indeterminate progress
-        ui->update_progress_bar->setMaximum(0);
-        ui->update_progress_bar->setMinimum(0);
-        ui->update_progress_label->setText("Downloading...");
-        return;
+    // Forward progress to UpdateManager for display in dialog
+    if (update_manager_) {
+        update_manager_->onDownloadProgressInternal(bytesReceived, bytesTotal);
     }
-    
-    // Calculate progress percentage
-    int progress = (bytesReceived * 100) / bytesTotal;
-    ui->update_progress_bar->setMaximum(100);
-    ui->update_progress_bar->setValue(progress);
-    
-    // Calculate download speed (KB/s)
-    QTime currentTime = QTime::currentTime();
-    int elapsedMs = last_progress_time_.msecsTo(currentTime);
-    double speedKbps = 0.0;
-    
-    if (elapsedMs > 100) {  // Update speed every 100ms
-        qint64 bytesDelta = bytesReceived - last_bytes_received_;
-        speedKbps = (bytesDelta / 1024.0) / (elapsedMs / 1000.0);
-        last_bytes_received_ = bytesReceived;
-        last_progress_time_ = currentTime;
-    }
-    
-    // Format sizes
-    double receivedMB = bytesReceived / (1024.0 * 1024.0);
-    double totalMB = bytesTotal / (1024.0 * 1024.0);
-    
-    // Update label with progress info
-    QString progressText = QString("Downloading: %1 MB / %2 MB (%3%) - %4 KB/s")
-                              .arg(receivedMB, 0, 'f', 1)
-                              .arg(totalMB, 0, 'f', 1)
-                              .arg(progress)
-                              .arg(speedKbps, 0, 'f', 1);
-    ui->update_progress_label->setText(progressText);
 }
 
 void KGroundControl::onDownloadFinished(const QString &filepath)
@@ -1023,8 +1054,10 @@ void KGroundControl::onDownloadFinished(const QString &filepath)
     qDebug() << "[KGroundControl] Update downloaded:" << filepath;
     pending_update_filepath_ = filepath;
     
-    // Hide progress widget and re-enable button
-    ui->update_progress_widget->setVisible(false);
+    // Close the update dialog
+    update_manager_->closeUpdateDialog();
+    
+    // Re-enable button
     ui->btn_check_updates->setEnabled(true);
     
     // Ask user how to proceed with update

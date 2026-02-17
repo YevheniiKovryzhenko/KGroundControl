@@ -37,7 +37,7 @@
 
 #include <QMutex>
 
-#include "generic_port.h"
+#include "hardware_io/generic_port.h"
 #include "settings.h"
 #include "all/mavlink.h"
 

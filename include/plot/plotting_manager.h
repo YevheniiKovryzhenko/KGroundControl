@@ -11,7 +11,7 @@
 #include <QToolButton>
 #include <QTimer>
 
-#include "plot_canvas.h"
+#include "plot/plot_canvas.h"
 
 namespace Ui { class PlottingManager; }
 class PlotSignalRegistry;

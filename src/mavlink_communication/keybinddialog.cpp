@@ -32,7 +32,7 @@
  *
  ****************************************************************************/
 
-#include "keybinddialog.h"
+#include "mavlink_communication/keybinddialog.h"
 #include "ui_keybinddialog.h"
 
 #include <QPushButton>

@@ -37,12 +37,18 @@
 
 #include <QMainWindow>
 
-#include "mocap_manager.h"
-#include "connection_manager.h"
-#include "mavlink_inspector.h"
-#include "joystick_manager.h"
-#include "plotting_manager.h"
+#include "mocap/mocap_manager.h"
+#include "hardware_io/connection_manager.h"
+#include "mavlink_communication/mavlink_inspector.h"
+#include "hardware_io/joystick_manager.h"
+#include "plot/plotting_manager.h"
 #include "update_manager.h"
+
+// Forward declarations
+class QDialog;
+class QProgressBar;
+class QLabel;
+class QWidget;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -173,6 +179,7 @@ private:
     void update_port_status_txt(void);
     void save_settings(void);
     void load_settings(void);
-    void updateAllWidgetsFont(QWidget* parent, const QFont& font);    
+    void updateAllWidgetsFont(QWidget* parent, const QFont& font);
+    void setupSettingsGroups(void);
 };
 #endif // KGROUNDCONTROL_H

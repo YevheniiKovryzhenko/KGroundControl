@@ -35,7 +35,7 @@
 #include <QErrorMessage>
 #include <QByteArray>
 #include <QNetworkDatagram>
-#include "udp_port.h"
+#include "hardware_io/udp_port.h"
 
 //#define DEBUG
 

@@ -1,6 +1,6 @@
-#include "remote_control_manager.h"
+#include "mavlink_communication/remote_control_manager.h"
 
-#include "joystick.h"
+#include "hardware_io/joystick.h"
 
 namespace remote_control {
 namespace channel {

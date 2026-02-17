@@ -34,6 +34,15 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QDialog>
+#include <QProgressBar>
+#include <QLabel>
+#include <QWidget>
+#include <QVBoxLayout>
+#include <QTextEdit>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <QFont>
 
 // Ensure APP_VERSION is defined in CMakeLists.txt
 #ifndef APP_VERSION
@@ -45,6 +54,11 @@ UpdateManager::UpdateManager(QObject *parent)
     , m_updater(QSimpleUpdater::getInstance())
     , m_updateAvailable(false)
     , m_silentCheck(true)
+    , m_updateDialog(nullptr)
+    , m_progressBar(nullptr)
+    , m_progressLabel(nullptr)
+    , m_progressContainer(nullptr)
+    , m_lastBytesReceived(0)
 {
     // Connect updater signals
     connect(m_updater, &QSimpleUpdater::downloadFinished,
@@ -447,4 +461,189 @@ bool UpdateManager::performWindowsSwap(const QString &newBinaryPath, bool restar
         emit updateError("Failed to start update process");
         return false;
     }
+}
+void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* parent)
+{
+    // Clean up old dialog if it exists
+    closeUpdateDialog();
+    
+    // Create non-modal, resizable dialog
+    m_updateDialog = new QDialog(parent);
+    m_updateDialog->setWindowTitle("Update Manager");
+    m_updateDialog->setWindowFlags(Qt::Dialog | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
+    m_updateDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    m_updateDialog->setModal(false);
+    m_updateDialog->resize(600, 450);
+    
+    QVBoxLayout* layout = new QVBoxLayout(m_updateDialog);
+    
+    // Header message
+    QLabel* headerLabel = new QLabel(QString("v%1 is available").arg(m_latestVersion));
+    QFont headerFont = headerLabel->font();
+    headerFont.setPointSize(headerFont.pointSize() + 2);
+    headerFont.setBold(true);
+    headerLabel->setFont(headerFont);
+    layout->addWidget(headerLabel);
+    
+    // Version info
+    QLabel* versionLabel = new QLabel(QString("Current version: v%1").arg(currentVersion));
+    layout->addWidget(versionLabel);
+    
+    // Changelog section
+    QLabel* changelogLabel = new QLabel("What's new:");
+    changelogLabel->setStyleSheet("font-weight: bold; margin-top: 10px;");
+    layout->addWidget(changelogLabel);
+    
+    // Convert escaped newlines to actual newlines
+    QString formattedChangelog = m_changelog;
+    formattedChangelog.replace("\\r\\n", "\n");
+    formattedChangelog.replace("\\n", "\n");
+    formattedChangelog.replace("\\r", "\n");
+    
+    // Scrollable text area for changelog
+    QTextEdit* changelogText = new QTextEdit();
+    changelogText->setPlainText(formattedChangelog);
+    changelogText->setReadOnly(true);
+    changelogText->setMinimumHeight(200);
+    layout->addWidget(changelogText);
+    
+    // Progress container (initially hidden, shown during download)
+    m_progressContainer = new QWidget();
+    QVBoxLayout* progressLayout = new QVBoxLayout(m_progressContainer);
+    progressLayout->setContentsMargins(0, 10, 0, 10);
+    
+    m_progressBar = new QProgressBar();
+    m_progressBar->setMinimumWidth(300);
+    m_progressBar->setValue(0);
+    progressLayout->addWidget(m_progressBar);
+    
+    m_progressLabel = new QLabel("Preparing download...");
+    m_progressLabel->setAlignment(Qt::AlignCenter);
+    progressLayout->addWidget(m_progressLabel);
+    
+    m_progressContainer->setVisible(false);
+    layout->addWidget(m_progressContainer);
+    
+    // Button layout
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+    QPushButton* laterButton = new QPushButton("Later");
+    QPushButton* downloadButton = new QPushButton("Download Now");
+    downloadButton->setDefault(false);
+    laterButton->setDefault(true);
+    buttonLayout->addWidget(laterButton);
+    buttonLayout->addWidget(downloadButton);
+    layout->addLayout(buttonLayout);
+    
+    // Connect buttons with lambda capturing this dialog reference
+    QString declinedVersion = m_latestVersion;
+    connect(downloadButton, &QPushButton::clicked, this, [this]() {
+        qDebug() << "[UpdateManager] User chose to download update";
+        downloadUpdate();
+    });
+    
+    connect(laterButton, &QPushButton::clicked, this, [this, declinedVersion]() {
+        qDebug() << "[UpdateManager] User postponed update";
+        emit updateDeclined(declinedVersion);
+        closeUpdateDialog();
+    });
+    
+    // Clean up pointer when dialog closes or is destroyed
+    connect(m_updateDialog, &QDialog::destroyed, this, [this]() {
+        m_updateDialog = nullptr;
+        m_progressBar = nullptr;
+        m_progressLabel = nullptr;
+        m_progressContainer = nullptr;
+        emit dialogClosed();
+    });
+    
+    // Also emit dialogClosed when user manually closes the dialog (X button)
+    // This is important for re-enabling the "Check for Updates" button
+    connect(m_updateDialog, &QDialog::finished, this, [this](int result) {
+        Q_UNUSED(result);
+        if (m_updateDialog) {
+            // Dialog was closed, clean it up
+            m_updateDialog->deleteLater();
+        }
+    });
+    
+    m_updateDialog->show();
+}
+
+void UpdateManager::closeUpdateDialog()
+{
+    if (m_updateDialog) {
+        m_updateDialog->close();
+        m_updateDialog->deleteLater();
+        m_updateDialog = nullptr;
+        m_progressBar = nullptr;
+        m_progressLabel = nullptr;
+        m_progressContainer = nullptr;
+        emit dialogClosed();
+    }
+}
+
+bool UpdateManager::isUpdateDialogOpen() const
+{
+    return m_updateDialog != nullptr;
+}
+
+void UpdateManager::onDownloadStartedInternal()
+{
+    qDebug() << "[UpdateManager] Internal download started";
+    
+    // Show progress container if it exists
+    if (m_progressContainer) {
+        m_progressContainer->setVisible(true);
+    }
+    if (m_progressBar) {
+        m_progressBar->setValue(0);
+    }
+    if (m_progressLabel) {
+        m_progressLabel->setText("Preparing download...");
+    }
+    
+    // Initialize tracking
+    m_downloadStartTime = QTime::currentTime();
+    m_lastBytesReceived = 0;
+    m_lastProgressTime = QTime::currentTime();
+}
+
+void UpdateManager::onDownloadProgressInternal(qint64 bytesReceived, qint64 bytesTotal)
+{
+    if (!m_progressBar || !m_progressLabel) {
+        return;
+    }
+    
+    if (bytesTotal <= 0) {
+        m_progressBar->setMaximum(0);
+        m_progressBar->setMinimum(0);
+        m_progressLabel->setText("Downloading...");
+        return;
+    }
+    
+    int progress = (bytesReceived * 100) / bytesTotal;
+    m_progressBar->setMaximum(100);
+    m_progressBar->setValue(progress);
+    
+    QTime currentTime = QTime::currentTime();
+    int elapsedMs = m_lastProgressTime.msecsTo(currentTime);
+    double speedKbps = 0.0;
+    
+    if (elapsedMs > 100) {
+        qint64 bytesDelta = bytesReceived - m_lastBytesReceived;
+        speedKbps = (bytesDelta / 1024.0) / (elapsedMs / 1000.0);
+        m_lastBytesReceived = bytesReceived;
+        m_lastProgressTime = currentTime;
+    }
+    
+    double receivedMB = bytesReceived / (1024.0 * 1024.0);
+    double totalMB = bytesTotal / (1024.0 * 1024.0);
+    
+    QString progressText = QString("Downloading: %1 MB / %2 MB (%3%) - %4 KB/s")
+                              .arg(receivedMB, 0, 'f', 1)
+                              .arg(totalMB, 0, 'f', 1)
+                              .arg(progress)
+                              .arg(speedKbps, 0, 'f', 1);
+    m_progressLabel->setText(progressText);
 }

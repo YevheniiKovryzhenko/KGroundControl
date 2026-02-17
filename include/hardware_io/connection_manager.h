@@ -38,9 +38,9 @@
 
 #include <QListWidget>
 
-#include "generic_port.h"
-#include "mavlink_inspector.h"
-#include "generic_port.h"
+#include "hardware_io/generic_port.h"
+#include "mavlink_communication/mavlink_inspector.h"
+#include "hardware_io/generic_port.h"
 #include "threads.h"
 
 /*

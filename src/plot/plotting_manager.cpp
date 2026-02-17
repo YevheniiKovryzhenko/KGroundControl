@@ -1,9 +1,9 @@
-#include "plotting_manager.h"
+#include "plot/plotting_manager.h"
 #include "ui_plotting_manager.h"
-#include "plot_signal_registry.h"
-#include "plot_canvas.h"
-#include "sci_doublespinbox.h"
-#include "create_3d_group_dialog.h"
+#include "plot/plot_signal_registry.h"
+#include "plot/plot_canvas.h"
+#include "plot/sci_doublespinbox.h"
+#include "plot/create_3d_group_dialog.h"
 #include <QPointer>
 #include <QDialog>
 #include <QColorDialog>
@@ -13,7 +13,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QScrollBar>
-#include "create_3d_group_dialog.h"
+#include "plot/create_3d_group_dialog.h"
 #include <QPointer>
 #include <QDialog>
 #include <QColorDialog>

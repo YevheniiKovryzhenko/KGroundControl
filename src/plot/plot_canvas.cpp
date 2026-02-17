@@ -1,5 +1,5 @@
-#include "plot_canvas.h"
-#include "plot_signal_registry.h"
+#include "plot/plot_canvas.h"
+#include "plot/plot_signal_registry.h"
 
 #include <QPainter>
 #include <QPaintEvent>

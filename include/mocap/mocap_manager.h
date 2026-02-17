@@ -47,7 +47,7 @@
 
 #include "threads.h"
 #include "optitrack.hpp"
-#include "generic_port.h"
+#include "hardware_io/generic_port.h"
 #include "settings.h"
 #include <QElapsedTimer>
 #include <QPlainTextEdit>

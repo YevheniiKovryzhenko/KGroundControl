@@ -23,8 +23,13 @@
 
 #include <QObject>
 #include <QString>
+#include <QTime>
 
 class QSimpleUpdater;
+class QDialog;
+class QProgressBar;
+class QLabel;
+class QWidget;
 
 /**
  * @brief Manages application auto-updates using QSimpleUpdater
@@ -81,6 +86,23 @@ public:
      */
     bool applyUpdate(const QString &downloadedFilePath, bool restartApp = true);
 
+    /**
+     * @brief Show the update dialog with changelog and download progress
+     * @param currentVersion Current application version string
+     * @param parent Parent widget for the dialog
+     */
+    void showUpdateDialog(const QString &currentVersion, QWidget* parent = nullptr);
+    
+    /**
+     * @brief Close the update dialog if it's open
+     */
+    void closeUpdateDialog();
+    
+    /**
+     * @brief Check if update dialog is currently open
+     */
+    bool isUpdateDialogOpen() const;
+
 signals:
     /**
      * @brief Emitted when update check starts (non-blocking)
@@ -122,10 +144,25 @@ signals:
      * @param error Error description
      */
     void updateError(const QString &error);
+    
+    /**
+     * @brief Emitted when user declines an update version
+     * @param version The version that was declined
+     */
+    void updateDeclined(const QString &version);
+    
+    /**
+     * @brief Emitted when the update dialog is closed or destroyed
+     */
+    void dialogClosed();
 
 private slots:
     void onCheckingFinished(const QString &url);
     void onDownloadFinishedInternal(const QString &url, const QString &filepath);
+
+public slots:
+    void onDownloadStartedInternal();
+    void onDownloadProgressInternal(qint64 bytesReceived, qint64 bytesTotal);
 
 private:
     bool performBinarySwap(const QString &newBinaryPath, bool restartApp = true);
@@ -139,6 +176,15 @@ private:
     bool m_updateAvailable;
     bool m_silentCheck;
     QString m_downloadFilePath;
+    
+    // Dialog management
+    QDialog* m_updateDialog;
+    QProgressBar* m_progressBar;
+    QLabel* m_progressLabel;
+    QWidget* m_progressContainer;
+    QTime m_downloadStartTime;
+    qint64 m_lastBytesReceived;
+    QTime m_lastProgressTime;
 };
 
 #endif // UPDATE_MANAGER_H

@@ -45,7 +45,7 @@
 
 #define MAVLINK_USE_MESSAGE_INFO
 #include "all/mavlink.h"
-#include "mavlink_enum_types.h"
+#include "mavlink_communication/mavlink_enum_types.h"
 #include "threads.h"
 // #include "signal_filters.h"
 

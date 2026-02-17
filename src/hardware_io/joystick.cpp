@@ -32,7 +32,7 @@
  *
  ****************************************************************************/
 
-#include "joystick.h"
+#include "hardware_io/joystick.h"
 
 #include <QDebug>
 #include <QFile>
