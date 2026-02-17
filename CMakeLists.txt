@@ -155,7 +155,7 @@ set(SDL_TEST OFF CACHE BOOL "Build SDL2 tests" FORCE)
 FetchContent_Declare(
     SDL2
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG        release-2.30.3
+    GIT_TAG        release-2.32.10
 )
 FetchContent_Populate(SDL2)
 add_subdirectory(${sdl2_SOURCE_DIR} ${sdl2_BINARY_DIR})
