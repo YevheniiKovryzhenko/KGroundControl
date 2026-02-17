@@ -280,16 +280,14 @@ KGroundControl::KGroundControl(QWidget *parent)
             return;
         }
         
-        // For testing, use local file:// URL
-        // For production, uncomment the GitHub Pages URL
         QString updateUrl;
         
-        // Production URL (GitHub Pages):
-        // updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+        // Production URL (GitHub Pages) - default for releases:
+        updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
         
-        // Testing URL (local):
-        QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-        updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+        // For LOCAL TESTING, uncomment this and comment the line above:
+        // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        // updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
         
         qDebug() << "[KGroundControl] Auto-checking for updates on startup...";
         update_manager_->checkForUpdates(updateUrl, true);  // silent=true, no "no updates" message
@@ -882,26 +880,25 @@ void KGroundControl::on_btn_check_updates_clicked()
 {
     qDebug() << "[KGroundControl] User requested update check";
     
-    // Determine update URL
     QString updateUrl;
     
-    // For production use:
-    // updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+    // Production URL (GitHub Pages) - default for releases:
+    updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
     
-    // For LOCAL TESTING, use file:// URL pointing to Downloads folder:
+    // For LOCAL TESTING, uncomment these lines and comment the line above:
     // NOTE: To properly test version updates, you need a binary with a DIFFERENT version.
-    // The version is defined in CMakeLists.txt line 8: project(KGroundControl VERSION 1.2.2 ...)
+    // The version is defined in CMakeLists.txt line 8: project(KGroundControl VERSION 1.2.3 ...)
     // Steps to test proper version update:
-    //   1. Build current version (e.g., 1.2.2)
-    //   2. Edit CMakeLists.txt to version 1.2.3
+    //   1. Build current version (e.g., 1.2.3)
+    //   2. Edit CMakeLists.txt to version 1.2.4
     //   3. Rebuild: cmake --build build/Debug
     //   4. Copy new binary: cp build/Debug/bin/KGroundControl ~/Downloads/KGroundControl_new
-    //   5. Edit CMakeLists.txt back to version 1.2.2
+    //   5. Edit CMakeLists.txt back to version 1.2.3
     //   6. Rebuild: cmake --build build/Debug
-    //   7. Set updates.json to version "1.2.3"
-    //   8. Run the app and test update - after restart it should show v1.2.3 in title
-    QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+    //   7. Create ~/Downloads/updates.json with version "1.2.4" and file:// URL to KGroundControl_new
+    //   8. Run the app and test update - after install it should show v1.2.4 in title
+    // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    // updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
     
     qDebug() << "[KGroundControl] Checking for updates from:" << updateUrl;
     

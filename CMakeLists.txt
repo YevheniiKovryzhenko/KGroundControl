@@ -429,6 +429,33 @@ set_target_properties(KGroundControl PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Determine OS name and architecture for versioned binary naming
+if(WIN32)
+    set(OS_NAME "Windows")
+    set(BINARY_EXTENSION ".exe")
+elseif(UNIX AND NOT APPLE)
+    set(OS_NAME "Linux")
+    set(BINARY_EXTENSION "")
+elseif(APPLE)
+    set(OS_NAME "macOS")
+    set(BINARY_EXTENSION "")
+else()
+    set(OS_NAME "Unknown")
+    set(BINARY_EXTENSION "")
+endif()
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(ARCH_NAME "x64")
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(ARCH_NAME "x86")
+else()
+    set(ARCH_NAME "unknown")
+endif()
+
+# Versioned binary name: KGroundControl_v1.2.3_Linux_x64
+set(VERSIONED_BINARY_NAME "KGroundControl_v${PROJECT_VERSION}_${OS_NAME}_${ARCH_NAME}${BINARY_EXTENSION}")
+message(STATUS "Versioned binary name: ${VERSIONED_BINARY_NAME}")
+
 include(GNUInstallDirs)
 install(TARGETS KGroundControl
     BUNDLE DESTINATION .
@@ -481,6 +508,7 @@ add_custom_command(TARGET KGroundControl POST_BUILD
         -DIS_WINDOWS=$<IF:$<PLATFORM_ID:Windows>,1,0>
         -DWINDEPLOYQT_EXECUTABLE=${WINDEPLOYQT_EXECUTABLE}
         -DCONFIG=${_CONFIG_GENEX}
+        -DVERSIONED_BINARY_NAME=${VERSIONED_BINARY_NAME}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageDist.cmake
     COMMENT "Packaging KGroundControl into DistributionKit for Release/MinSizeRel"
 )

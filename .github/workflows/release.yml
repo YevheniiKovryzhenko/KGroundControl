@@ -1,0 +1,185 @@
+name: Update updates.json on Release
+
+# This workflow updates docs/updates.json when you create or edit a GitHub Release.
+# You can add binaries gradually (Linux first, then Windows later, or vice versa).
+# The workflow detects which binaries exist and only updates those platforms.
+
+on:
+  release:
+    types: [published, edited]  # Triggers on publish AND when you edit to add binaries
+
+permissions:
+  contents: write  # Needed to push updates.json
+
+jobs:
+  update-json:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Get all history
+        ref: ${{ github.event.release.target_commitish }}  # Checkout the release branch
+    
+    - name: Extract version from tag
+      id: version
+      run: |
+        VERSION="${{ github.event.release.tag_name }}"
+        # Remove 'v' prefix if present
+        VERSION="${VERSION#v}"
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "📦 Processing release for version: $VERSION"
+    
+    - name: Check which binaries are available
+      id: check_binaries
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        
+        # Expected binary names
+        LINUX_BINARY="KGroundControl_v${VERSION}_Linux_x64"
+        WINDOWS_BINARY="KGroundControl_v${VERSION}_Windows_x64.exe"
+        
+        # Get release assets using GitHub CLI
+        echo "🔍 Checking release assets..."
+        ASSETS=$(gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets --jq '.[].name')
+        
+        echo "Found assets:"
+        echo "$ASSETS"
+        
+        # Check if each binary exists
+        LINUX_EXISTS="false"
+        WINDOWS_EXISTS="false"
+        
+        if echo "$ASSETS" | grep -q "^${LINUX_BINARY}$"; then
+          echo "✅ Linux binary found: $LINUX_BINARY"
+          LINUX_EXISTS="true"
+        else
+          echo "⏳ Linux binary not found (yet): $LINUX_BINARY"
+        fi
+        
+        if echo "$ASSETS" | grep -q "^${WINDOWS_BINARY}$"; then
+          echo "✅ Windows binary found: $WINDOWS_BINARY"
+          WINDOWS_EXISTS="true"
+        else
+          echo "⏳ Windows binary not found (yet): $WINDOWS_BINARY"
+        fi
+        
+        echo "LINUX_EXISTS=$LINUX_EXISTS" >> $GITHUB_OUTPUT
+        echo "WINDOWS_EXISTS=$WINDOWS_EXISTS" >> $GITHUB_OUTPUT
+        echo "LINUX_BINARY=$LINUX_BINARY" >> $GITHUB_OUTPUT
+        echo "WINDOWS_BINARY=$WINDOWS_BINARY" >> $GITHUB_OUTPUT
+    
+    - name: Extract changelog from release
+      id: changelog
+      run: |
+        # Get release body (changelog) from the event
+        CHANGELOG=$(echo '${{ github.event.release.body }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "${{ github.event.release.body }}" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Update docs/updates.json (smart merge)
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        LINUX_EXISTS="${{ steps.check_binaries.outputs.LINUX_EXISTS }}"
+        WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
+        LINUX_BINARY="${{ steps.check_binaries.outputs.LINUX_BINARY }}"
+        WINDOWS_BINARY="${{ steps.check_binaries.outputs.WINDOWS_BINARY }}"
+        CHANGELOG_ESCAPED=$(echo "${{ steps.changelog.outputs.CHANGELOG }}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        
+        # Read existing updates.json if it exists, otherwise start with empty template
+        if [ -f docs/updates.json ]; then
+          echo "📖 Reading existing updates.json"
+          EXISTING_JSON=$(cat docs/updates.json)
+        else
+          echo "📝 Creating new updates.json"
+          EXISTING_JSON='{"updates":{"linux":{},"windows":{}}}'
+        fi
+        
+        # Build updates using jq to properly merge
+        echo "$EXISTING_JSON" > /tmp/updates.json
+        
+        # Update Linux platform if binary exists
+        if [ "$LINUX_EXISTS" = "true" ]; then
+          echo "✍️  Updating Linux platform info"
+          jq --arg version "$VERSION" \
+             --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY}" \
+             --arg changelog "$CHANGELOG_ESCAPED" \
+             '.updates.linux = {
+               "latest-version": $version,
+               "download-url": $url,
+               "changelog": $changelog,
+               "mandatory-update": false
+             }' /tmp/updates.json > /tmp/updates_new.json
+          mv /tmp/updates_new.json /tmp/updates.json
+        else
+          echo "⏭️  Skipping Linux platform (no binary yet)"
+        fi
+        
+        # Update Windows platform if binary exists
+        if [ "$WINDOWS_EXISTS" = "true" ]; then
+          echo "✍️  Updating Windows platform info"
+          jq --arg version "$VERSION" \
+             --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${WINDOWS_BINARY}" \
+             --arg changelog "$CHANGELOG_ESCAPED" \
+             '.updates.windows = {
+               "latest-version": $version,
+               "download-url": $url,
+               "changelog": $changelog,
+               "mandatory-update": false
+             }' /tmp/updates.json > /tmp/updates_new.json
+          mv /tmp/updates_new.json /tmp/updates.json
+        else
+          echo "⏭️  Skipping Windows platform (no binary yet)"
+        fi
+        
+        # Write final JSON to docs folder
+        cat /tmp/updates.json > docs/updates.json
+        
+        echo ""
+        echo "✅ Generated docs/updates.json:"
+        cat docs/updates.json | jq '.'
+    
+    - name: Commit and push updates.json
+      run: |
+        LINUX_EXISTS="${{ steps.check_binaries.outputs.LINUX_EXISTS }}"
+        WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
+        
+        # Only commit if at least one binary was found
+        if [ "$LINUX_EXISTS" = "false" ] && [ "$WINDOWS_EXISTS" = "false" ]; then
+          echo "⏸️  No binaries found yet - skipping updates.json commit"
+          echo "Add binaries to the release and the workflow will run again automatically!"
+          exit 0
+        fi
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Get the branch name from the base ref
+        BRANCH="${{ github.event.release.target_commitish }}"
+        
+        git add docs/updates.json
+        
+        if git diff --staged --quiet; then
+          echo "ℹ️  No changes to updates.json"
+        else
+          COMMIT_MSG="Update updates.json for v${{ steps.version.outputs.VERSION }}"
+          
+          # Add details about which platforms were updated
+          if [ "$LINUX_EXISTS" = "true" ] && [ "$WINDOWS_EXISTS" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG} (Linux + Windows)"
+          elif [ "$LINUX_EXISTS" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG} (Linux only)"
+          elif [ "$WINDOWS_EXISTS" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG} (Windows only)"
+          fi
+          
+          git commit -m "$COMMIT_MSG"
+          git push origin "$BRANCH"
+          echo "✅ Pushed updates.json to branch $BRANCH"
+          echo ""
+          echo "📢 Users will now be notified of available updates!"
+        fi
