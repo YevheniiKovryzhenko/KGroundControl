@@ -3,7 +3,7 @@
     "linux": {
       "latest-version": "1.2.3",
       "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Ubuntu_24.04_x64",
-      "changelog": "Added Auto-Update System:\r\\n- Automatic Update Checks: Optional update checks on startup (configurable in Settings)\r\\n- Manual Control: Check for Updates button in Settings tab for on-demand checks\r\\n- Smart Download Manager: Real-time progress tracking with download speed (KB/s), percentage, and total data transferred\r\\n\r\\nMost of this is bare mimium imlementation just to get some online updates going. Will be refined as needed. ",
+      "changelog": "Added Auto-Update System:\r\\n- Automatic Update Checks: Optional update checks on startup (configurable in Settings)\r\\n- Manual Control: Check for Updates button in Settings tab for on-demand checks\r\\n- Smart Download Manager: Real-time progress tracking with download speed (KB/s), percentage, and total data transferred\r\\n- Updated main settings page ui\r\\n- Removed internal library tracking and optimized build process\r\\n- Reorganized source files",
       "mandatory-update": false
     },
     "windows": {
