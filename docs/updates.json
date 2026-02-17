@@ -1,0 +1,16 @@
+{
+  "updates": {
+    "linux": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl-linux",
+      "changelog": "## What's New in v1.2.3\n\n- Added automatic update checking system\n- Added install-on-exit option for non-disruptive updates\n- Added progress tracking for downloads\n- Improved settings persistence\n- Bug fixes and performance improvements",
+      "mandatory-update": false
+    },
+    "windows": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl-windows.exe",
+      "changelog": "## What's New in v1.2.3\n\n- Added automatic update checking system\n- Added install-on-exit option for non-disruptive updates\n- Added progress tracking for downloads\n- Improved settings persistence\n- Bug fixes and performance improvements",
+      "mandatory-update": false
+    }
+  }
+}
