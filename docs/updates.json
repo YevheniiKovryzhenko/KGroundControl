@@ -1,9 +1,9 @@
 {
   "updates": {
     "linux": {
-      "latest-version": "1.2.3",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Ubuntu_24.04_x64",
-      "changelog": "Added Auto-Update System:\r\\n- Automatic Update Checks: Optional update checks on startup (configurable in Settings)\r\\n- Manual Control: Check for Updates button in Settings tab for on-demand checks\r\\n- Smart Download Manager: Real-time progress tracking with download speed (KB/s), percentage, and total data transferred\r\\n- Updated main settings page ui\r\\n- Removed internal library tracking and optimized build process\r\\n- Reorganized source files",
+      "latest-version": "1.2.4",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.4/KGroundControl_v1.2.4_Ubuntu_24.04_x64",
+      "changelog": "Consolidated all recent changes and resolved multiple issues involving automatic updates and new code structure on both Linux and Windows. Testing GitHub actions and further automation needed for seamless updates on the client side.\r\\n\r\\n\r\\n**Full Changelog**: https://github.com/YevheniiKovryzhenko/KGroundControl/compare/v1.2.2...v1.2.4",
       "mandatory-update": false
     },
     "windows": {
