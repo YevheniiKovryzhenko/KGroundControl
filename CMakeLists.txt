@@ -5,7 +5,7 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.2.3 LANGUAGES CXX)
+project(KGroundControl VERSION 1.2.4 LANGUAGES CXX)
 
 set(QT_TARGET_VERSION 6.10.2)
 
@@ -34,8 +34,10 @@ if(WIN32)
     set(QT_PATHS
         "$ENV{QTDIR}"
         # Static Qt installations
+        "C:/Qt/Static/v${QT_TARGET_VERSION}/install"
         "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
         # Dynamic Qt installations (fallback)
+        "C:/Qt/Shared/v${QT_TARGET_VERSION}/install"
         "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"        
         # Standard dynamic Qt installations (fallback)
         "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
@@ -51,13 +53,13 @@ if(WIN32)
             message(STATUS "Found Qt installation at: ${QT_PATH}")
             set(CMAKE_PREFIX_PATH "${QT_PATH}")
             
-            # Set QT_STATIC_BUILD based on the Qt installation type
-            if("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
-                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
-                message(STATUS "Using dynamic Qt libraries")
-            elseif("${QT_PATH}" MATCHES ".*Qt_Static.*" OR "${QT_PATH}" MATCHES ".*static.*")
+            # Set QT_STATIC_BUILD based on the Qt installation type (check static patterns FIRST!)
+            if("${QT_PATH}" MATCHES ".*[Ss]tatic.*" OR "${QT_PATH}" MATCHES ".*Qt_Static.*")
                 set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
                 message(STATUS "Using static Qt libraries")
+            elseif("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
+                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
+                message(STATUS "Using dynamic Qt libraries")
             endif()
             
             break()
@@ -130,6 +132,29 @@ if(MSVC)
     add_compile_options(/wd4100 /wd4189 /wd4244 /wd4267)
 endif()
 
+# **IMPORTANT**: Configure MSVC runtime BEFORE fetching dependencies
+# This ensures all dependencies (QSimpleUpdater, SDL2) use the same runtime library
+if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
+    # Check if debug static Qt core library exists
+    set(_qt_debug_core_lib_found FALSE)
+    if(CMAKE_PREFIX_PATH)
+        file(GLOB _qt_core_debug_candidates
+            LIST_DIRECTORIES FALSE
+            "${CMAKE_PREFIX_PATH}/lib/Qt6Cored.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core_debug.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core*d.lib")
+        if(_qt_core_debug_candidates)
+            set(_qt_debug_core_lib_found TRUE)
+            message(STATUS "Found debug Qt libraries; using /MDd runtime")
+        endif()
+    endif()
+    if(NOT _qt_debug_core_lib_found)
+        message(STATUS "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to match release-only Qt.")
+        # Force multi-threaded DLL runtime (Release) for all configs to match release-only Qt
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "Force Release runtime in Debug config" FORCE)
+        # Disable iterator debugging to match release Qt libs
+        add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+    endif()
+endif()
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
@@ -166,33 +191,6 @@ if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     add_definitions(-DQT_STATICPLUGIN)
 else()
     message(STATUS "Configuring for dynamic Qt build")
-endif()
-
-# If building Debug and using static Qt, optionally align MSVC runtime with Release if no debug Qt libs exist
-if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
-    # Heuristic: look for a debug-suffixed Qt6Core*d.lib under prefix path
-    set(_qt_debug_core_lib_found FALSE)
-    if(CMAKE_PREFIX_PATH)
-        file(GLOB _qt_core_debug_candidates
-            LIST_DIRECTORIES FALSE
-            "${CMAKE_PREFIX_PATH}/lib/Qt6Cored.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core_debug.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core*d.lib")
-        if(_qt_core_debug_candidates)
-            set(_qt_debug_core_lib_found TRUE)
-        endif()
-    endif()
-    if(NOT _qt_debug_core_lib_found)
-        message(WARNING "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to avoid LNK2038 with release-only Qt.")
-        # Force multi-threaded DLL runtime (Release) for all configs so this target matches Qt objects
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
-        # Remove /MDd from existing flags (CMake might have already applied it before policy CMP0091)
-        foreach(_flag_var CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
-            if(${_flag_var} MATCHES "/MDd")
-                string(REGEX REPLACE "/MDd" "/MD" ${_flag_var} "${${_flag_var}}")
-            endif()
-        endforeach()
-        # Disable iterator debugging for this target to match release Qt libs (iterator debug level 0)
-        add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
-    endif()
 endif()
 
 set(PROJECT_HEADERS
