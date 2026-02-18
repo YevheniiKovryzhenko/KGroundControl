@@ -9,7 +9,7 @@
     "windows": {
       "latest-version": "1.2.3",
       "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Windows_x64.exe",
-      "changelog": "## What's New in v1.2.3\n\n- Added automatic update checking system\n- Added install-on-exit option for non-disruptive updates\n- Added progress tracking for downloads\n- Improved settings persistence\n- Bug fixes and performance improvements",
+      "changelog": "Added Auto-Update System:\r\\n- Automatic Update Checks: Optional update checks on startup (configurable in Settings)\r\\n- Manual Control: Check for Updates button in Settings tab for on-demand checks\r\\n- Smart Download Manager: Real-time progress tracking with download speed (KB/s), percentage, and total data transferred\r\\n- Updated main settings page ui\r\\n- Removed internal library tracking and optimized build process\r\\n- Reorganized source files",
       "mandatory-update": false
     }
   }
