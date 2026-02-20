@@ -61,7 +61,12 @@ jobs:
       - name: Extract changelog (base64-encoded)
         id: changelog
         run: |
-          echo "CHANGELOG=$(echo '${{ github.event.release.body }}' | base64 -w0)" >> $GITHUB_OUTPUT
+          # Fetch the release body at runtime via gh API to avoid injecting
+          # the body content into the step script. Write to a temp file, then
+          # base64-encode it for a safe single-line output.
+          gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }} --jq '.body' > /tmp/release_body || true
+          echo "CHANGELOG=$(base64 -w0 /tmp/release_body)" >> $GITHUB_OUTPUT
+          rm -f /tmp/release_body
 
       - name: Update docs/updates.json (smart merge)
         run: |
