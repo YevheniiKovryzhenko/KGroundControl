@@ -43,11 +43,49 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QFont>
+#include <QSysInfo> // used for distro/version detection on linux
 
 // Ensure APP_VERSION is defined in CMakeLists.txt
 #ifndef APP_VERSION
 #define APP_VERSION "1.0.0"
 #endif
+
+//------------------------------------------------------------------------------
+// helpers
+//------------------------------------------------------------------------------
+
+QString UpdateManager::computePlatformKey() const
+{
+#ifdef Q_OS_LINUX
+    // start with a generic base; QSimpleUpdater expects keys that match the
+    // names within the JSON updates file.  we'll append distro information if
+    // we can determine it.
+    QString key = "linux";
+
+    QString distro = QSysInfo::productType().toLower();    // e.g. "ubuntu"
+    QString version = QSysInfo::productVersion();          // e.g. "24.04"
+
+    if (!distro.isEmpty()) {
+        // sanitize (replace spaces with '-') just in case
+        distro.replace(' ', '-');
+        key += "-" + distro;
+    }
+    if (!version.isEmpty()) {
+        // keep the dot separator so the JSON key is human-readable
+        version.replace(' ', '-');
+        key += "-" + version;
+    }
+
+    // examples produced by this code:
+    //   linux-ubuntu-24.04
+    //   linux-debian-11
+
+    return key;
+#else
+    return QString();
+#endif
+}
+
 
 UpdateManager::UpdateManager(QObject *parent)
     : QObject(parent)
@@ -59,7 +97,12 @@ UpdateManager::UpdateManager(QObject *parent)
     , m_progressLabel(nullptr)
     , m_progressContainer(nullptr)
     , m_lastBytesReceived(0)
+    , m_didFallback(false)
 {
+    // Ensure the desktop entry matches the current binary version.  This
+    // takes care of the case where the app has been moved or updated outside
+    // of the built-in updater (e.g. installed manually into ~/.local/bin).
+    ensureDesktopEntryCurrent();
     // Connect updater signals
     connect(m_updater, &QSimpleUpdater::downloadFinished,
             this, &UpdateManager::onDownloadFinishedInternal);
@@ -81,6 +124,8 @@ void UpdateManager::checkForUpdates(const QString &updateUrl, bool silent)
     m_updateUrl = updateUrl;
     m_silentCheck = silent;
     m_updateAvailable = false;
+    m_requestedPlatformKey.clear();
+    m_didFallback = false;
     
     qDebug() << "[UpdateManager] Checking for updates from:" << updateUrl;
     qDebug() << "[UpdateManager] Current version:" << APP_VERSION;
@@ -95,14 +140,22 @@ void UpdateManager::checkForUpdates(const QString &updateUrl, bool silent)
     m_updater->setDownloaderEnabled(updateUrl, true);      // Enable downloader
     m_updater->setMandatoryUpdate(updateUrl, false);       // Never mandatory
     
-    // Set platform key (required for JSON parsing)
+    // Determine and set platform key.  On linux we try to be specific
+    // (distribution + version) but fall back to the old "linux" key if
+    // the JSON doesn't contain a matching entry.  The extra member
+    // variables are used in onCheckingFinished() to detect the need for
+    // a second attempt.
 #ifdef Q_OS_WIN
-    m_updater->setPlatformKey(updateUrl, "windows");
+    m_requestedPlatformKey = "windows";
+    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
 #elif defined(Q_OS_LINUX)
-    m_updater->setPlatformKey(updateUrl, "linux");
+    m_requestedPlatformKey = computePlatformKey();
+    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
 #elif defined(Q_OS_MAC)
-    m_updater->setPlatformKey(updateUrl, "mac");
+    m_requestedPlatformKey = "mac";
+    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
 #endif
+    qDebug() << "[UpdateManager] using platform key:" << m_requestedPlatformKey;
     
     // Use Downloads folder for safety and user visibility
     QString downloadPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -291,6 +344,27 @@ void UpdateManager::onCheckingFinished(const QString &url)
         // Emit signal for UI to handle (non-intrusive)
         emit updateAvailable(m_latestVersion, m_changelog);
     } else {
+        // Only fall back to the generic "linux" key if the platform-specific
+        // entry doesn't exist at all.  If the key is present but simply
+        // doesn't have a newer version, we should not retry; doing so would
+        // cause a downgrade to whatever the generic entry contains.
+        if (!m_didFallback && !m_requestedPlatformKey.isEmpty() &&
+            m_requestedPlatformKey != "linux") {
+            QString downloadUrl = m_updater->getDownloadUrl(url);
+            if (downloadUrl.isEmpty()) {
+                // no asset present for the specific key; fall back once to
+                // the generic linux entry and update our record so future
+                // messaging reflects the actual query.
+                qDebug() << "[UpdateManager] no asset for" << m_requestedPlatformKey
+                         << ", retrying with generic linux key";
+                m_didFallback = true;
+                m_requestedPlatformKey = "linux";              // record change
+                m_updater->setPlatformKey(url, "linux");
+                m_updater->checkForUpdates(url);
+                return; // wait for second callback
+            }
+        }
+
         qDebug() << "[UpdateManager] No updates available. You have the latest version.";
         m_updateAvailable = false;
         
@@ -340,9 +414,18 @@ bool UpdateManager::performBinarySwap(const QString &newBinaryPath, bool restart
 
 bool UpdateManager::performLinuxSwap(const QString &newBinaryPath, bool restartApp)
 {
-    // Get the path to the currently running executable (works from anywhere)
+    // If the running binary is not already in the per‑user bin directory,
+    // treat this as a one‑time install rather than a simple swap.  The
+    // new location is ~/.local/bin/KGroundControl which is writable by the
+    // user and recognised by desktop environments when a corresponding
+    // .desktop file exists.
     QString currentApp = QCoreApplication::applicationFilePath();
-    
+    QString userBin = QDir::homePath() + "/.local/bin";
+    if (!currentApp.startsWith(userBin + "/")) {
+        qDebug() << "[UpdateManager] Current binary not in user bin, performing user install";
+        return performLinuxUserInstall(newBinaryPath, restartApp);
+    }
+
     qDebug() << "[UpdateManager] Linux swap:";
     qDebug() << "  Current binary:" << currentApp;
     qDebug() << "  New binary:" << newBinaryPath;
@@ -357,33 +440,23 @@ bool UpdateManager::performLinuxSwap(const QString &newBinaryPath, bool restartA
         emit updateError("Failed to set executable permissions");
         return false;
     }
-    
-    // Try to rename (atomic operation on same filesystem)
-    // First, back up the current binary
-    QString backupPath = currentApp + ".backup";
-    if (QFile::exists(backupPath)) {
-        QFile::remove(backupPath);
+
+    // remove current binary and replace it
+    if (QFile::exists(currentApp)) {
+        QFile::remove(currentApp);
     }
-    
-    if (!QFile::rename(currentApp, backupPath)) {
-        qWarning() << "[UpdateManager] Failed to backup current binary";
-        // Continue anyway, try direct replacement
-    }
-    
-    // Move new binary to current location
+
     if (QFile::rename(newBinaryPath, currentApp)) {
         qDebug() << "[UpdateManager] Binary replaced successfully.";
-        
+
         if (restartApp) {
-            // Restart the application (no arguments, fresh start)
             qDebug() << "[UpdateManager] Restarting application...";
-            QStringList args;  // Empty arguments for clean restart
+            QStringList args;
             if (QProcess::startDetached(currentApp, args)) {
                 qDebug() << "[UpdateManager] Restart command issued successfully";
             } else {
                 qWarning() << "[UpdateManager] Failed to start detached process";
             }
-            // Quit immediately - don't wait
             QCoreApplication::quit();
         } else {
             qDebug() << "[UpdateManager] Update installed, will be active on next launch.";
@@ -391,12 +464,6 @@ bool UpdateManager::performLinuxSwap(const QString &newBinaryPath, bool restartA
         return true;
     } else {
         qWarning() << "[UpdateManager] Failed to move new binary to application location";
-        
-        // Try to restore backup
-        if (QFile::exists(backupPath)) {
-            QFile::rename(backupPath, currentApp);
-        }
-        
         emit updateError("Failed to replace binary. Check file permissions.");
         return false;
     }
@@ -462,6 +529,145 @@ bool UpdateManager::performWindowsSwap(const QString &newBinaryPath, bool restar
         return false;
     }
 }
+// new helper for user‑level installation
+bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool restartApp)
+{
+    QString userBin = QDir::homePath() + "/.local/bin";
+    QDir().mkpath(userBin);
+    QString installPath = userBin + "/KGroundControl";
+
+    qDebug() << "[UpdateManager] Installing to" << installPath;
+
+    // remove old install if present
+    if (QFile::exists(installPath)) {
+        QFile::remove(installPath);
+    }
+
+    if (!QFile::copy(newBinaryPath, installPath)) {
+        qWarning() << "[UpdateManager] Failed to copy new binary to" << installPath;
+        emit updateError("Failed to install update");
+        return false;
+    }
+
+    QFile::setPermissions(installPath,
+                          QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
+                          QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                          QFileDevice::ReadOther | QFileDevice::ExeOther);
+
+    // create desktop entry and install icon so the app appears in
+    // the system menu (and can show up in Settings/Software).  the
+    // downloaded update contains only the executable; we ship a standard
+    // PNG in the repo which we copy into the hicolor icon tree.
+    QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+    if (!appsDir.isEmpty()) {
+        QDir().mkpath(appsDir);
+        QString desktopFile = appsDir + "/kgroundcontrol.desktop";
+        QFile df(desktopFile);
+        if (df.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&df);
+            out << "[Desktop Entry]\n";
+            out << "Name=KGroundControl\n";
+            out << "Exec=" << installPath << "\n";
+            out << "Icon=kgroundcontrol\n";
+            out << "Type=Application\n";
+            out << "Categories=Utility;Network;\n";
+            out << "Terminal=false\n";
+            df.close();
+        }
+    }
+
+    // copy icon PNG from our resources to the user icon directory
+    QString iconSrc = QCoreApplication::applicationDirPath() + "/../resources/Images/Logo/KGC_Logo.png";
+    // the above path may need adjusting depending on packaging, so fall back
+    if (!QFile::exists(iconSrc)) {
+        // try relative to source tree in case of development build
+        iconSrc = QCoreApplication::applicationDirPath() + "/../../resources/Images/Logo/KGC_Logo.png";
+    }
+    if (QFile::exists(iconSrc)) {
+        QString iconDestDir = QDir::homePath() + "/.local/share/icons/hicolor/256x256/apps";
+        QDir().mkpath(iconDestDir);
+        QFile::copy(iconSrc, iconDestDir + "/kgroundcontrol.png");
+    }
+
+    if (restartApp) {
+        qDebug() << "[UpdateManager] Restarting installed app";
+        QStringList args;
+        if (QProcess::startDetached(installPath, args)) {
+            qDebug() << "[UpdateManager] Restart command issued successfully";
+        } else {
+            qWarning() << "[UpdateManager] Failed to start detached process";
+        }
+        QCoreApplication::quit();
+    }
+    return true;
+}
+
+// desktop entry helpers ----------------------------------------------------
+
+void UpdateManager::ensureDesktopEntryCurrent()
+{
+#ifdef Q_OS_LINUX
+    QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+    if (appsDir.isEmpty())
+        return;
+
+    QString desktopFile = QDir(appsDir).filePath("kgroundcontrol.desktop");
+    QFile df(desktopFile);
+    if (!df.exists() || !df.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+
+    QString foundVersion;
+    QTextStream in(&df);
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.startsWith("X-KGroundControl-Version=")) {
+            foundVersion = line.section('=',1);
+            break;
+        }
+    }
+    df.close();
+
+    if (foundVersion.isEmpty() || foundVersion != APP_VERSION) {
+        qDebug() << "[UpdateManager] Updating desktop entry from" << foundVersion << "to" << APP_VERSION;
+        writeDesktopEntry(QCoreApplication::applicationFilePath());
+    }
+#endif
+}
+
+void UpdateManager::writeDesktopEntry(const QString &exePath)
+{
+    QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+    if (appsDir.isEmpty())
+        return;
+    QDir().mkpath(appsDir);
+
+    QString desktopFile = QDir(appsDir).filePath("kgroundcontrol.desktop");
+    QFile df(desktopFile);
+    if (df.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&df);
+        out << "[Desktop Entry]\n";
+        out << "Name=KGroundControl\n";
+        out << "Exec=" << exePath << "\n";
+        out << "Icon=kgroundcontrol\n";
+        out << "Type=Application\n";
+        out << "Categories=Utility;Education;\n";
+        out << "Terminal=false\n";
+        out << "X-KGroundControl-Version=" << APP_VERSION << "\n";
+        df.close();
+    }
+
+    // copy icon as before
+    QString iconSrc = QCoreApplication::applicationDirPath() + "/../resources/Images/Logo/KGC_Logo.png";
+    if (!QFile::exists(iconSrc)) {
+        iconSrc = QCoreApplication::applicationDirPath() + "/../../resources/Images/Logo/KGC_Logo.png";
+    }
+    if (QFile::exists(iconSrc)) {
+        QString iconDestDir = QDir::homePath() + "/.local/share/icons/hicolor/256x256/apps";
+        QDir().mkpath(iconDestDir);
+        QFile::copy(iconSrc, iconDestDir + "/kgroundcontrol.png");
+    }
+}
+
 void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* parent)
 {
     // Clean up old dialog if it exists
@@ -479,6 +685,27 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     
     // Header message
     QLabel* headerLabel = new QLabel(QString("v%1 is available").arg(m_latestVersion));
+
+    // Distribution warning/info
+    QString hostKey = computePlatformKey();
+    QString distroMsg;
+    if (m_requestedPlatformKey.isEmpty()) {
+        distroMsg = "Unable to determine distribution for this update.";
+    } else if (m_requestedPlatformKey == hostKey) {
+        distroMsg = QString("This update matches your current distribution (%1). ")
+                        .arg(hostKey);
+    } else if (m_requestedPlatformKey == "linux") {
+        distroMsg = QString("This is a generic linux build; you are running %1. "
+                             "It should work but may lack distro-specific addons.")
+                        .arg(hostKey);
+    } else {
+        distroMsg = QString("This update is built for %1 but you are on %2. "
+                             "You may prefer to wait for a matching release.")
+                        .arg(m_requestedPlatformKey, hostKey);
+    }
+    QLabel* distroLabel = new QLabel(distroMsg);
+    distroLabel->setWordWrap(true);
+    layout->addWidget(distroLabel);
     QFont headerFont = headerLabel->font();
     headerFont.setPointSize(headerFont.pointSize() + 2);
     headerFont.setBold(true);

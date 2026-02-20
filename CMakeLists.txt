@@ -5,7 +5,7 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.2.4 LANGUAGES CXX)
+project(KGroundControl VERSION 1.2.5 LANGUAGES CXX)
 
 set(QT_TARGET_VERSION 6.10.2)
 
@@ -462,13 +462,40 @@ set_target_properties(KGroundControl PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/lib"
 )
 
-# Determine OS name and architecture for versioned binary naming
+# Determine OS name and architecture for versioned binary naming.
+# The value produced here must match the strings used by the auto‑update
+# workflow when constructing asset names.  "Windows" and "macOS" are
+# hard-coded; on Linux we attempt to read /etc/os-release and produce a
+# string such as "Ubuntu_24.04" or "Debian_12".  This keeps the
+# DistributionKit artifact name aligned with the platform key logic used at
+# runtime, while still being readable for human operators.
 if(WIN32)
     set(OS_NAME "Windows")
     set(BINARY_EXTENSION ".exe")
 elseif(UNIX AND NOT APPLE)
-    set(OS_NAME "Ubuntu_24.04")
+    # default fallback if detection fails
+    set(OS_NAME "linux")
     set(BINARY_EXTENSION "")
+    if(EXISTS "/etc/os-release")
+        file(READ "/etc/os-release" _osrel)
+        # anchor regexes to start of line to avoid matching VERSION_ID for ID
+        string(REGEX MATCH "(^|\n)ID=\"?([^\n\"]+)\"?" _match "${_osrel}")
+        set(_id "${CMAKE_MATCH_2}")
+        string(REGEX MATCH "(^|\n)VERSION_ID=\"?([^\n\"]+)\"?" _match2 "${_osrel}")
+        set(_ver "${CMAKE_MATCH_2}")
+
+        # sanitize and format: capitalize ID.  version string is left
+        # unchanged except for optional quoting; dots are desirable because
+        # they match the naming convention used in the update JSON and
+        # asset names (e.g. Ubuntu_22.04).
+        string(TOLOWER "${_id}" _id_low)
+        string(SUBSTRING "${_id_low}" 0 1 _first)
+        string(TOUPPER "${_first}" _first_up)
+        string(SUBSTRING "${_id_low}" 1 -1 _rest)
+        string(CONCAT _id_fmt "${_first_up}${_rest}")
+        set(_ver_fmt "${_ver}")
+        set(OS_NAME "${_id_fmt}_${_ver_fmt}")
+    endif()
 elseif(APPLE)
     set(OS_NAME "macOS")
     set(BINARY_EXTENSION "")
@@ -529,7 +556,13 @@ set(_IS_STATIC_GENEX "$<OR:$<BOOL:${FORCE_QT_STATIC}>,$<BOOL:${QT_STATIC_BUILD}>
 set(_STATIC_OR_SHARED "$<IF:${_IS_STATIC_GENEX},Static,Shared>")
 # Determine config name at build time; fall back to CMAKE_BUILD_TYPE for single-config generators
 set(_CONFIG_GENEX "$<IF:$<STREQUAL:$<CONFIG>,>,${CMAKE_BUILD_TYPE},$<CONFIG>>")
-set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${_STATIC_OR_SHARED}")
+# include OS_NAME so kits built on different OS/distributions do not
+# collide.  the variable is already defined above when we compute
+# VERSIONED_BINARY_NAME, but it may be empty during project configuration
+# if the detection ran later – ensure we compute it first by reusing the
+# logic or simply evaluating the same snippet here.  for simplicity we
+# assume OS_NAME has been set by the earlier section.
+set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${OS_NAME}/${_STATIC_OR_SHARED}")
 
 add_custom_command(TARGET KGroundControl POST_BUILD
     COMMAND ${CMAKE_COMMAND}

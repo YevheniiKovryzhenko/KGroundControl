@@ -169,6 +169,20 @@ private:
     bool performLinuxSwap(const QString &newBinaryPath, bool restartApp = true);
     bool performWindowsSwap(const QString &newBinaryPath, bool restartApp = true);
 
+    // install to per-user location (~/.local/bin) and register a desktop
+    // entry.  invoked when the app is not already installed in the user
+    // bin directory.
+    bool performLinuxUserInstall(const QString &newBinaryPath, bool restartApp = true);
+
+    // ensure the user's desktop entry is up to date with the running
+    // application version; called at startup before doing update checks.
+    void ensureDesktopEntryCurrent();
+
+    // helper used by install/update routines to write the desktop file and
+    // install the icon; exePath is the location of the binary that the
+    // desktop file should launch.
+    void writeDesktopEntry(const QString &exePath);
+
     QSimpleUpdater *m_updater;
     QString m_updateUrl;
     QString m_latestVersion;
@@ -176,6 +190,14 @@ private:
     bool m_updateAvailable;
     bool m_silentCheck;
     QString m_downloadFilePath;
+
+    // keep track of which platform key we asked for and whether we've
+    // already tried falling back to the generic "linux" entry.  This
+    // allows the updater to gracefully handle old JSON files that only
+    // contain a single "linux" entry while still preferring a
+    // distribution‑specific key when available.
+    QString m_requestedPlatformKey;
+    bool m_didFallback;
     
     // Dialog management
     QDialog* m_updateDialog;
@@ -185,6 +207,9 @@ private:
     QTime m_downloadStartTime;
     qint64 m_lastBytesReceived;
     QTime m_lastProgressTime;
+
+    // helper used internally to build a platform key string for linux
+    QString computePlatformKey() const;
 };
 
 #endif // UPDATE_MANAGER_H
