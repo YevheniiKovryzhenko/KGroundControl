@@ -62,17 +62,17 @@ jobs:
         echo "WINDOWS_EXISTS=$WINDOWS_FOUND" >> $GITHUB_OUTPUT
         echo "WINDOWS_BINARY=$WINDOWS_BINARY" >> $GITHUB_OUTPUT
     
-    - name: Extract changelog
+    - name: Extract changelog (base64-encoded)
       id: changelog
       run: |
-        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-        echo "${{ github.event.release.body }}" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        # encode the release body so newlines/quotes cannot break the later script
+        echo "CHANGELOG=$(echo '${{ github.event.release.body }}' | base64 -w0)" >> $GITHUB_OUTPUT
     
     - name: Update docs/updates.json (smart merge)
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
-        CHANGELOG_RAW="${{ steps.changelog.outputs.CHANGELOG }}"
+        # decode base64 changelog into raw variable
+        CHANGELOG_RAW="$(echo "${{ steps.changelog.outputs.CHANGELOG }}" | base64 --decode)"
 
         IFS=' ' read -r -a linux_keys <<< "${{ steps.check_binaries.outputs.LINUX_KEYS }}"
         IFS=' ' read -r -a linux_bins <<< "${{ steps.check_binaries.outputs.LINUX_BINARIES }}"
