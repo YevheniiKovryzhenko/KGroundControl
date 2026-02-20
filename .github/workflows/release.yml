@@ -1,15 +1,11 @@
 name: Update updates.json on Release
 
-# This workflow updates docs/updates.json when you create or edit a GitHub Release.
-# You can add binaries gradually (Linux first, then Windows later, or vice versa).
-# The workflow detects which binaries exist and only updates those platforms.
-
 on:
   release:
-    types: [published, edited]  # Triggers on publish AND when you edit to add binaries
+    types: [published, edited]
 
 permissions:
-  contents: write  # Needed to push updates.json
+  contents: write
 
 jobs:
   update-json:
@@ -19,14 +15,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Get all history
-        ref: ${{ github.event.release.target_commitish }}  # Checkout the release branch
+        fetch-depth: 0
+        ref: ${{ github.event.release.target_commitish }}
     
     - name: Extract version from tag
       id: version
       run: |
         VERSION="${{ github.event.release.tag_name }}"
-        # Remove 'v' prefix if present
         VERSION="${VERSION#v}"
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "📦 Processing release for version: $VERSION"
@@ -37,60 +32,39 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
-
-        # we support multiple linux flavours; each entry maps to a platform key
-        # that UpdateManager::computePlatformKey() will generate at runtime.
-        # the order of the list is unimportant – the generic "linux" entry is
-        # chosen by version comparison below – but putting the oldest release
-        # first keeps the intent obvious.
         LINUX_VARIANTS=(Ubuntu_22.04_x64 Ubuntu_24.04_x64)
         declare -A LINUX_KEY_MAP
         LINUX_KEY_MAP[Ubuntu_24.04_x64]=linux-ubuntu-24.04
         LINUX_KEY_MAP[Ubuntu_22.04_x64]=linux-ubuntu-22.04
 
-        # Get release assets using GitHub CLI
         echo "🔍 Checking release assets..."
         ASSETS=$(gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets --jq '.[].name')
-
-        echo "Found assets:"
-        echo "$ASSETS"
 
         LINUX_FOUND_KEYS=()
         LINUX_FOUND_BINARIES=()
         WINDOWS_FOUND="false"
 
-        # search for linux variants
         for VAR in "${LINUX_VARIANTS[@]}"; do
           BINARY="KGroundControl_v${VERSION}_${VAR}"
           if echo "$ASSETS" | grep -q "^${BINARY}$"; then
-            echo "✅ Linux asset found for ${VAR}: ${BINARY}"
             LINUX_FOUND_KEYS+=("${LINUX_KEY_MAP[$VAR]}")
             LINUX_FOUND_BINARIES+=("$BINARY")
-          else
-            echo "⏳ No linux asset yet for ${VAR}"
           fi
         done
 
-        # windows detection remains unchanged
         WINDOWS_BINARY="KGroundControl_v${VERSION}_Windows_x64.exe"
         if echo "$ASSETS" | grep -q "^${WINDOWS_BINARY}$"; then
-          echo "✅ Windows binary found: $WINDOWS_BINARY"
           WINDOWS_FOUND="true"
-        else
-          echo "⏳ Windows binary not found (yet): $WINDOWS_BINARY"
         fi
 
-        # export everything as outputs (space‑separated lists)
         echo "LINUX_KEYS=${LINUX_FOUND_KEYS[*]}" >> $GITHUB_OUTPUT
         echo "LINUX_BINARIES=${LINUX_FOUND_BINARIES[*]}" >> $GITHUB_OUTPUT
         echo "WINDOWS_EXISTS=$WINDOWS_FOUND" >> $GITHUB_OUTPUT
         echo "WINDOWS_BINARY=$WINDOWS_BINARY" >> $GITHUB_OUTPUT
     
-    - name: Extract changelog from release
+    - name: Extract changelog
       id: changelog
       run: |
-        # Get release body (changelog) from the event
-        CHANGELOG=$(echo '${{ github.event.release.body }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
         echo "${{ github.event.release.body }}" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
@@ -98,29 +72,24 @@ jobs:
     - name: Update docs/updates.json (smart merge)
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
-        CHANGELOG_ESCAPED=$(echo "${{ steps.changelog.outputs.CHANGELOG }}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        CHANGELOG_RAW="${{ steps.changelog.outputs.CHANGELOG }}"
 
-        # build arrays from the outputs, they are space separated
         IFS=' ' read -r -a linux_keys <<< "${{ steps.check_binaries.outputs.LINUX_KEYS }}"
         IFS=' ' read -r -a linux_bins <<< "${{ steps.check_binaries.outputs.LINUX_BINARIES }}"
         WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
         WINDOWS_BINARY="${{ steps.check_binaries.outputs.WINDOWS_BINARY }}"
 
-        # Read existing updates.json if it exists, otherwise start with empty template
         if [ -f docs/updates.json ]; then
-          echo "📖 Reading existing updates.json"
-          EXISTING_JSON=$(cat docs/updates.json)
+          cp docs/updates.json /tmp/updates.json
         else
-          echo "📝 Creating new updates.json"
-          EXISTING_JSON='{"updates":{}}'
+          echo '{"updates":{}}' > /tmp/updates.json
         fi
-        echo "$EXISTING_JSON" > /tmp/updates.json
 
-        # Helper to add or overwrite a platform entry
         add_entry() {
           local key="$1" url="$2"
+          # jq --arg safely handles all escaping for us
           jq --arg key "$key" --arg version "$VERSION" \
-             --arg url "$url" --arg changelog "$CHANGELOG_ESCAPED" \
+             --arg url "$url" --arg changelog "$CHANGELOG_RAW" \
              '.updates[$key] = {
                "latest-version": $version,
                "download-url": $url,
@@ -130,93 +99,42 @@ jobs:
           mv /tmp/updates_new.json /tmp/updates.json
         }
 
-        # update each linux flavour we detected
+        # Update specific Linux variants
         for idx in "${!linux_keys[@]}"; do
-          key="${linux_keys[$idx]}"
-          bin="${linux_bins[$idx]}"
-          echo "✍️  Updating platform entry for $key"
-          add_entry "$key" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/$bin"
+          add_entry "${linux_keys[$idx]}" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${linux_bins[$idx]}"
         done
 
-        # always maintain a generic 'linux' entry for older clients.
-        # when multiple distro-specific binaries are present we choose the
-        # *lowest* version (sort -V) as the fallback; this typically keeps
-        # the generic entry pointing at Ubuntu 22.04 when a 24.04 build is
-        # also available.  Clients on newer distros will still query their
-        # own platform key first and only hit the generic entry if that
-        # check reports no update.
+        # Handle generic Linux fallback
         if [ "${#linux_keys[@]}" -gt 0 ]; then
-          generic_key="linux"
-
-          # if more than one option, pick the smallest version string
-          generic_idx=0
-          if [ "${#linux_keys[@]}" -gt 1 ]; then
-            min_key=$(printf '%s\n' "${linux_keys[@]}" | sort -V | head -n1)
-            for i in "${!linux_keys[@]}"; do
-              if [ "${linux_keys[$i]}" = "$min_key" ]; then
-                generic_idx=$i
-                break
-              fi
-            done
-          fi
-          generic_bin="${linux_bins[$generic_idx]}"
-
-          echo "⚡ setting generic linux entry to $generic_bin (key $generic_key)"
-          add_entry "$generic_key" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/$generic_bin"
+          min_key=$(printf '%s\n' "${linux_keys[@]}" | sort -V | head -n1)
+          for i in "${!linux_keys[@]}"; do
+            if [ "${linux_keys[$i]}" = "$min_key" ]; then
+              add_entry "linux" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${linux_bins[$i]}"
+              break
+            fi
+          done
         fi
 
-                # update windows if present
-                if [ "$WINDOWS_EXISTS" = "true" ]; then
-                  echo "✍️  Updating Windows platform info"
-                  add_entry "windows" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${WINDOWS_BINARY}"
-                else
-                  echo "⏭️  Skipping Windows platform (no binary yet)"
-                fi
+        # Update Windows
+        if [ "$WINDOWS_EXISTS" = "true" ]; then
+          add_entry "windows" "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${WINDOWS_BINARY}"
+        fi
 
-                # Write final JSON to docs folder
-                cat /tmp/updates.json > docs/updates.json
+        mkdir -p docs
+        cat /tmp/updates.json > docs/updates.json
+        
+    - name: Commit and push updates.json
+      run: |
+        LINUX_KEYS="${{ steps.check_binaries.outputs.LINUX_KEYS }}"
+        WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
 
-                echo ""
-                echo "✅ Generated docs/updates.json:"
-                cat docs/updates.json | jq '.'
-            
-            - name: Commit and push updates.json
-              run: |
-                LINUX_KEYS="${{ steps.check_binaries.outputs.LINUX_KEYS }}"
-                WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
+        if [ -z "$LINUX_KEYS" ] && [ "$WINDOWS_EXISTS" = "false" ]; then
+          echo "No binaries found yet - skipping commit."
+          exit 0
+        fi
 
-                # Only commit if at least one binary was found
-                if [ -z "$LINUX_KEYS" ] && [ "$WINDOWS_EXISTS" = "false" ]; then
-                  echo "⏸️  No binaries found yet - skipping updates.json commit"
-                  echo "Add binaries to the release and the workflow will run again automatically!"
-                  exit 0
-                fi
-
-                git config user.name "github-actions[bot]"
-                git config user.email "github-actions[bot]@users.noreply.github.com"
-
-                # Get the branch name from the base ref
-                BRANCH="${{ github.event.release.target_commitish }}"
-
-                git add docs/updates.json
-
-                if git diff --staged --quiet; then
-                  echo "ℹ️  No changes to updates.json"
-                else
-                  COMMIT_MSG="Update updates.json for v${{ steps.version.outputs.VERSION }}"
-
-                  # Add details about which platforms were updated
-                  if [ -n "$LINUX_KEYS" ] && [ "$WINDOWS_EXISTS" = "true" ]; then
-                    COMMIT_MSG="${COMMIT_MSG} (Linux + Windows)"
-                  elif [ -n "$LINUX_KEYS" ]; then
-                    COMMIT_MSG="${COMMIT_MSG} (Linux only: $LINUX_KEYS)"
-                  elif [ "$WINDOWS_EXISTS" = "true" ]; then
-                    COMMIT_MSG="${COMMIT_MSG} (Windows only)"
-                  fi
-
-                  git commit -m "$COMMIT_MSG"
-                  git push origin "$BRANCH"
-                  echo "✅ Pushed updates.json to branch $BRANCH"
-                  echo ""
-                  echo "📢 Users will now be notified of available updates!"
-                fi
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add docs/updates.json
+        git commit -m "docs: update updates.json for v${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
+        git push origin HEAD:${{ github.event.release.target_commitish }}
