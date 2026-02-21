@@ -147,6 +147,7 @@ jobs:
         fi
         
         # Write final JSON to docs folder
+        mkdir -p docs
         cat /tmp/updates.json > docs/updates.json
         
         echo ""
