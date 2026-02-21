@@ -74,13 +74,31 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
+    // ensure QSettings reads from our application namespace even before we
+    // create the main window.  without this the early check below always
+    // returned the default value (true) because no organization/app name was
+    // configured yet.
+    QCoreApplication::setOrganizationName("YevheniiKovryzhenko");
+    QCoreApplication::setOrganizationDomain("https://github.com/YevheniiKovryzhenko/KGroundControl");
+    QCoreApplication::setApplicationName("KGroundControl");
+
     // if the user has simply downloaded and executed the ELF, move it into
     // the expected per-user bin directory before doing anything else.  the
     // helper will copy, launch the new copy, and terminate this process;
     // returning true signals that we should bail out immediately.
 #ifdef Q_OS_LINUX
-    if (UpdateManager::installIfNotInUserBin()) {
-        return 0;
+    {
+        // if the user disabled auto-install behaviour we should skip the old
+        // copy-and-relaunch logic entirely.  read the flag directly from
+        // settings since nothing else has been initialised yet.
+        QSettings appSettings;
+        bool autoInstall = appSettings.value("kgroundcontrol/auto_install_on_startup", true).toBool();
+        if (autoInstall && UpdateManager::installIfNotInUserBin()) {
+            return 0;
+        }
+        else if (!autoInstall) {
+            qDebug() << "[main] auto-install disabled in settings, launch proceeds without relocating binary";
+        }
     }
 #endif
 

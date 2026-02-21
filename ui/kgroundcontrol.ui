@@ -1358,6 +1358,31 @@
          </widget>
         </item>
         <item>
+         <widget class="QCheckBox" name="chk_auto_install">
+          <property name="visible"><bool>false</bool></property>
+          <property name="text">
+           <string>Auto-install on startup</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_reinstall">
+          <property name="visible"><bool>false</bool></property>
+          <property name="minimumSize">
+           <size>
+            <width>120</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Reinstall</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QPushButton" name="btn_check_updates">
           <property name="visible"><bool>false</bool></property>
           <property name="minimumSize">

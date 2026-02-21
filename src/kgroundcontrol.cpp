@@ -103,6 +103,12 @@ KGroundControl::KGroundControl(QWidget *parent)
     connection_manager_ = new connection_manager(this);
 
     // Initialize Update Manager (safety-critical, non-blocking).
+
+    // debug: show reinstall button state
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] btn_reinstall exists:" << (ui->btn_reinstall != nullptr)
+             << "visible:" << ui->btn_reinstall->isVisible();
+#endif
     // The constructor will also ensure the desktop entry exists and matches
     // the current binary, so launches alone are enough to keep the
     // launcher icon up‑to‑date.
@@ -353,6 +359,12 @@ void KGroundControl::load_settings(void)
     
     // Restore UI state from settings
     ui->chk_auto_update->setChecked(settings.check_updates_on_startup);
+#ifdef Q_OS_LINUX
+    ui->chk_auto_install->setChecked(settings.auto_install_on_startup);
+#else
+    // hide on platforms where auto‑install is irrelevant; state is unused.
+    ui->chk_auto_install->setVisible(false);
+#endif
 }
 
 void KGroundControl::save_settings(void)
@@ -819,8 +831,16 @@ void KGroundControl::setupSettingsGroups()
     generalLayout->addWidget(ui->chk_auto_update, 0, 0);
     ui->btn_check_updates->setMinimumWidth(150);  // Ensure button fits text
     generalLayout->addWidget(ui->btn_check_updates, 0, 1);
-    generalLayout->addWidget(ui->settings_hard_reset_on_exit, 1, 0);
-    generalLayout->addWidget(ui->btn_settings_reset_now, 1, 1);
+
+    // new auto‑install checkbox sits directly below the auto‑update option
+#ifdef Q_OS_LINUX
+    generalLayout->addWidget(ui->chk_auto_install, 1, 0);
+    ui->btn_reinstall->setMinimumWidth(150);  // same width as update button
+    generalLayout->addWidget(ui->btn_reinstall, 1, 1);
+#endif
+
+    generalLayout->addWidget(ui->settings_hard_reset_on_exit, 2, 0);
+    generalLayout->addWidget(ui->btn_settings_reset_now, 2, 1);
     generalLayout->setColumnStretch(0, 1);
     generalLayout->setColumnStretch(1, 0);
     ui->group_general->setTitle("General");
@@ -866,6 +886,13 @@ void KGroundControl::setupSettingsGroups()
     ui->settings_hard_reset_on_exit->setVisible(true);
     ui->btn_settings_reset_now->setVisible(true);
     ui->chk_auto_update->setVisible(true);
+#ifdef Q_OS_LINUX
+    ui->chk_auto_install->setVisible(true);
+    ui->btn_reinstall->setVisible(true);
+#else
+    ui->chk_auto_install->setVisible(false);
+    ui->btn_reinstall->setVisible(false);
+#endif
     ui->btn_check_updates->setVisible(true);
 }
 
@@ -1000,6 +1027,33 @@ void KGroundControl::on_chk_auto_update_toggled(bool checked)
     qDebug() << "[KGroundControl] Auto-update checkbox toggled:" << checked;
     settings.check_updates_on_startup = checked;
     // Settings will be saved in save_settings() when app closes
+}
+
+void KGroundControl::on_chk_auto_install_toggled(bool checked)
+{
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] Auto-install checkbox toggled:" << checked;
+    settings.auto_install_on_startup = checked;
+    // Behavior for desktop entry and binary location will respect this
+#else
+    Q_UNUSED(checked);
+#endif
+}
+
+void KGroundControl::on_btn_reinstall_clicked()
+{
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] Manual reinstall requested";
+    // ignore user setting; allow reinstall even if auto-install is disabled
+    if (UpdateManager::installIfNotInUserBin(false)) {
+        // install helper will have launched the new copy and exited this one
+        return;
+    }
+    QMessageBox::information(this, "Reinstall", "Application is already installed in the correct location.");
+#else
+    // no-op on other platforms
+    QMessageBox::information(this, "Reinstall", "Auto-install is only available on Linux.");
+#endif
 }
 
 void KGroundControl::onUpdateAvailable(const QString &version, const QString &changelog)

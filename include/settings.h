@@ -255,6 +255,13 @@ public:
     // Auto-update preferences
     bool check_updates_on_startup = true;
 
+    // Self‑install preferences: when true the application will automatically
+    // copy itself into ~/.local/bin and update its desktop entry on each
+    // launch.  This behaviour is useful for end‑users but can interfere with
+    // development or manual packaging.  The new checkbox in the General
+    // settings panel controls this flag.
+    bool auto_install_on_startup = true;
+
 
     QString get_QString(void);
     void printf(void);

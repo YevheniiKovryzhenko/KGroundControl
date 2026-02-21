@@ -146,7 +146,9 @@ private slots:
     void on_btn_plotting_manager_clicked();
 
     void on_btn_check_updates_clicked();
+    void on_btn_reinstall_clicked();
     void on_chk_auto_update_toggled(bool checked);
+    void on_chk_auto_install_toggled(bool checked);
 
     // Update manager slots
     void onUpdateAvailable(const QString &version, const QString &changelog);

@@ -180,7 +180,10 @@ public:
     // user's bin directory, it will copy itself, write a desktop entry, and
     // launch the new copy.  returns true if the application should exit
     // immediately because a replacement has been started.
-    static bool installIfNotInUserBin();
+    // @param respectUserSetting if false, the install will proceed even when
+    // the "auto install on startup" preference is disabled.  used by the
+    // manual-reinstall button.
+    static bool installIfNotInUserBin(bool respectUserSetting = true);
 
     // ensure the user's desktop entry is up to date with the running
     // application version; called at startup before doing update checks.
@@ -194,8 +197,14 @@ public:
 
     // helper used by install/update routines to write the desktop file and
     // install the icon; exePath is the location of the binary that the
-    // desktop file should launch.
-    void writeDesktopEntry(const QString &exePath);
+    // desktop file should launch.  now static so it can be invoked from the
+    // static install helper as well.
+    static void writeDesktopEntry(const QString &exePath);
+
+    // return the set of directories we should inspect when reading or
+    // writing desktop entries.  public so installIfNotInUserBin() can call
+    // it without an instance.
+    static QStringList desktopDirectories();
 
     QSimpleUpdater *m_updater;
     QString m_updateUrl;
