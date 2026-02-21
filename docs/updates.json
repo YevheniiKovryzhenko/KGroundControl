@@ -1,15 +1,15 @@
 {
   "updates": {
     "linux": {
-      "latest-version": "1.2.6",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.6/KGroundControl_v1.2.6_Ubuntu_22.04_x64",
-      "changelog": "Testing build with updated workflows",
+      "latest-version": "1.2.7",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.7/KGroundControl_v1.2.7_Ubuntu_22.04_x64",
+      "changelog": "Fixed self-installation logic on linux.",
       "mandatory-update": false
     },
     "windows": {
-      "latest-version": "1.2.6",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.6/KGroundControl_v1.2.6_Windows_x64.exe",
-      "changelog": "Testing build with updated workflows",
+      "latest-version": "1.2.7",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.7/KGroundControl_v1.2.7_Windows_x64.exe",
+      "changelog": "Fixed self-installation logic on linux.",
       "mandatory-update": false
     }
   }
