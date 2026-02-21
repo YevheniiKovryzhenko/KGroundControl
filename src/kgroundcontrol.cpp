@@ -64,7 +64,7 @@
 
 // Ensure APP_VERSION is available for update checks
 #ifndef APP_VERSION
-#define APP_VERSION "1.3"
+#define APP_VERSION "1.0.0"
 #endif
 
 KGroundControl::KGroundControl(QWidget *parent)
@@ -1069,7 +1069,8 @@ void KGroundControl::onDownloadFinished(const QString &filepath)
     msgBox.setIcon(QMessageBox::Question);
     msgBox.setText("The update has been downloaded and is ready to install.");
     msgBox.setInformativeText("You can install the update now (requires restart) or schedule it to install when you exit the application.");
-    
+    // hide close/min/max buttons, our own buttons handle flow
+    msgBox.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     // Add buttons in order: Cancel (left), Install on Exit (middle), Install and Restart Now (right)
     QPushButton *cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
     QPushButton *installOnExitButton = msgBox.addButton("Install on Exit", QMessageBox::ActionRole);
@@ -1083,25 +1084,41 @@ void KGroundControl::onDownloadFinished(const QString &filepath)
         
         // Apply the update (this will restart the app)
         if (!update_manager_->applyUpdate(filepath)) {
-            QMessageBox::critical(this, "Update Failed",
-                                 "Failed to apply the update. The update file is still available in:\n" +
-                                 filepath + "\n\nYou can try manually replacing the executable.",
-                                 QMessageBox::Ok);
+            QMessageBox box(this);
+            box.setWindowTitle("Update Failed");
+            box.setIcon(QMessageBox::Critical);
+            box.setText("Failed to apply the update. The update file is still available in:\n" +
+                         filepath + "\n\nYou can try manually replacing the executable.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
         }
     } else if (msgBox.clickedButton() == installOnExitButton) {
         qDebug() << "[KGroundControl] User chose to install on exit";
         install_update_on_exit_ = true;
         
-        QMessageBox::information(this, "Update Scheduled",
-                                "The update will be installed when you close KGroundControl.\n\n"
-                                "The updated version will be ready the next time you start the application.",
-                                QMessageBox::Ok);
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Scheduled");
+            box.setIcon(QMessageBox::Information);
+            box.setText("The update will be installed when you close KGroundControl.\n\n"
+                        "The updated version will be ready the next time you start the application.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
     } else {
         qDebug() << "[KGroundControl] User cancelled installation";
-        QMessageBox::information(this, "Update Postponed",
-                                "The update has been saved to:\n" + filepath +
-                                "\n\nYou can install it later by clicking 'Check for Updates' again.",
-                                QMessageBox::Ok);
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Postponed");
+            box.setIcon(QMessageBox::Information);
+            box.setText("The update has been saved to:\n" + filepath +
+                        "\n\nYou can install it later by clicking 'Check for Updates' again.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
     }
 }
 
@@ -1115,9 +1132,15 @@ void KGroundControl::onUpdateError(const QString &error)
         !error.contains("offline", Qt::CaseInsensitive) &&
         !error.contains("timeout", Qt::CaseInsensitive)) {
         
-        QMessageBox::warning(this, "Update Check Failed",
-                            "Could not check for updates: " + error,
-                            QMessageBox::Ok);
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Check Failed");
+            box.setIcon(QMessageBox::Warning);
+            box.setText("Could not check for updates: " + error);
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
     }
 }
 

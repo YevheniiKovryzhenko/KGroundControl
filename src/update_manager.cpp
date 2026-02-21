@@ -106,6 +106,7 @@ UpdateManager::UpdateManager(QObject *parent)
     // takes care of the case where the app has been moved or updated outside
     // of the built-in updater (e.g. installed manually into ~/.local/bin).
     ensureDesktopEntryCurrent();
+
     // Connect updater signals
     connect(m_updater, &QSimpleUpdater::downloadFinished,
             this, &UpdateManager::onDownloadFinishedInternal);
@@ -331,6 +332,9 @@ void UpdateManager::onCheckingFinished(const QString &url)
     // Debug: check what version we got
     QString fetchedVersion = m_updater->getLatestVersion(url);
     qDebug() << "[UpdateManager] Fetched version:" << fetchedVersion;
+    if (fetchedVersion.isEmpty()) {
+        qWarning() << "[UpdateManager] fetchedVersion is empty - network lookup failed";
+    }
     qDebug() << "[UpdateManager] Current version:" << APP_VERSION;
     
     bool updateAvailableFlag = m_updater->getUpdateAvailable(url);
@@ -783,7 +787,8 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     // Create non-modal, resizable dialog
     m_updateDialog = new QDialog(parent);
     m_updateDialog->setWindowTitle("Update Manager");
-    m_updateDialog->setWindowFlags(Qt::Dialog | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
+    // dialog only needs a title bar; hide minimize/maximize/close buttons
+    m_updateDialog->setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     m_updateDialog->setAttribute(Qt::WA_DeleteOnClose, false);
     m_updateDialog->setModal(false);
     m_updateDialog->resize(600, 450);
@@ -792,41 +797,45 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     
     // Header message
     QLabel* headerLabel = new QLabel(QString("v%1 is available").arg(m_latestVersion));
-
-    // Distribution warning/info
-    QString hostKey = computePlatformKey();
-    QString distroMsg;
-    if (m_requestedPlatformKey.isEmpty()) {
-        distroMsg = "Unable to determine distribution for this update.";
-    } else if (m_requestedPlatformKey == hostKey) {
-        distroMsg = QString("This update matches your current distribution (%1). ")
-                        .arg(hostKey);
-    } else if (m_requestedPlatformKey == "linux") {
-        distroMsg = QString("This is a generic linux build; you are running %1. "
-                             "It should work but may lack distro-specific addons.")
-                        .arg(hostKey);
-    } else {
-        distroMsg = QString("This update is built for %1 but you are on %2. "
-                             "You may prefer to wait for a matching release.")
-                        .arg(m_requestedPlatformKey, hostKey);
-    }
-    QLabel* distroLabel = new QLabel(distroMsg);
-    distroLabel->setWordWrap(true);
-    layout->addWidget(distroLabel);
     QFont headerFont = headerLabel->font();
     headerFont.setPointSize(headerFont.pointSize() + 2);
     headerFont.setBold(true);
     headerLabel->setFont(headerFont);
     layout->addWidget(headerLabel);
-    
+
     // Version info
     QLabel* versionLabel = new QLabel(QString("Current version: v%1").arg(currentVersion));
     layout->addWidget(versionLabel);
-    
+
+    // Distribution warning/info (Linux only when update does not match host)
+    QString hostKey = computePlatformKey();
+    if (!hostKey.isEmpty() &&                        // only Linux
+        !m_requestedPlatformKey.isEmpty() &&
+        m_requestedPlatformKey != hostKey) {
+        QString distroMsg;
+        if (m_requestedPlatformKey == "linux") {
+            distroMsg = QString("This update is a generic linux build. "
+                                 "You are currently running %1, so it will work but may "
+                                 "lack some distro-specific addons and latest features. "
+                                 "You may wish to wait until a build for your distro is uploaded.")
+                           .arg(hostKey);
+        } else {
+            distroMsg = QString("This update is for %1. You are currently "
+                                 "operating %2, so it will work but may lack some "
+                                 "distro-specific addons and latest features. You may "
+                                 "want to consider waiting until your distro-specific "
+                                 "build is available.")
+                           .arg(m_requestedPlatformKey, hostKey);
+        }
+        QLabel* distroLabel = new QLabel(distroMsg);
+        distroLabel->setWordWrap(true);
+        layout->addWidget(distroLabel);
+    }
+
     // Changelog section
-    QLabel* changelogLabel = new QLabel("What's new:");
+    QLabel* changelogLabel = new QLabel("What's new:");    
     changelogLabel->setStyleSheet("font-weight: bold; margin-top: 10px;");
-    layout->addWidget(changelogLabel);
+    layout->addWidget(changelogLabel);    
     
     // Convert escaped newlines to actual newlines
     QString formattedChangelog = m_changelog;
@@ -839,7 +848,7 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     changelogText->setPlainText(formattedChangelog);
     changelogText->setReadOnly(true);
     changelogText->setMinimumHeight(200);
-    layout->addWidget(changelogText);
+    layout->addWidget(changelogText);    
     
     // Progress container (initially hidden, shown during download)
     m_progressContainer = new QWidget();
@@ -857,6 +866,11 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     
     m_progressContainer->setVisible(false);
     layout->addWidget(m_progressContainer);
+
+    // note about auto-update settings
+    QLabel* settingsNote = new QLabel("Auto-update routines can be enabled/disabled in Settings.");
+    settingsNote->setStyleSheet("font-style: italic; margin-top: 4px; margin-bottom: 8px;");
+    layout->addWidget(settingsNote);
     
     // Button layout
     QHBoxLayout* buttonLayout = new QHBoxLayout();
