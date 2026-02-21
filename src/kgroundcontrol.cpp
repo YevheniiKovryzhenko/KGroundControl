@@ -102,7 +102,10 @@ KGroundControl::KGroundControl(QWidget *parent)
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
 
-    // Initialize Update Manager (safety-critical, non-blocking)
+    // Initialize Update Manager (safety-critical, non-blocking).
+    // The constructor will also ensure the desktop entry exists and matches
+    // the current binary, so launches alone are enough to keep the
+    // launcher icon up‑to‑date.
     update_manager_ = new UpdateManager(this);
     connect(update_manager_, &UpdateManager::updateAvailable,
             this, &KGroundControl::onUpdateAvailable);

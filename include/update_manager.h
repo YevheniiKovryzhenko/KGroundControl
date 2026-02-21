@@ -174,9 +174,23 @@ private:
     // bin directory.
     bool performLinuxUserInstall(const QString &newBinaryPath, bool restartApp = true);
 
+public:
+    // public helper that may be called from main() before any UI is
+    // constructed.  if the currently running binary is not located in the
+    // user's bin directory, it will copy itself, write a desktop entry, and
+    // launch the new copy.  returns true if the application should exit
+    // immediately because a replacement has been started.
+    static bool installIfNotInUserBin();
+
     // ensure the user's desktop entry is up to date with the running
     // application version; called at startup before doing update checks.
     void ensureDesktopEntryCurrent();
+
+    // make sure the icon file in the hicolor theme matches the embedded
+    // resource.  this is static so callers can invoke it before any
+    // UpdateManager instance exists (for example during the self‑install
+    // check in main()).
+    static void ensureIconCurrent();
 
     // helper used by install/update routines to write the desktop file and
     // install the icon; exePath is the location of the binary that the

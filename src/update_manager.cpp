@@ -99,6 +99,9 @@ UpdateManager::UpdateManager(QObject *parent)
     , m_lastBytesReceived(0)
     , m_didFallback(false)
 {
+    // (constructor body left deliberately empty; install check is handled
+    // early in main() via installIfNotInUserBin())
+
     // Ensure the desktop entry matches the current binary version.  This
     // takes care of the case where the app has been moved or updated outside
     // of the built-in updater (e.g. installed manually into ~/.local/bin).
@@ -534,13 +537,17 @@ bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool r
 {
     QString userBin = QDir::homePath() + "/.local/bin";
     QDir().mkpath(userBin);
-    QString installPath = userBin + "/KGroundControl";
+    QString installPath = userBin + "/KGroundControl";   // uppercase keeps original name
 
     qDebug() << "[UpdateManager] Installing to" << installPath;
 
-    // remove old install if present
+    // remove old installs (both cases) if present so we don't leave stray copies
+    QString altLower = userBin + "/kgroundcontrol";
     if (QFile::exists(installPath)) {
         QFile::remove(installPath);
+    }
+    if (QFile::exists(altLower)) {
+        QFile::remove(altLower);
     }
 
     if (!QFile::copy(newBinaryPath, installPath)) {
@@ -557,7 +564,8 @@ bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool r
     // create desktop entry and install icon so the app appears in
     // the system menu (and can show up in Settings/Software).  the
     // downloaded update contains only the executable; we ship a standard
-    // PNG in the repo which we copy into the hicolor icon tree.
+    // PNG in the repo which we copy into the hicolor icon tree.  note
+    // the entry points at installPath so launcher upgrades correctly.
     QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
     if (!appsDir.isEmpty()) {
         QDir().mkpath(appsDir);
@@ -568,26 +576,17 @@ bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool r
             out << "[Desktop Entry]\n";
             out << "Name=KGroundControl\n";
             out << "Exec=" << installPath << "\n";
-            out << "Icon=kgroundcontrol\n";
+            // use theme name; ensureIconCurrent will place PNG in hicolor tree
+            out << "Icon=KGroundControl\n";
             out << "Type=Application\n";
             out << "Categories=Utility;Network;\n";
             out << "Terminal=false\n";
             df.close();
         }
+        // make sure icon file exists too
+        UpdateManager::ensureIconCurrent();
     }
 
-    // copy icon PNG from our resources to the user icon directory
-    QString iconSrc = QCoreApplication::applicationDirPath() + "/../resources/Images/Logo/KGC_Logo.png";
-    // the above path may need adjusting depending on packaging, so fall back
-    if (!QFile::exists(iconSrc)) {
-        // try relative to source tree in case of development build
-        iconSrc = QCoreApplication::applicationDirPath() + "/../../resources/Images/Logo/KGC_Logo.png";
-    }
-    if (QFile::exists(iconSrc)) {
-        QString iconDestDir = QDir::homePath() + "/.local/share/icons/hicolor/256x256/apps";
-        QDir().mkpath(iconDestDir);
-        QFile::copy(iconSrc, iconDestDir + "/kgroundcontrol.png");
-    }
 
     if (restartApp) {
         qDebug() << "[UpdateManager] Restarting installed app";
@@ -602,6 +601,90 @@ bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool r
     return true;
 }
 
+// make sure a copy of the embedded icon lives in the user's theme
+// directory so desktop environments always have a file to reference.
+void UpdateManager::ensureIconCurrent()
+{
+#ifdef Q_OS_LINUX
+    QString iconDestDir = QDir::homePath() + "/.local/share/icons/hicolor/256x256/apps";
+    QDir().mkpath(iconDestDir);
+    QString iconDestFile = iconDestDir + "/KGroundControl.png";
+
+    QFile res(":/resources/Images/Logo/KGC_Logo.png");
+    if (res.open(QIODevice::ReadOnly)) {
+        QFile out(iconDestFile);
+        if (out.open(QIODevice::WriteOnly)) {
+            out.write(res.readAll());
+            qDebug() << "[UpdateManager] Icon written to" << iconDestFile;
+        } else {
+            qWarning() << "[UpdateManager] Cannot write icon to" << iconDestFile;
+        }
+    } else {
+        qWarning() << "[UpdateManager] Embedded icon resource missing";
+    }
+
+    QProcess::execute("gtk-update-icon-cache", QStringList() << "-f" << "-t" <<
+                      QDir::homePath() + "/.local/share/icons/hicolor");
+#endif
+}
+
+// static helper used before UI is constructed
+bool UpdateManager::installIfNotInUserBin()
+{
+#ifdef Q_OS_LINUX
+    QString current = QCoreApplication::applicationFilePath();
+    QString userBin = QDir::homePath() + "/.local/bin";
+    QString target = QDir(userBin).filePath("KGroundControl");
+    if (QFileInfo(current).canonicalFilePath() 
+            != QFileInfo(target).canonicalFilePath()) {
+        qDebug() << "[UpdateManager] Self-install required, copying to" << target;
+        QDir().mkpath(userBin);
+        // clean up any lowercase stray binary first
+        QString altLower = userBin + "/kgroundcontrol";
+        if (QFile::exists(target)) {
+            QFile::remove(target);
+        }
+        if (QFile::exists(altLower)) {
+            QFile::remove(altLower);
+        }
+        if (!QFile::copy(current, target)) {
+            qWarning() << "[UpdateManager] Self-install copy failed";
+            return false;
+        }
+        QFile::setPermissions(target,
+                              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
+                              QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                              QFileDevice::ReadOther | QFileDevice::ExeOther);
+        // write desktop entry pointing at installed location
+        QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+        if (!appsDir.isEmpty()) {
+            QDir().mkpath(appsDir);
+            QString desktopFile = QDir(appsDir).filePath("kgroundcontrol.desktop");
+            QFile df(desktopFile);
+            if (df.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&df);
+                out << "[Desktop Entry]\n";
+                out << "Name=KGroundControl\n";
+                out << "Exec=" << target << "\n";
+                out << "Icon=KGroundControl\n";
+                out << "Type=Application\n";
+                out << "Categories=Utility;Education;\n";
+                out << "Terminal=false\n";
+                out << "X-KGroundControl-Version=" << APP_VERSION << "\n";
+                df.close();
+            }
+        }
+        // ensure theme icon is present
+        UpdateManager::ensureIconCurrent();
+        QProcess::startDetached(target);
+        qDebug() << "[UpdateManager] Launched installed copy, exiting old process";
+        QCoreApplication::exit(0);
+        return true;
+    }
+#endif
+    return false;
+}
+
 // desktop entry helpers ----------------------------------------------------
 
 void UpdateManager::ensureDesktopEntryCurrent()
@@ -613,24 +696,52 @@ void UpdateManager::ensureDesktopEntryCurrent()
 
     QString desktopFile = QDir(appsDir).filePath("kgroundcontrol.desktop");
     QFile df(desktopFile);
-    if (!df.exists() || !df.open(QIODevice::ReadOnly | QIODevice::Text))
+
+    // if the desktop file doesn't exist or cannot be read, just create a
+    // fresh one.  this covers the "application launched but never
+    // installed" scenario the user mentioned.
+    if (!df.exists() || !df.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << "[UpdateManager] Desktop entry missing or unreadable, writing new one";
+        writeDesktopEntry(QCoreApplication::applicationFilePath());
         return;
+    }
 
     QString foundVersion;
+    QString foundExec;
+    QString foundIcon;
     QTextStream in(&df);
     while (!in.atEnd()) {
         QString line = in.readLine();
         if (line.startsWith("X-KGroundControl-Version=")) {
             foundVersion = line.section('=',1);
-            break;
+        } else if (line.startsWith("Exec=")) {
+            foundExec = line.section('=',1);
+        } else if (line.startsWith("Icon=")) {
+            foundIcon = line.section('=',1);
         }
+        if (!foundVersion.isEmpty() && !foundExec.isEmpty() && !foundIcon.isEmpty())
+            break;
     }
     df.close();
 
+    bool needRewrite = false;
     if (foundVersion.isEmpty() || foundVersion != APP_VERSION) {
-        qDebug() << "[UpdateManager] Updating desktop entry from" << foundVersion << "to" << APP_VERSION;
+        qDebug() << "[UpdateManager] Desktop entry version wrong" << foundVersion << "vs" << APP_VERSION;
+        needRewrite = true;
+    }
+    if (foundExec != QCoreApplication::applicationFilePath()) {
+        qDebug() << "[UpdateManager] Desktop entry Exec path changed from" << foundExec << "to" << QCoreApplication::applicationFilePath();
+        needRewrite = true;
+    }
+    if (foundIcon != "KGroundControl") {
+        qDebug() << "[UpdateManager] Desktop entry icon incorrect (" << foundIcon << "), fixing";
+        needRewrite = true;
+    }
+    if (needRewrite) {
         writeDesktopEntry(QCoreApplication::applicationFilePath());
     }
+    // regardless of entry state, make sure the icon file is present/up-to-date
+    UpdateManager::ensureIconCurrent();
 #endif
 }
 
@@ -648,7 +759,9 @@ void UpdateManager::writeDesktopEntry(const QString &exePath)
         out << "[Desktop Entry]\n";
         out << "Name=KGroundControl\n";
         out << "Exec=" << exePath << "\n";
-        out << "Icon=kgroundcontrol\n";
+        // use the themed icon name; ensureIconCurrent() guarantees the
+        // PNG is present in the hicolor tree so the theme lookup succeeds.
+        out << "Icon=KGroundControl\n";
         out << "Type=Application\n";
         out << "Categories=Utility;Education;\n";
         out << "Terminal=false\n";
@@ -656,16 +769,10 @@ void UpdateManager::writeDesktopEntry(const QString &exePath)
         df.close();
     }
 
-    // copy icon as before
-    QString iconSrc = QCoreApplication::applicationDirPath() + "/../resources/Images/Logo/KGC_Logo.png";
-    if (!QFile::exists(iconSrc)) {
-        iconSrc = QCoreApplication::applicationDirPath() + "/../../resources/Images/Logo/KGC_Logo.png";
-    }
-    if (QFile::exists(iconSrc)) {
-        QString iconDestDir = QDir::homePath() + "/.local/share/icons/hicolor/256x256/apps";
-        QDir().mkpath(iconDestDir);
-        QFile::copy(iconSrc, iconDestDir + "/kgroundcontrol.png");
-    }
+    // no local icon copy required anymore; desktop entry points at the
+    // executable which contains the embedded image.  removing the old code
+    // makes the updater simpler and avoids stale files.
+
 }
 
 void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* parent)

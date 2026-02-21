@@ -73,6 +73,17 @@ void configureDarkStyle()
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+
+    // if the user has simply downloaded and executed the ELF, move it into
+    // the expected per-user bin directory before doing anything else.  the
+    // helper will copy, launch the new copy, and terminate this process;
+    // returning true signals that we should bail out immediately.
+#ifdef Q_OS_LINUX
+    if (UpdateManager::installIfNotInUserBin()) {
+        return 0;
+    }
+#endif
+
     KGroundControl w;
 
     /*
