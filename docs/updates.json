@@ -6,6 +6,11 @@
       "changelog": "- Made minor improvements to autoupdate logic for linux - now accounts for different distributions and self-installs into the os properly. \r\\n- Added proper ubuntu 22 binary fallback option for older platforms.\r\\n- Updated Github workflow ",
       "mandatory-update": false
     },
-    "windows": {}
+    "windows": {
+      "latest-version": "1.2.5",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.5/KGroundControl_v1.2.5_Windows_x64.exe",
+      "changelog": "- Made minor improvements to autoupdate logic for linux - now accounts for different distributions and self-installs into the os properly. \r\\n- Added proper ubuntu 22 binary fallback option for older platforms.\r\\n- Updated Github workflow ",
+      "mandatory-update": false
+    }
   }
 }
