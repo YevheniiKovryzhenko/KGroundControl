@@ -1,15 +1,15 @@
 {
   "updates": {
     "linux": {
-      "latest-version": "1.2.4",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.4/KGroundControl_v1.2.4_Ubuntu_24.04_x64",
-      "changelog": "Consolidated all recent changes and resolved multiple issues involving automatic updates and new code structure on both Linux and Windows. Testing GitHub actions and further automation needed for seamless updates on the client side.\r\\n\r\\n\r\\n**Full Changelog**: https://github.com/YevheniiKovryzhenko/KGroundControl/compare/v1.2.2...v1.2.4",
+      "latest-version": "1.2.6",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.6/KGroundControl_v1.2.6_Ubuntu_22.04_x64",
+      "changelog": "Testing build with updated workflows",
       "mandatory-update": false
     },
     "windows": {
-      "latest-version": "1.2.4",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.4/KGroundControl_v1.2.4_Windows_x64.exe",
-      "changelog": "Consolidated all recent changes and resolved multiple issues involving automatic updates and new code structure on both Linux and Windows. Testing GitHub actions and further automation needed for seamless updates on the client side.\r\\n\r\\n\r\\n**Full Changelog**: https://github.com/YevheniiKovryzhenko/KGroundControl/compare/v1.2.2...v1.2.4",
+      "latest-version": "1.2.6",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.6/KGroundControl_v1.2.6_Windows_x64.exe",
+      "changelog": "Testing build with updated workflows",
       "mandatory-update": false
     }
   }
