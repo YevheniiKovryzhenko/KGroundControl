@@ -141,20 +141,18 @@ jobs:
                "mandatory-update": false
              }' /tmp/updates.json > /tmp/updates_new.json
           mv /tmp/updates_new.json /tmp/updates.json
-          # Also update generic linux key if 24.04 is not available
-          if [ "$LINUX_24_EXISTS" != "true" ]; then
-            echo "✍️  Also updating generic linux key to Ubuntu 22.04 binary (as fallback)"
-            jq --arg version "$VERSION" \
-               --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY_22}" \
-               --arg changelog "$CHANGELOG_ESCAPED" \
-               '.updates["linux"] = {
-                 "latest-version": $version,
-                 "download-url": $url,
-                 "changelog": $changelog,
-                 "mandatory-update": false
-               }' /tmp/updates.json > /tmp/updates_new.json
-            mv /tmp/updates_new.json /tmp/updates.json
-          fi
+          # Also update generic linux key since it is our fallback for users without a specific distro
+          echo "✍️  Also updating generic linux key to Ubuntu 22.04 binary (as fallback)"
+          jq --arg version "$VERSION" \
+              --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY_22}" \
+              --arg changelog "$CHANGELOG_ESCAPED" \
+              '.updates["linux"] = {
+                "latest-version": $version,
+                "download-url": $url,
+                "changelog": $changelog,
+                "mandatory-update": false
+              }' /tmp/updates.json > /tmp/updates_new.json
+          mv /tmp/updates_new.json /tmp/updates.json          
         else
           echo "⏭️  Skipping linux-ubuntu-22.04 platform (no binary yet)"
         fi
