@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -38,166 +38,99 @@
 #include <QFile>
 #include <QTimer>
 #include <QErrorMessage>
-// #include <QApplication>
-
-/**
- * Holds a generic mapping to be applied to joysticks that have not been mapped
- * by the SDL project or by the database.
- *
- * This mapping is different on each supported operating system.
- */
-static QString GENERIC_MAPPINGS;
-
-/**
- * Load a different generic/backup mapping for each operating system.
- */
-#   if defined Q_OS_WIN
-#      define GENERIC_MAPPINGS_PATH ":/resources/SDL/GenericMappings/Windows.txt"
-#   elif defined Q_OS_MAC
-#      define GENERIC_MAPPINGS_PATH ":/resources/SDL/GenericMappings/OSX.txt"
-#   elif defined Q_OS_LINUX && !defined Q_OS_ANDROID
-#      define GENERIC_MAPPINGS_PATH ":/resources/SDL/GenericMappings/Linux.txt"
-#   endif
+#include <QSettings>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFile>
+#include <QDir>
 
 SDL_Joysticks::SDL_Joysticks(QObject *parent)
     : QObject(parent)
 {
-    if (SDL_Init(SDL_INIT_HAPTIC | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER))
+    // Initialize SDL joystick subsystem; keep audio/haptic subsystems available.
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_AUDIO) != 0)
     {
-        qDebug() << "Cannot initialize SDL:" << SDL_GetError();
+        qWarning() << "Cannot initialize SDL:" << SDL_GetError();
     }
 
-    QFile database(":/resources/SDL/Database.txt");
-    if (database.open(QFile::ReadOnly))
-    {
-        while (!database.atEnd())
-        {
-            QString line = QString::fromUtf8(database.readLine());
-            SDL_GameControllerAddMapping(line.toStdString().c_str());
-        }
+    // Register any already-connected joysticks so the GUI can query them.
+    int num = SDL_NumJoysticks();
+    for (int i = 0; i < num; ++i)
+        getJoystick(i);
 
-        database.close();
-    }
-    else
-    {
-        (new QErrorMessage)->showMessage("Failed to read Database file.\n" + database.errorString());
-        return;
-    }
-
-    QFile genericMappings(GENERIC_MAPPINGS_PATH);
-    if (genericMappings.open(QFile::ReadOnly))
-    {
-        GENERIC_MAPPINGS = QString::fromUtf8(genericMappings.readAll());
-        genericMappings.close();
-    }
-    else
-    {
-        (new QErrorMessage)->showMessage("Failed to read GenericMappings file.\n" + genericMappings.errorString());
-        return;
-    }
-
-
-    QTimer::singleShot(100, Qt::PreciseTimer, this, SLOT(update()));
+    // Start the periodic update loop which polls SDL events.
+    QTimer::singleShot(10, Qt::PreciseTimer, this, SLOT(update()));
 }
 
 SDL_Joysticks::~SDL_Joysticks()
 {
-    for (QMap<int, QJoystickDevice *>::iterator i = m_joysticks.begin(); i != m_joysticks.end(); ++i)
+    /* Close any opened SDL_Joysticks and free allocated devices */
+    for (auto it = m_joysticks.begin(); it != m_joysticks.end(); ++it)
     {
-        delete i.value();
+        if (it.value())
+        {
+            SDL_Joystick *js = SDL_JoystickFromInstanceID(it.key());
+            if (js)
+                SDL_JoystickClose(js);
+            delete it.value();
+        }
     }
-
-    SDL_Quit();
+    m_joysticks.clear();
+    SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_AUDIO);
 }
 
-/**
- * Returns a list with all the registered joystick devices
- */
 QMap<int, QJoystickDevice *> SDL_Joysticks::joysticks()
 {
-    int index = 0;
-    QMap<int, QJoystickDevice *> joysticks;
-    for (QMap<int, QJoystickDevice *>::iterator it = m_joysticks.begin(); it != m_joysticks.end(); ++it)
-    {
-        it.value()->id = index;
-        joysticks[index++] = it.value();
-    }
-
-    return joysticks;
+    return m_joysticks;
 }
 
-/**
- * Based on the data contained in the \a request, this function will instruct
- * the appropriate joystick to rumble for
- */
 void SDL_Joysticks::rumble(const QJoystickRumble &request)
 {
-    SDL_Haptic *haptic = SDL_HapticOpen(request.joystick->id);
-
-    if (haptic)
-    {
-        SDL_HapticRumbleInit(haptic);
-        SDL_HapticRumblePlay(haptic, request.strength, request.length);
-    }
+    Q_UNUSED(request);
 }
 
-/**
- * Polls for new SDL events and reacts to each event accordingly.
- */
 void SDL_Joysticks::update()
 {
-    SDL_Event event;
-
-    while (SDL_PollEvent(&event))
+    SDL_Event sdl_event;
+    while (SDL_PollEvent(&sdl_event))
     {
-        switch (event.type)
+        /* Only handle raw joystick events: device add/remove, axis, button, hat */
+        switch (sdl_event.type)
         {
         case SDL_JOYDEVICEADDED:
-            configureJoystick(&event);
+            // New physical device connected; initialize it.
+            configureJoystick(&sdl_event);
             break;
         case SDL_JOYDEVICEREMOVED: {
-            SDL_Joystick *js = SDL_JoystickFromInstanceID(event.jdevice.which);
+            // Device removed: close SDL handle and remove from our registry.
+            SDL_Joystick *js = SDL_JoystickFromInstanceID(sdl_event.jdevice.which);
             if (js)
-            {
                 SDL_JoystickClose(js);
-            }
 
-            SDL_GameController *gc = SDL_GameControllerFromInstanceID(event.cdevice.which);
-            if (gc)
+            if (m_joysticks.contains(sdl_event.jdevice.which))
             {
-                SDL_GameControllerClose(gc);
-            }
-            }
-
-            delete m_joysticks[event.jdevice.which];
-            m_joysticks.remove(event.jdevice.which);
-
-            emit countChanged();
-            break;
-        case SDL_JOYAXISMOTION: {
-            int device_index = m_joysticks[event.cdevice.which]->id;
-            if (!SDL_IsGameController(device_index))
-            {
-                emit axisEvent(getAxisEvent(&event));
+                delete m_joysticks[sdl_event.jdevice.which];
+                m_joysticks.remove(sdl_event.jdevice.which);
+                emit countChanged();
             }
         }
             break;
-        case SDL_CONTROLLERAXISMOTION: {
-            int device_index = m_joysticks[event.cdevice.which]->id;
-            if (SDL_IsGameController(device_index))
-            {
-                emit axisEvent(getAxisEvent(&event));
-            }
-        }
+        case SDL_JOYAXISMOTION:
+            // Forward axis movement
+            emit axisEvent(getAxisEvent(&sdl_event));
             break;
         case SDL_JOYBUTTONUP:
-            emit buttonEvent(getButtonEvent(&event));
-            break;
         case SDL_JOYBUTTONDOWN:
-            emit buttonEvent(getButtonEvent(&event));
+            // Forward button events
+            emit buttonEvent(getButtonEvent(&sdl_event));
             break;
         case SDL_JOYHATMOTION:
-            emit POVEvent(getPOVEvent(&event));
+            // Forward POV (hat) changes
+            emit POVEvent(getPOVEvent(&sdl_event));
+            break;
+        default:
             break;
         }
     }
@@ -205,34 +138,12 @@ void SDL_Joysticks::update()
     QTimer::singleShot(10, Qt::PreciseTimer, this, SLOT(update()));
 }
 
-/**
- * Checks if the joystick referenced by the \a event can be initialized.
- * If not, the function will apply a generic mapping to the joystick and
- * attempt to initialize the joystick again.
- */
 void SDL_Joysticks::configureJoystick(const SDL_Event *event)
 {
-    QJoystickDevice *joystick = getJoystick(event->jdevice.which);
-
-    if (!SDL_IsGameController(event->cdevice.which))
-    {
-        SDL_Joystick *js = SDL_JoystickFromInstanceID(joystick->instanceID);
-        if (js)
-        {
-            char guid[1024];
-            SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), guid, sizeof(guid));
-
-            QString mapping = QString("%1,%2,%3").arg(guid).arg(SDL_JoystickName(js)).arg(GENERIC_MAPPINGS);
-
-            SDL_GameControllerAddMapping(mapping.toStdString().c_str());
-        }
-    }
-
-    SDL_GameControllerOpen(event->cdevice.which);
-
+    // Initialize the raw SDL_Joystick referenced by the add event and register it
+    getJoystick(event->jdevice.which);
     emit countChanged();
 }
-
 /**
  * Returns the josytick device registered with the given \a id.
  * If no joystick with the given \a id is found, then the function will warn
@@ -250,6 +161,29 @@ QJoystickDevice *SDL_Joysticks::getJoystick(int id)
         joystick->blacklisted = false;
         joystick->name = SDL_JoystickName(sdl_joystick);
 
+        /* Build a stable hardware identifier using SDL GUID and optional vendor/product */
+        char guid_str[64] = {0};
+        SDL_JoystickGUID guid = SDL_JoystickGetGUID(sdl_joystick);
+        SDL_JoystickGetGUIDString(guid, guid_str, sizeof(guid_str));
+        QString hwid = QString("%1|%2").arg(joystick->name).arg(QString::fromUtf8(guid_str));
+
+    #if SDL_VERSION_ATLEAST(2,0,10)
+        /* Include vendor/product when available to improve device uniqueness */
+        uint16_t vendor = SDL_JoystickGetVendor(sdl_joystick);
+        uint16_t product = SDL_JoystickGetProduct(sdl_joystick);
+        hwid += QString("|%1:%2").arg(vendor, 0, 16).arg(product, 0, 16);
+    #endif
+
+    #if SDL_VERSION_ATLEAST(2,0,14)
+        /* newer SDL can provide a hardware serial string; use it to distinguish
+           units of the same make/model which otherwise share the same GUID */
+        const char *serial = SDL_JoystickGetSerial(sdl_joystick);
+        if (serial && serial[0])
+            hwid += QString("|serial:%1").arg(QString::fromUtf8(serial));
+    #endif
+
+        joystick->hardwareId = hwid;
+
         /* Get joystick properties */
         int povs = SDL_JoystickNumHats(sdl_joystick);
         int axes = SDL_JoystickNumAxes(sdl_joystick);
@@ -257,7 +191,10 @@ QJoystickDevice *SDL_Joysticks::getJoystick(int id)
 
         /* Initialize POVs */
         for (int i = 0; i < povs; ++i)
+        {
             joystick->povs.append(0);
+            joystick->povRole.append(-1);
+        }
 
         /* Initialize axes */
         for (int i = 0; i < axes; ++i)
@@ -267,31 +204,296 @@ QJoystickDevice *SDL_Joysticks::getJoystick(int id)
         for (int i = 0; i < buttons; ++i)
             joystick->buttons.append(false);
 
+        // Register by instance ID so events match the device
         m_joysticks[joystick->instanceID] = joystick;
     }
     else
     {
         qWarning() << Q_FUNC_INFO << "Cannot find joystick with id:" << id;
+        delete joystick;
+        return Q_NULLPTR;
     }
 
     return joystick;
 }
 
-/**
- * Reads the contents of the given \a event and constructs a new
- * \c QJoystickPOVEvent to be used with the \c QJoysticks system.
- */
+static QString hardwareKey(const QString &hardwareId)
+{
+    QByteArray sha = QCryptographicHash::hash(hardwareId.toUtf8(), QCryptographicHash::Sha1);
+    return QString::fromUtf8(sha.toHex());
+}
+
+void QJoysticks::saveCalibration(const QString &hardwareId)
+{
+    if (hardwareId.isEmpty()) return;
+
+    // find device
+    QJoystickDevice *dev = nullptr;
+    for (QJoystickDevice *d : m_devices)
+        if (d->hardwareId == hardwareId) { dev = d; break; }
+    if (!dev) return;
+
+    QSettings s;
+    QString group = "Joysticks/" + hardwareKey(hardwareId);
+    s.beginGroup(group);
+    s.setValue("hardwareId", hardwareId);
+    s.setValue("name", dev->name);
+
+    s.beginGroup("axes");
+    for (int i = 0; i < dev->axes.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        if (i < dev->axisCalibration.count())
+        {
+            const CalibrationEntry &c = dev->axisCalibration.at(i);
+            s.setValue("raw_min", c.raw_min);
+            s.setValue("raw_center", c.raw_center);
+            s.setValue("raw_max", c.raw_max);
+            s.setValue("deadzone", c.deadzone);
+            s.setValue("scale", c.scale);
+            s.setValue("invert", c.invert);
+            s.setValue("mapped_role", c.mapped_role);
+            s.setValue("updated", c.updated.toMSecsSinceEpoch());
+            s.setValue("version", c.version);
+        }
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.beginGroup("buttons");
+    for (int i = 0; i < dev->buttons.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        if (i < dev->buttonRole.count()) s.setValue("role", dev->buttonRole.at(i));
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.beginGroup("povs");
+    // store role assignment for each hat in the same order as the device
+    for (int i = 0; i < dev->povs.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        if (i < dev->povRole.count()) s.setValue("role", dev->povRole.at(i));
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.endGroup();
+}
+
+void QJoysticks::loadCalibration(const QString &hardwareId)
+{
+    if (hardwareId.isEmpty()) return;
+
+    // find device in m_devices
+    QJoystickDevice *dev = nullptr;
+    for (QJoystickDevice *d : m_devices)
+        if (d->hardwareId == hardwareId) { dev = d; break; }
+    if (!dev) return;
+
+    QSettings s;
+    QString group = "Joysticks/" + hardwareKey(hardwareId);
+    s.beginGroup(group);
+    if (!s.contains("hardwareId")) { s.endGroup(); return; }
+
+    s.beginGroup("axes");
+    dev->axisCalibration.clear();
+    for (int i = 0; i < dev->axes.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        CalibrationEntry c;
+        c.raw_min = s.value("raw_min", c.raw_min).toDouble();
+        c.raw_center = s.value("raw_center", c.raw_center).toDouble();
+        c.raw_max = s.value("raw_max", c.raw_max).toDouble();
+        c.deadzone = s.value("deadzone", c.deadzone).toDouble();
+        c.scale = s.value("scale", c.scale).toDouble();
+        c.invert = s.value("invert", c.invert).toBool();
+        c.mapped_role = s.value("mapped_role", c.mapped_role).toInt();
+        qint64 ms = s.value("updated", 0).toLongLong();
+        if (ms) c.updated = QDateTime::fromMSecsSinceEpoch(ms);
+        c.version = s.value("version", c.version).toInt();
+        dev->axisCalibration.append(c);
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.beginGroup("buttons");
+    dev->buttonRole.clear();
+    for (int i = 0; i < dev->buttons.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        int role = s.value("role", -1).toInt();
+        dev->buttonRole.append(role);
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.beginGroup("povs");
+    // load stored POV roles (defaults to -1/unassigned if missing)
+    dev->povRole.clear();
+    for (int i = 0; i < dev->povs.count(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        int role = s.value("role", -1).toInt();
+        dev->povRole.append(role);
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.endGroup();
+}
+
+CalibrationEntry QJoysticks::calibrationForAxis(const QString &hardwareId, int axis) const
+{
+    for (QJoystickDevice *d : m_devices)
+    {
+        if (d->hardwareId == hardwareId)
+        {
+            if (axis >= 0 && axis < d->axisCalibration.count()) return d->axisCalibration.at(axis);
+            break;
+        }
+    }
+    return CalibrationEntry();
+}
+
+int QJoysticks::roleForButton(const QString &hardwareId, int button) const
+{
+    for (QJoystickDevice *d : m_devices)
+    {
+        if (d->hardwareId == hardwareId)
+        {
+            if (button >= 0 && button < d->buttonRole.count()) return d->buttonRole.at(button);
+            break;
+        }
+    }
+    return -1;
+}
+
+bool QJoysticks::exportCalibration(const QString &hardwareId, const QString &path) const
+{
+    if (hardwareId.isEmpty() || path.isEmpty()) return false;
+    QJoystickDevice *dev = nullptr;
+    for (QJoystickDevice *d : m_devices) if (d->hardwareId == hardwareId) { dev = d; break; }
+    if (!dev) return false;
+
+    QJsonObject root;
+    root["hardwareId"] = dev->hardwareId;
+    root["name"] = dev->name;
+
+    QJsonArray axesArr;
+    for (int i = 0; i < dev->axisCalibration.count(); ++i)
+    {
+        const CalibrationEntry &c = dev->axisCalibration.at(i);
+        QJsonObject o;
+        o["raw_min"] = c.raw_min;
+        o["raw_center"] = c.raw_center;
+        o["raw_max"] = c.raw_max;
+        o["deadzone"] = c.deadzone;
+        o["scale"] = c.scale;
+        o["invert"] = c.invert;
+        o["mapped_role"] = c.mapped_role;
+        o["updated"] = static_cast<qint64>(c.updated.toMSecsSinceEpoch());
+        o["version"] = c.version;
+        axesArr.append(o);
+    }
+    root["axes"] = axesArr;
+
+    QJsonArray btnArr;
+    for (int i = 0; i < dev->buttonRole.count(); ++i)
+    {
+        QJsonObject o;
+        o["role"] = dev->buttonRole.at(i);
+        btnArr.append(o);
+    }
+    root["buttons"] = btnArr;
+
+    QJsonDocument doc(root);
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    f.write(doc.toJson(QJsonDocument::Indented));
+    f.close();
+    return true;
+}
+
+bool QJoysticks::importCalibrationToHardware(const QString &path, const QString &hardwareId)
+{
+    if (path.isEmpty() || hardwareId.isEmpty()) return false;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    QByteArray data = f.readAll();
+    f.close();
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+    if (err.error != QJsonParseError::NoError) return false;
+    if (!doc.isObject()) return false;
+    QJsonObject root = doc.object();
+
+    QString group = "Joysticks/" + hardwareKey(hardwareId);
+    QSettings s;
+    s.beginGroup(group);
+    s.setValue("hardwareId", hardwareId);
+    s.setValue("name", root.value("name").toString());
+
+    QJsonArray axesArr = root.value("axes").toArray();
+    s.beginGroup("axes");
+    for (int i = 0; i < axesArr.size(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        QJsonObject o = axesArr.at(i).toObject();
+        s.setValue("raw_min", o.value("raw_min").toDouble());
+        s.setValue("raw_center", o.value("raw_center").toDouble());
+        s.setValue("raw_max", o.value("raw_max").toDouble());
+        s.setValue("deadzone", o.value("deadzone").toDouble());
+        s.setValue("scale", o.value("scale").toDouble());
+        s.setValue("invert", o.value("invert").toBool());
+        s.setValue("mapped_role", o.value("mapped_role").toInt());
+        s.setValue("updated", o.value("updated").toVariant());
+        s.setValue("version", o.value("version").toInt());
+        s.endGroup();
+    }
+    s.endGroup();
+
+    QJsonArray btnArr = root.value("buttons").toArray();
+    s.beginGroup("buttons");
+    for (int i = 0; i < btnArr.size(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        QJsonObject o = btnArr.at(i).toObject();
+        s.setValue("role", o.value("role").toInt());
+        s.endGroup();
+    }
+    s.endGroup();
+
+    s.endGroup();
+    return true;
+}
+
+void QJoysticks::clearAllCalibrations()
+{
+    QSettings s;
+    s.beginGroup("Joysticks");
+    s.remove("");
+    s.endGroup();
+
+    for (QJoystickDevice *d : m_devices)
+    {
+        d->axisCalibration.clear();
+        d->buttonRole.clear();
+    }
+}
+
 QJoystickPOVEvent SDL_Joysticks::getPOVEvent(const SDL_Event *sdl_event)
 {
     QJoystickPOVEvent event;
 
-    if (!m_joysticks.contains(sdl_event->jdevice.which))
-    {
+    if (!m_joysticks.contains(sdl_event->jhat.which))
         return event;
-    }
-    event.pov = sdl_event->jhat.hat;
-    event.joystick = m_joysticks[sdl_event->jdevice.which];
 
+    event.pov = sdl_event->jhat.hat;
+    event.joystick = m_joysticks[sdl_event->jhat.which];
+
+    /* Translate SDL hat enumeration into an angle in degrees (or -1 for neutral) */
     switch (sdl_event->jhat.value)
     {
     case SDL_HAT_RIGHTUP:
@@ -326,43 +528,38 @@ QJoystickPOVEvent SDL_Joysticks::getPOVEvent(const SDL_Event *sdl_event)
     return event;
 }
 
-/**
- * Reads the contents of the given \a event and constructs a new
- * \c QJoystickAxisEvent to be used with the \c QJoysticks system.
- */
 QJoystickAxisEvent SDL_Joysticks::getAxisEvent(const SDL_Event *sdl_event)
 {
     QJoystickAxisEvent event;
 
-    if (!m_joysticks.contains(sdl_event->cdevice.which))
-    {
+    if (sdl_event->type != SDL_JOYAXISMOTION)
         return event;
-    }
 
-    event.axis = sdl_event->caxis.axis;
-    event.value = static_cast<qreal>(sdl_event->caxis.value) / 32767.0;
-    event.joystick = m_joysticks[sdl_event->cdevice.which];
+    if (!m_joysticks.contains(sdl_event->jaxis.which))
+        return event;
+
+    event.axis = sdl_event->jaxis.axis;
+    event.value = static_cast<qreal>(sdl_event->jaxis.value) / 32767.0;
+    event.joystick = m_joysticks[sdl_event->jaxis.which];
 
     return event;
 }
 
-/**
- * Reads the contents of the given \a event and constructs a new
- * \c QJoystickButtonEvent to be used with the \c QJoysticks system.
- */
 QJoystickButtonEvent SDL_Joysticks::getButtonEvent(const SDL_Event *sdl_event)
 {
     QJoystickButtonEvent event;
 
-    if (!m_joysticks.contains(sdl_event->jdevice.which))
-    {
+    if ((sdl_event->type != SDL_JOYBUTTONDOWN) && (sdl_event->type != SDL_JOYBUTTONUP))
         return event;
-    }
+
+    if (!m_joysticks.contains(sdl_event->jbutton.which))
+        return event;
 
     event.button = sdl_event->jbutton.button;
     event.pressed = sdl_event->jbutton.state == SDL_PRESSED;
-    event.joystick = m_joysticks[sdl_event->jdevice.which];
-    event.joystick->buttons[event.button] = event.pressed;
+    event.joystick = m_joysticks[sdl_event->jbutton.which];
+    if (event.button < event.joystick->buttons.count())
+        event.joystick->buttons[event.button] = event.pressed;
 
     return event;
 }
@@ -441,36 +638,6 @@ int QJoysticks::nonBlacklistedCount()
     return cnt;
 }
 
-/**
- * Returns a list with the names of all registered joystick.
- *
- * \note This list also includes the blacklisted joysticks
- * \note This list also includes the virtual joystick (if its enabled)
- */
-QStringList QJoysticks::deviceNames() const
-{
-    QStringList names;
-
-    foreach (QJoystickDevice *joystick, inputDevices())
-        names.append(joystick->name);
-
-    return names;
-}
-
-/**
- * Returns the POV value for the given joystick \a index and \a pov ID
- */
-int QJoysticks::getPOV(const int index, const int pov)
-{
-    if (joystickExists(index))
-        return getInputDevice(index)->povs.at(pov);
-
-    return -1;
-}
-
-/**
- * Returns the axis value for the given joystick \a index and \a axis ID
- */
 double QJoysticks::getAxis(const int index, const int axis)
 {
     if (joystickExists(index))
@@ -522,6 +689,9 @@ int QJoysticks::getNumButtons(const int index)
 
     return -1;
 }
+
+// deviceNames() and getPOV() are defined inline in the header to ensure
+// moc and the linker see them, so no out-of-line definitions are needed here.
 
 /**
  * Returns \c true if the joystick at the given \a index is blacklisted.

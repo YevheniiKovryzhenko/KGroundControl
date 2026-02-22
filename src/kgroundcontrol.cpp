@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -373,6 +373,9 @@ void KGroundControl::save_settings(void)
 
     if (ui->settings_hard_reset_on_exit->isChecked())
     {
+        // Clear runtime calibration data from QJoysticks, then wipe all settings
+        QJoysticks *js = QJoysticks::getInstance();
+        if (js) js->clearAllCalibrations();
         qsettings.clear();
     }
     else

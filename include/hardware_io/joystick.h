@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -41,102 +41,77 @@
 #include <QSettings>
 
 #include "SDL.h"
+#include <QDateTime>
 
-/**
- * @brief Represents a joystick and its properties
- *
- * This structure contains:
- *     - The numerical ID of the joystick
- *     - The sdl instance id of the joystick
- *     - The joystick display name
- *     - The number of axes operated by the joystick
- *     - The number of buttons operated by the joystick
- *     - The number of POVs operated by the joystick
- *     - A boolean value blacklisting or whitelisting the joystick
- */
+/* Per-axis calibration and mapping entry */
+struct CalibrationEntry
+{
+    double raw_min = -1.0;
+    double raw_center = 0.0;
+    double raw_max = 1.0;
+    double deadzone = 0.02;
+    double scale = 1.0;
+    bool invert = false;
+    int mapped_role = -1; // -1 == unassigned
+    QDateTime updated;
+    int version = 1;
+};
+
+/* Represents a physical joystick and its runtime state. */
 struct QJoystickDevice
 {
-    int id; /**< Holds the ID of the joystick */
-    int instanceID; /**< Holds the sdl instance id of the joystick */
-    QString name; /**< Holds the name/title of the joystick */
-    QList<int> povs; /**< Holds the values for each POV */
-    QList<double> axes; /**< Holds the values for each axis */
-    QList<bool> buttons; /**< Holds the values for each button */
-    bool blacklisted; /**< Holds \c true if the joystick is disabled */
+    int id;
+    int instanceID;
+    QString name;
+    QString hardwareId;
+    QList<int> povs;
+    QList<int> povRole;              // per‑hat role mapping
+    QList<double> axes;
+    QList<bool> buttons;
+    bool blacklisted;
+    QList<CalibrationEntry> axisCalibration;
+    QList<int> buttonRole;
 };
 
-/**
- * @brief Represents a joystick rumble request
- *
- * This structure contains:
- *    - A pointer to the joystick that should be rumbled
- *    - The length (in milliseconds) of the rumble effect.
- *    - The strength of the effect (from 0 to 1)
- */
+/* Represents a request to rumble/force-feedback a joystick. */
 struct QJoystickRumble
 {
-    uint length; /**< The duration of the effect */
-    qreal strength; /**< Strength of the effect (0 to 1) */
-    QJoystickDevice *joystick; /**< The pointer to the target joystick */
+    uint length;
+    qreal strength;
+    QJoystickDevice *joystick;
 };
 
-/**
- * @brief Represents an POV event that can be triggered by a joystick
- *
- * This structure contains:
- *    - A pointer to the joystick that triggered the event
- *    - The POV number/ID
- *    - The current POV angle
- */
+/* POV (hat) event forwarded to consumers. */
 struct QJoystickPOVEvent
 {
-    int pov; /**< The numerical ID of the POV */
-    int angle; /**< The current angle of the POV */
-    QJoystickDevice *joystick; /**< Pointer to the device that caused the event */
+    int pov;
+    int angle;
+    QJoystickDevice *joystick;
 };
 
-/**
- * @brief Represents an axis event that can be triggered by a joystick
- *
- * This structure contains:
- *    - A pointer to the joystick that caused the event
- *    - The axis number/ID
- *    - The current axis value
- */
+/* Axis event forwarded to consumers. */
 struct QJoystickAxisEvent
 {
-    int axis; /**< The numerical ID of the axis */
-    qreal value; /**< The value (from -1 to 1) of the axis */
-    QJoystickDevice *joystick; /**< Pointer to the device that caused the event */
+    int axis;
+    qreal value;
+    QJoystickDevice *joystick;
 };
 
-/**
- * @brief Represents a button event that can be triggered by a joystick
- *
- * This structure contains:
- *   - A pointer to the joystick that caused the event
- *   - The button number/ID
- *   - The current button state (pressed or not pressed)
- */
+/* Button event forwarded to consumers. */
 struct QJoystickButtonEvent
 {
-    int button; /**< The numerical ID of the button */
-    bool pressed; /**< Set to \c true if the button is pressed */
-    QJoystickDevice *joystick; /**< Pointer to the device that caused the event */
+    int button;
+    bool pressed;
+    QJoystickDevice *joystick;
 };
 
-
-/**
- * \brief Translates SDL events into \c QJoysticks events
+/*
+ * SDL_Joysticks
  *
- * This class is in charge of managing and operating real joysticks through the
- * SDL API. The implementation procedure is the same for every operating system.
- *
- * The only thing that differs from each operating system is the backup mapping
- * applied in the case that we do not know what mapping to apply to a joystick.
- *
- * \note The joystick values are refreshed every 20 milliseconds through a
- *       simple event loop.
+ * Thin wrapper around SDL joystick APIs that converts raw SDL events
+ * into the project's QJoystick* event structs and emits Qt signals.
+ * This implementation intentionally uses raw SDL_JOY* events so the
+ * application sees every physical axis/button/hat reported by the OS.
  */
 class SDL_Joysticks : public QObject
 {
@@ -170,28 +145,11 @@ private:
     QMap<int, QJoystickDevice *> m_joysticks;
 };
 
-
-
-// class QSettings;
-// class SDL_Joysticks;
-// class VirtualJoystick;
-
-/**
- * \brief Manages the input systems and communicates them with the application
+/*
+ * QJoysticks
  *
- * The \c QJoysticks class is the "god-object" of this system. It manages every
- * input system used by the application (e.g. SDL for real joysticks and
- * keyboard for virtual joystick) and communicates every module/input system
- * with the rest of the application through standarized types.
- *
- * The joysticks are assigned a numerical ID, which the \c QJoysticks can use to
- * identify them. The ID's start with \c 0 (as with a QList). The ID's are
- * refreshed when a joystick is attached or removed. The first joystick that
- * has been connected to the computer will have \c 0 as an ID, the second
- * joystick will have \c 1 as an ID, and so on...
- *
- * \note the virtual joystick will ALWAYS be the last joystick to be registered,
- *       even if it has been enabled before any SDL joystick has been attached.
+ * Application-facing manager that aggregates SDL joystick devices and
+ * exposes them via Qt-friendly methods and signals for QML/GUI use.
  */
 class QJoysticks : public QObject
 {
@@ -199,8 +157,6 @@ class QJoysticks : public QObject
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(int nonBlacklistedCount READ nonBlacklistedCount NOTIFY countChanged)
     Q_PROPERTY(QStringList deviceNames READ deviceNames NOTIFY countChanged)
-
-    // friend class Test_QJoysticks;
 
 signals:
     void countChanged();
@@ -230,16 +186,21 @@ public:
     Q_INVOKABLE bool joystickExists(const int index);
     Q_INVOKABLE QString getName(const int index);
 
+    /* Calibration persistence API */
+    void saveCalibration(const QString &hardwareId);
+    void loadCalibration(const QString &hardwareId);
+    CalibrationEntry calibrationForAxis(const QString &hardwareId, int axis) const;
+    int roleForButton(const QString &hardwareId, int button) const;
+    bool exportCalibration(const QString &hardwareId, const QString &path) const;
+    bool importCalibrationToHardware(const QString &path, const QString &hardwareId);
+    void clearAllCalibrations();
+
     SDL_Joysticks *sdlJoysticks() const;
-    // VirtualJoystick *virtualJoystick() const;
     QJoystickDevice *getInputDevice(const int index);
     QList<QJoystickDevice *> inputDevices() const;
 
 public slots:
     void updateInterfaces();
-    // void setVirtualJoystickRange(qreal range);
-    // void setVirtualJoystickEnabled(bool enabled);
-    // void setVirtualJoystickAxisSensibility(qreal sensibility);
     void setSortJoysticksByBlacklistState(bool sort);
     void setBlacklisted(int index, bool blacklisted);
 
@@ -259,9 +220,28 @@ private:
 
     QSettings *m_settings;
     SDL_Joysticks *m_sdlJoysticks;
-    // VirtualJoystick *m_virtualJoystick;
 
     QList<QJoystickDevice *> m_devices;
 };
+
+/* Small inline helpers to ensure symbols are available to moc/linker. */
+inline QStringList QJoysticks::deviceNames() const
+{
+    QStringList names;
+    for (QJoystickDevice *d : m_devices)
+        names.append(d->name);
+    return names;
+}
+
+inline int QJoysticks::getPOV(const int index, const int pov)
+{
+    if ((index >= 0) && (index < m_devices.count()))
+    {
+        QJoystickDevice *dev = m_devices.at(index);
+        if (pov >= 0 && pov < dev->povs.count())
+            return dev->povs.at(pov);
+    }
+    return -1;
+}
 
 #endif // JOYSTICK_H

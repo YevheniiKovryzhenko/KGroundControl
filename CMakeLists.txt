@@ -301,7 +301,6 @@ set(PROJECT_UI
 )
 
 set(PROJECT_RESOURCES
-    resources/SDL/SDL.qrc
     resources/Images/Images.qrc
 )
 
