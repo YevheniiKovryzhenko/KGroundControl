@@ -1,15 +1,15 @@
 {
   "updates": {
     "linux": {
-      "latest-version": "1.2.7",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.7/KGroundControl_v1.2.7_Ubuntu_22.04_x64",
-      "changelog": "Fixed self-installation logic on linux.",
+      "latest-version": "1.2.8",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.8/KGroundControl_v1.2.8_Ubuntu_22.04_x64",
+      "changelog": "- Added settings for enabling/disabling autoinstall on startup\r\\n- Refined autoinstall logic for linux \r\\n- Updated mocap checks - now actively scans if any data has actually been receved from a new mocap multicast interface and shows debug hints",
       "mandatory-update": false
     },
     "windows": {
-      "latest-version": "1.2.7",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.7/KGroundControl_v1.2.7_Windows_x64.exe",
-      "changelog": "Fixed self-installation logic on linux.",
+      "latest-version": "1.2.8",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.8/KGroundControl_v1.2.8_Windows_x64.exe",
+      "changelog": "- Added settings for enabling/disabling autoinstall on startup\r\\n- Refined autoinstall logic for linux \r\\n- Updated mocap checks - now actively scans if any data has actually been receved from a new mocap multicast interface and shows debug hints",
       "mandatory-update": false
     }
   }
