@@ -5,7 +5,7 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.2.8 LANGUAGES CXX)
+project(KGroundControl VERSION 1.2.9 LANGUAGES CXX)
 
 set(QT_TARGET_VERSION 6.10.2)
 

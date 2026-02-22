@@ -51,35 +51,33 @@ jobs:
         echo "$ASSETS"
         
         # Check if each binary exists
-        LINUX_EXISTS="false"
+        LINUX_24_EXISTS="false"
+        LINUX_22_EXISTS="false"
         WINDOWS_EXISTS="false"
         
-        # prefer 24, fall back to 22
         if echo "$ASSETS" | grep -q "^${LINUX_BINARY_24}$"; then
-          LINUX_BINARY="$LINUX_BINARY_24"
-        elif echo "$ASSETS" | grep -q "^${LINUX_BINARY_22}$"; then
-          LINUX_BINARY="$LINUX_BINARY_22"
+          echo "✅ Ubuntu 24.04 binary found: $LINUX_BINARY_24"
+          LINUX_24_EXISTS="true"
         else
-          LINUX_BINARY=""
+          echo "⏳ Ubuntu 24.04 binary not found"
         fi
-        
-        if [ -n "$LINUX_BINARY" ]; then
-          echo "✅ Linux binary found: $LINUX_BINARY"
-          LINUX_EXISTS="true"
+        if echo "$ASSETS" | grep -q "^${LINUX_BINARY_22}$"; then
+          echo "✅ Ubuntu 22.04 binary found: $LINUX_BINARY_22"
+          LINUX_22_EXISTS="true"
         else
-          echo "⏳ Linux binary not found (yet): ubuntu 24.04 or 22.04"
+          echo "⏳ Ubuntu 22.04 binary not found"
         fi
-        
         if echo "$ASSETS" | grep -q "^${WINDOWS_BINARY}$"; then
           echo "✅ Windows binary found: $WINDOWS_BINARY"
           WINDOWS_EXISTS="true"
         else
           echo "⏳ Windows binary not found (yet): $WINDOWS_BINARY"
         fi
-        
-        echo "LINUX_EXISTS=$LINUX_EXISTS" >> $GITHUB_OUTPUT
+        echo "LINUX_24_EXISTS=$LINUX_24_EXISTS" >> $GITHUB_OUTPUT
+        echo "LINUX_22_EXISTS=$LINUX_22_EXISTS" >> $GITHUB_OUTPUT
         echo "WINDOWS_EXISTS=$WINDOWS_EXISTS" >> $GITHUB_OUTPUT
-        echo "LINUX_BINARY=$LINUX_BINARY" >> $GITHUB_OUTPUT
+        echo "LINUX_BINARY_24=$LINUX_BINARY_24" >> $GITHUB_OUTPUT
+        echo "LINUX_BINARY_22=$LINUX_BINARY_22" >> $GITHUB_OUTPUT
         echo "WINDOWS_BINARY=$WINDOWS_BINARY" >> $GITHUB_OUTPUT
     
     - name: Extract changelog from release
@@ -94,9 +92,11 @@ jobs:
     - name: Update docs/updates.json (smart merge)
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
-        LINUX_EXISTS="${{ steps.check_binaries.outputs.LINUX_EXISTS }}"
+        LINUX_24_EXISTS="${{ steps.check_binaries.outputs.LINUX_24_EXISTS }}"
+        LINUX_22_EXISTS="${{ steps.check_binaries.outputs.LINUX_22_EXISTS }}"
         WINDOWS_EXISTS="${{ steps.check_binaries.outputs.WINDOWS_EXISTS }}"
-        LINUX_BINARY="${{ steps.check_binaries.outputs.LINUX_BINARY }}"
+        LINUX_BINARY_24="${{ steps.check_binaries.outputs.LINUX_BINARY_24 }}"
+        LINUX_BINARY_22="${{ steps.check_binaries.outputs.LINUX_BINARY_22 }}"
         WINDOWS_BINARY="${{ steps.check_binaries.outputs.WINDOWS_BINARY }}"
         CHANGELOG_ESCAPED=$(echo "${{ steps.changelog.outputs.CHANGELOG }}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         
@@ -106,19 +106,19 @@ jobs:
           EXISTING_JSON=$(cat docs/updates.json)
         else
           echo "📝 Creating new updates.json"
-          EXISTING_JSON='{"updates":{"linux":{},"windows":{}}}'
+          EXISTING_JSON='{"updates":{}}'
         fi
         
         # Build updates using jq to properly merge
         echo "$EXISTING_JSON" > /tmp/updates.json
         
-        # Update Linux platform if binary exists
-        if [ "$LINUX_EXISTS" = "true" ]; then
-          echo "✍️  Updating Linux platform info"
+        # Update Ubuntu 24.04 platform if binary exists
+        if [ "$LINUX_24_EXISTS" = "true" ]; then
+          echo "✍️  Updating linux-ubuntu-24.04 platform info"
           jq --arg version "$VERSION" \
-             --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY}" \
+             --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY_24}" \
              --arg changelog "$CHANGELOG_ESCAPED" \
-             '.updates.linux = {
+             '.updates["linux-ubuntu-24.04"] = {
                "latest-version": $version,
                "download-url": $url,
                "changelog": $changelog,
@@ -126,9 +126,38 @@ jobs:
              }' /tmp/updates.json > /tmp/updates_new.json
           mv /tmp/updates_new.json /tmp/updates.json
         else
-          echo "⏭️  Skipping Linux platform (no binary yet)"
+          echo "⏭️  Skipping linux-ubuntu-24.04 platform (no binary yet)"
         fi
-        
+        # Update Ubuntu 22.04 platform if binary exists
+        if [ "$LINUX_22_EXISTS" = "true" ]; then
+          echo "✍️  Updating linux-ubuntu-22.04 platform info"
+          jq --arg version "$VERSION" \
+             --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY_22}" \
+             --arg changelog "$CHANGELOG_ESCAPED" \
+             '.updates["linux-ubuntu-22.04"] = {
+               "latest-version": $version,
+               "download-url": $url,
+               "changelog": $changelog,
+               "mandatory-update": false
+             }' /tmp/updates.json > /tmp/updates_new.json
+          mv /tmp/updates_new.json /tmp/updates.json
+          # Also update generic linux key if 24.04 is not available
+          if [ "$LINUX_24_EXISTS" != "true" ]; then
+            echo "✍️  Also updating generic linux key to Ubuntu 22.04 binary (as fallback)"
+            jq --arg version "$VERSION" \
+               --arg url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_BINARY_22}" \
+               --arg changelog "$CHANGELOG_ESCAPED" \
+               '.updates["linux"] = {
+                 "latest-version": $version,
+                 "download-url": $url,
+                 "changelog": $changelog,
+                 "mandatory-update": false
+               }' /tmp/updates.json > /tmp/updates_new.json
+            mv /tmp/updates_new.json /tmp/updates.json
+          fi
+        else
+          echo "⏭️  Skipping linux-ubuntu-22.04 platform (no binary yet)"
+        fi
         # Update Windows platform if binary exists
         if [ "$WINDOWS_EXISTS" = "true" ]; then
           echo "✍️  Updating Windows platform info"
