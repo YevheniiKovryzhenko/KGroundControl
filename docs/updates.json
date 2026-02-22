@@ -11,6 +11,12 @@
       "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.8/KGroundControl_v1.2.8_Windows_x64.exe",
       "changelog": "- Added settings for enabling/disabling autoinstall on startup\r\\n- Refined autoinstall logic for linux \r\\n- Updated mocap checks - now actively scans if any data has actually been receved from a new mocap multicast interface and shows debug hints",
       "mandatory-update": false
+    },
+    "linux-ubuntu-24.04": {
+      "latest-version": "1.2.9",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.9/KGroundControl_v1.2.9_Ubuntu_24.04_x64",
+      "changelog": "Fixed breaking ubuntu 22 automatic update to 24 when both are available. Workflow now generates geneneric linux update key when just ubuntu 22 release is available and not both.",
+      "mandatory-update": false
     }
   }
 }
