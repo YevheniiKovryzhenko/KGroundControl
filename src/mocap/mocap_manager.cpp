@@ -1,0 +1,2364 @@
+/****************************************************************************
+ *
+ *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Affero General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License Version 3 for more details.
+ *
+ *    You should have received a copy of the
+ *    GNU Affero General Public License Version 3
+ *    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *    1. Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions, and the following disclaimer.
+ *    2. Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions, and the following disclaimer in
+ *       the documentation and/or other materials provided with the
+ *       distribution.
+ *    3. No ownership or credit shall be claimed by anyone not mentioned in
+ *       the above copyright statement.
+ *    4. Any redistribution or public use of this software, in whole or in part,
+ *       whether standalone or as part of a different project, must remain
+ *       under the terms of the GNU Affero General Public License Version 3,
+ *       and all distributions in binary form must be accompanied by a copy of
+ *       the source code, as stated in the GNU Affero General Public License.
+ *
+ ****************************************************************************/
+
+#include <QMessageBox>
+#include <QErrorMessage>
+#include <QCloseEvent>
+#include <QShowEvent>
+#include <QApplication>
+#include <QClipboard>
+#include <QLabel>
+#include <QTimer>
+
+#include "mocap/mocap_manager.h"
+#include "ui_mocap_manager.h"
+#include "mocap/fake_mocap_dialog.h"
+#include "all/mavlink.h"
+#include "hardware_io/generic_port.h"
+#include <QtMath>
+#include <QGraphicsOpacityEffect>
+#include <QScrollBar>
+#include <QHeaderView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QCheckBox>
+#include <QGridLayout>
+#include <QLabel>
+#include <QComboBox>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include "plot/plot_signal_registry.h"
+// no extra includes needed; timer declared in header
+#include <QSettings>
+#include <QWindow>
+
+//IPv4 RegEx
+QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
+
+// IPv6 RegEx
+QRegularExpression regexp_IPv6("("
+    "([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|"         // 1:2:3:4:5:6:7:8
+    "([0-9a-fA-F]{1,4}:){1,7}:|"                        // 1::                              1:2:3:4:5:6:7::
+    "([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|"        // 1::8             1:2:3:4:5:6::8  1:2:3:4:5:6::8
+    "([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|" // 1::7:8           1:2:3:4:5::7:8  1:2:3:4:5::8
+    "([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|" // 1::6:7:8         1:2:3:4::6:7:8  1:2:3:4::8
+    "([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|" // 1::5:6:7:8       1:2:3::5:6:7:8  1:2:3::8
+    "([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|" // 1::4:5:6:7:8     1:2::4:5:6:7:8  1:2::8
+    "[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|"      // 1::3:4:5:6:7:8   1::3:4:5:6:7:8  1::8
+    ":((:[0-9a-fA-F]{1,4}){1,7}|:)|"                    // ::2:3:4:5:6:7:8  ::2:3:4:5:6:7:8 ::8       ::
+    "fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|"    // fe80::7:8%eth0   fe80::7:8%1     (link-local IPv6 addresses with zone index)
+    "::(ffff(:0{1,4}){0,1}:){0,1}"
+    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}"
+    "(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|"         // ::255.255.255.255   ::ffff:255.255.255.255  ::ffff:0:255.255.255.255  (IPv4-mapped IPv6 addresses and IPv4-translated addresses)
+    "([0-9a-fA-F]{1,4}:){1,4}:"
+    "((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}"
+    "(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])"          // 2001:db8:3:4::192.0.2.33  64:ff9b::192.0.2.33 (IPv4-Embedded IPv6 Address)
+    ")");
+
+
+void __copy_data(mocap_data_t& buff_out, mocap_data_t& buff_in)
+{
+    buff_out = buff_in;
+    return;
+}
+void __copy_data(optitrack_message_t& buff_out, optitrack_message_t& buff_in)
+{
+    buff_out = buff_in;
+    return;
+}
+
+void __copy_data(optitrack_message_t& buff_out, mocap_data_t& buff_in)
+{
+    buff_out.id = buff_in.id;
+    buff_out.trackingValid = buff_in.trackingValid;
+    buff_out.qw = buff_in.qw;
+    buff_out.qx = buff_in.qx;
+    buff_out.qy = buff_in.qy;
+    buff_out.qz = buff_in.qz;
+    buff_out.x = buff_in.x;
+    buff_out.y = buff_in.y;
+    buff_out.z = buff_in.z;
+    return;
+}
+
+void __copy_data(mocap_data_t& buff_out, optitrack_message_t& buff_in)
+{
+    buff_out.id = buff_in.id;
+    buff_out.trackingValid = buff_in.trackingValid;
+    buff_out.qw = buff_in.qw;
+    buff_out.qx = buff_in.qx;
+    buff_out.qy = buff_in.qy;
+    buff_out.qz = buff_in.qz;
+    buff_out.x = buff_in.x;
+    buff_out.y = buff_in.y;
+    buff_out.z = buff_in.z;
+    mocap_optitrack::toEulerAngle(buff_in, buff_out.roll, buff_out.pitch, buff_out.yaw);
+    return;
+}
+
+void __rotate_YUP2NED(optitrack_message_t& buff_in)
+{
+    optitrack_message_t tmp = buff_in;
+
+    //buff_in.x = tmp.x;
+    buff_in.y = tmp.z;
+    buff_in.z = -tmp.y;
+
+    //buff_in.qw = tmp.qw;
+    //buff_in.qx = tmp.qx;
+    buff_in.qy = tmp.qz;
+    buff_in.qz = -tmp.qy;
+    return;
+}
+
+void __rotate_ZUP2NED(optitrack_message_t& buff_in)
+{
+    optitrack_message_t tmp = buff_in;
+
+    //buff_in.x = tmp.x;
+    buff_in.y = -tmp.y;
+    buff_in.z = -tmp.z;
+
+    //buff_in.qw = tmp.qw;
+    //buff_in.qx = tmp.qx;
+    buff_in.qy = -tmp.qy;
+    buff_in.qz = -tmp.qz;
+    return;
+}
+
+
+QString mocap_data_t::get_QString(void)
+{
+    return QString("Time Stamp: %1 (ms)\n"
+                   "Frequency: %2 (Hz)\n"
+                   "Frame ID: %3\n"
+                   "Tracking is valid: %4\n"
+                   "X: %5 (m)\n"
+                   "Y: %6 (m)\n"
+                   "Z: %7 (m)\n"
+                   "qx: %8\n"
+                   "qy: %9\n"
+                   "qz: %10\n"
+                   "qw: %11\n"
+                   "Roll: %12 (deg)\n"
+                   "Pitch: %13 (deg)\n"
+                   "Yaw: %14 (deg)\n")
+    .arg(time_ms)
+    .arg(freq_hz, 0, 'f', 2)
+        .arg(id)
+        .arg(trackingValid ? "YES" : "NO")
+        .arg(x, 0, 'f', 6)
+        .arg(y, 0, 'f', 6)
+        .arg(z, 0, 'f', 6)
+        .arg(qx, 0, 'f', 6)
+        .arg(qy, 0, 'f', 6)
+        .arg(qz, 0, 'f', 6)
+        .arg(qw, 0, 'f', 6)
+        .arg(roll * 180.0 / M_PI, 0, 'f', 2)
+        .arg(pitch * 180.0 / M_PI, 0, 'f', 2)
+        .arg(yaw * 180.0 / M_PI, 0, 'f', 2);
+}
+
+bool mocap_data_t::equals(const mocap_data_t& other) const
+{
+    return id == other.id &&
+           trackingValid == other.trackingValid &&
+           qw == other.qw &&
+           qx == other.qx &&
+           qy == other.qy &&
+           qz == other.qz &&
+           x == other.x &&
+           y == other.y &&
+           z == other.z &&
+           time_ms == other.time_ms &&
+           roll == other.roll &&
+           pitch == other.pitch &&
+           yaw == other.yaw;
+}
+
+
+
+mocap_data_aggegator::mocap_data_aggegator(QObject* parent)
+: QObject(parent)
+{
+    mutex = new QMutex;
+    cleanup_timer_ = new QTimer(this);
+    connect(cleanup_timer_, &QTimer::timeout, this, &mocap_data_aggegator::cleanup_stale_frames);
+    cleanup_timer_->start(5000); // Check every 5 seconds
+}
+
+mocap_data_aggegator::~mocap_data_aggegator()
+{
+    if (cleanup_timer_) {
+        cleanup_timer_->stop();
+    }
+    delete mutex;
+}
+
+void mocap_data_aggegator::clear(void)
+{
+    mutex->lock();
+    if (frame_ids_.size() > 0)
+    {
+        frame_ids_.clear();
+        frames_.clear();
+        frame_id_to_index_.clear();
+        last_time_ms_.clear();
+    }
+    mutex->unlock();
+}
+
+void mocap_data_aggegator::cleanup_stale_frames()
+{
+    mutex->lock();
+    uint64_t current_time = QDateTime::currentMSecsSinceEpoch();
+    const uint64_t timeout_ms = 30000; // 30 seconds
+    QVector<int> ids_to_remove;
+
+    for (auto it = last_time_ms_.begin(); it != last_time_ms_.end(); ++it) {
+        if (current_time - it.value() > timeout_ms) {
+            ids_to_remove.append(it.key());
+        }
+    }
+
+    if (!ids_to_remove.isEmpty()) {
+        for (int id : ids_to_remove) {
+            int index = frame_id_to_index_.value(id, -1);
+            if (index >= 0 && index < frames_.size()) {
+                frames_.removeAt(index);
+                frame_ids_.removeAll(id);
+                frame_id_to_index_.remove(id);
+                last_time_ms_.remove(id);
+
+                // Update indices for remaining frames
+                for (int i = index; i < frames_.size(); ++i) {
+                    frame_id_to_index_[frames_[i].id] = i;
+                }
+            }
+        }
+        emit frame_ids_updated(frame_ids_);
+    }
+    mutex->unlock();
+}
+
+void mocap_data_aggegator::update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation)
+{
+    mutex->lock();
+    bool frame_ids_updated_ = false;
+    QVector<mocap_data_t> updated_frames;
+    uint64_t timestamp = QDateTime::currentMSecsSinceEpoch();
+    foreach(auto msg, incoming_data)
+    {
+        optitrack_message_t msg_NED = msg;
+        switch (rotation) {
+        case YUP2NED:
+            __rotate_YUP2NED(msg_NED);
+            break;
+        case ZUP2NED:
+            __rotate_ZUP2NED(msg_NED);
+            break;
+        default:
+            break;
+        }
+        int new_frame_ind = frame_id_to_index_.value(msg.id, -1);
+
+        mocap_data_t frame;
+        if (new_frame_ind < 0) //frame is actually brand new
+        {
+            frame_ids_.push_back(msg_NED.id);
+            frame_id_to_index_[msg_NED.id] = frames_.size();
+            frame_ids_updated_ = true;
+
+            __copy_data(frame, msg_NED);
+            frame.time_ms = timestamp;
+            // initialize frequency tracking
+            uint64_t prev = last_time_ms_.value(msg_NED.id, 0);
+            if (prev > 0)
+            {
+                double dt = static_cast<double>(timestamp - prev) / 1000.0;
+                if (dt > 0.0) frame.freq_hz = 1.0 / dt;
+            }
+            last_time_ms_[msg_NED.id] = timestamp;
+            frames_.push_back(frame);
+        }
+        else //we have seen this frame id before
+        {
+            __copy_data(frame, msg_NED);
+            frame.time_ms = timestamp;
+            // frequency estimate with EMA smoothing
+            uint64_t prev = last_time_ms_.value(msg_NED.id, 0);
+            if (prev > 0)
+            {
+                double dt = static_cast<double>(timestamp - prev) / 1000.0;
+                if (dt > 0.0)
+                {
+                    double f = 1.0 / dt;
+                    // smooth with previous displayed value if available
+                    double prev_f = frames_[new_frame_ind].freq_hz;
+                    // alpha controls responsiveness: 0.2 mildly smooth
+                    const double alpha = 0.2;
+                    frame.freq_hz = (prev_f > 0.0) ? (alpha * f + (1.0 - alpha) * prev_f) : f;
+                }
+            }
+            last_time_ms_[msg_NED.id] = timestamp;
+            __copy_data(frames_[new_frame_ind], frame);
+        }
+        updated_frames.push_back(frame);
+
+    }
+    mutex->unlock();
+    if (frame_ids_updated_) emit frame_ids_updated(frame_ids_);
+    if (!updated_frames.empty()) emit frames_updated(updated_frames);
+}
+
+bool mocap_data_aggegator::get_frame(int frame_id, mocap_data_t &frame)
+{
+    // Lock
+    mutex->lock();
+    int frame_index = frame_id_to_index_.value(frame_id, -1);
+    if (frame_index >= 0 && frame_index < frames_.size())
+    {
+        __copy_data(frame, frames_[frame_index]);
+        // Unlock
+        mutex->unlock();
+        return true;
+    }
+    // Unlock
+    mutex->unlock();
+    return false;
+}
+QVector<int> mocap_data_aggegator::get_ids(void)
+{
+    QVector<int> ids_out;
+    // Lock
+    mutex->lock();
+    ids_out = frame_ids_;
+
+    // Unlock
+    mutex->unlock();
+    return ids_out;
+}
+
+
+mocap_thread::mocap_thread(QObject* parent, generic_thread_settings *new_settings, mocap_settings *mocap_new_settings)
+    : generic_thread(parent, new_settings)
+{
+    start(mocap_new_settings);
+}
+
+mocap_thread::~mocap_thread()
+{
+    if (optitrack != NULL)
+    {
+        delete optitrack;
+        optitrack = nullptr;
+    }
+}
+
+void mocap_thread::update_settings(mocap_settings* mocap_new_settings)
+{
+    mutex->lock();
+    memcpy(&mocap_settings_, mocap_new_settings, sizeof(*mocap_new_settings));
+    mutex->unlock();
+}
+
+// ----------------- Fake MOCAP Thread -----------------
+fake_mocap_thread::fake_mocap_thread(QObject* parent, generic_thread_settings* new_settings)
+    : generic_thread(parent, new_settings)
+{
+    timer_.start();
+    generic_thread::start(generic_thread_settings_.priority);
+}
+
+fake_mocap_thread::~fake_mocap_thread() {}
+
+void fake_mocap_thread::update_settings(const fake_mocap_settings& settings)
+{
+    mutex->lock();
+    enabled_ = settings.enabled;
+    period_s_ = settings.period_s;
+    radius_m_ = settings.radius_m;
+    frame_id_ = settings.frame_id;
+    mutex->unlock();
+}
+
+void fake_mocap_thread::run()
+{
+    while (!(QThread::currentThread()->isInterruptionRequested()))
+    {
+        // Read config snapshot
+    mutex->lock();
+    const bool enabled = enabled_;
+    const double T = period_s_ > 0.01 ? period_s_ : 30.0;
+    const double R = radius_m_ >= 0.0 ? radius_m_ : 1.0;
+    const int id = frame_id_;
+    mutex->unlock();
+
+        if (enabled)
+        {
+            // Maintain state to detect enable transitions so we can restart the local timer
+            static bool was_enabled = false;
+            if (enabled && !was_enabled) {
+                timer_.restart();
+                was_enabled = true;
+            } else if (!enabled) {
+                was_enabled = false;
+            }
+
+            const double t = static_cast<double>(timer_.elapsed()) / 1000.0; // seconds since enabled
+            // Phase durations (make them proportional but bounded)
+            const double takeoff_dur = qBound(3.0, T * 1.2, 5.0); // seconds to ascend from ground to flight altitude
+            const double ramp_dur = qBound(2.0, T * 0.8, 3.0);     // seconds to move radially out/in
+            const int revolutions = 3;
+            const double circle_dur = T * static_cast<double>(revolutions);
+            const double landing_dur = takeoff_dur;
+
+            const double phase_total = takeoff_dur + ramp_dur + circle_dur + ramp_dur + landing_dur;
+
+            // Loop the whole mission sequence repeatedly
+            const double tseq = std::fmod(t, phase_total);
+
+            // Trajectory state to compute position and yaw (vehicle facing direction of motion)
+            double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
+            const double ang0 = 0.0; // starting angular offset for the circle (starts at +X axis)
+            const double omega = (T > 0.0) ? (2.0 * M_PI / T) : 0.0;
+
+            if (tseq < takeoff_dur) {
+                // Takeoff: vertical from (0,0,0) to (0,0,-1)
+                double s = qBound(0.0, tseq / takeoff_dur, 1.0);
+                x = 0.0; y = 0.0; z = - s * 1.0; // z negative is altitude -1m
+                // Face the initial tangent direction so orientation is ready for circle
+                yaw = ang0 + M_PI_2; // tangent at start (pi/2)
+            }
+            else if (tseq < takeoff_dur + ramp_dur) {
+                // Radial ramp-out: move from center to circle radius at z=-1
+                double s = qBound(0.0, (tseq - takeoff_dur) / ramp_dur, 1.0);
+                double r = s * R;
+                double ang = ang0; // keep angle fixed during radial ramp
+                x = r * qCos(ang);
+                y = r * qSin(ang);
+                z = -1.0;
+                // velocity is radial outward -> yaw points along velocity
+                double vx = (R / qMax(ramp_dur, 1e-6)) * qCos(ang);
+                double vy = (R / qMax(ramp_dur, 1e-6)) * qSin(ang);
+                yaw = std::atan2(vy, vx);
+            }
+            else if (tseq < takeoff_dur + ramp_dur + circle_dur) {
+                // Circular laps: tangent yaw (facing direction of motion)
+                double t_circle = tseq - (takeoff_dur + ramp_dur);
+                double ang = ang0 + omega * t_circle;
+                x = R * qCos(ang);
+                y = R * qSin(ang);
+                z = -1.0;
+                // Tangent velocity: compute yaw from velocity vector
+                double vx = -R * omega * qSin(ang);
+                double vy =  R * omega * qCos(ang);
+                // If radius is zero, fallback
+                if (qFuzzyIsNull(R) && qFuzzyIsNull(vx) && qFuzzyIsNull(vy)) yaw = ang0 + M_PI_2;
+                else yaw = std::atan2(vy, vx);
+            }
+            else if (tseq < takeoff_dur + ramp_dur + circle_dur + ramp_dur) {
+                // Radial ramp-in: move from circle radius back toward center at z=-1
+                double s = qBound(0.0, (tseq - (takeoff_dur + ramp_dur + circle_dur)) / ramp_dur, 1.0);
+                // final angle at the end of circle
+                double ang_end = ang0 + omega * circle_dur;
+                double r = (1.0 - s) * R; // shrink radius to zero
+                x = r * qCos(ang_end);
+                y = r * qSin(ang_end);
+                z = -1.0;
+                // radial inward velocity
+                double vx = - (R / qMax(ramp_dur, 1e-6)) * qCos(ang_end);
+                double vy = - (R / qMax(ramp_dur, 1e-6)) * qSin(ang_end);
+                yaw = std::atan2(vy, vx);
+            }
+            else {
+                // Landing: vertical from (0,0,-1) back to (0,0,0)
+                double s = qBound(0.0, (tseq - (takeoff_dur + ramp_dur + circle_dur + ramp_dur)) / landing_dur, 1.0);
+                x = 0.0; y = 0.0; z = -1.0 + s * 1.0; // climb to ground (0)
+                // Keep yaw as the last tangent direction
+                double ang_last = ang0 + omega * circle_dur;
+                yaw = ang_last + M_PI_2;
+            }
+
+            // Compose quaternion that represents yaw-only orientation (no roll/pitch)
+            double cy = std::cos(yaw * 0.5);
+            double sy = std::sin(yaw * 0.5);
+            optitrack_message_t msg;
+            msg.id = id;
+            msg.trackingValid = true;
+            msg.x = x;
+            msg.y = y;
+            msg.z = z;
+            msg.qw = cy;
+            msg.qx = 0.0;
+            msg.qy = 0.0;
+            msg.qz = sy;
+
+            QVector<optitrack_message_t> batch{msg};
+            emit update(batch, mocap_rotation::NONE); // already in desired frame
+        }
+
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+    }
+}
+void mocap_thread::get_settings(mocap_settings* settings_out_)
+{
+    mutex->lock();
+    memcpy(settings_out_, &mocap_settings_, sizeof(mocap_settings_));
+    mutex->unlock();
+}
+
+bool mocap_thread::start(mocap_settings* mocap_new_settings)
+{
+    if (optitrack == NULL) optitrack = new mocap_optitrack();
+    else
+    {
+        delete optitrack;
+        optitrack = new mocap_optitrack();
+    }
+
+    QNetworkInterface interface;
+
+    if (!optitrack->get_network_interface(interface, mocap_new_settings->host_address)) // guess ip address if provided invalid ip
+    {
+        if (!optitrack->guess_optitrack_network_interface(interface)) return false;
+    }
+
+    // debug output to help track what interface and addresses are being used
+    // debug output to help track what interface and addresses are being used
+    qDebug() << "[mocap_thread::start] requested host_address=" << mocap_new_settings->host_address
+             << " local_address=" << mocap_new_settings->local_address
+             << " local_port=" << mocap_new_settings->local_port
+             << " multicast=" << mocap_new_settings->multicast_address;
+    qDebug() << "[mocap_thread::start] selected interface name=" << interface.name()
+             << " flags=" << interface.flags()
+             << " hwaddr=" << interface.hardwareAddress();
+    // print all addresses assigned to this iface
+    foreach (const QNetworkAddressEntry &entry, interface.addressEntries()) {
+        qDebug() << "    iface entry:" << entry.ip().toString() << entry.netmask().toString();
+    }
+
+    if (!optitrack->create_optitrack_data_socket(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
+
+    update_settings(mocap_new_settings);
+    generic_thread::start(generic_thread_settings_.priority);
+    return true;
+}
+
+void mocap_thread::run()
+{
+ // #define FAKE_DATA
+    while (!(QThread::currentThread()->isInterruptionRequested()))
+    {
+        bool processed_any = false;
+        // Drain as many complete frames as are available to keep latency low
+        do {
+            QVector<optitrack_message_t> msgs_;
+            if (optitrack->read_message(msgs_))
+            {
+                // mark that at least one packet has arrived
+                has_received_data_ = true;
+
+                mutex->lock();
+                mocap_rotation data_rotation = mocap_settings_.data_rotation;
+                mutex->unlock();
+                emit update(msgs_, data_rotation);
+                processed_any = true;
+            } else {
+                processed_any = false;
+            }
+        } while (processed_any && !QThread::currentThread()->isInterruptionRequested());
+
+        // Only sleep when we didn't process data; otherwise loop immediately to drain backlog
+        if (!processed_any) {
+            sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+        }
+    }
+
+    optitrack->deleteLater();
+    optitrack = nullptr;
+}
+
+
+mocap_relay_thread::mocap_relay_thread(QObject *parent, generic_thread_settings *new_settings, mocap_relay_settings *relay_settings_, mocap_data_aggegator** mocap_data_ptr_)
+    : generic_thread(parent, new_settings)
+{
+    relay_settings = new mocap_relay_settings();
+    update_settings(relay_settings_);
+    if (*(mocap_data_ptr_) != NULL)
+    {
+        mocap_data_ptr = mocap_data_ptr_;
+        previous_data.time_ms = 0;
+        generic_thread::start(generic_thread_settings_.priority);        
+    }
+
+}
+
+mocap_relay_thread::~mocap_relay_thread()
+{
+    delete relay_settings;
+    mocap_data_ptr = nullptr;
+}
+
+void mocap_relay_thread::update_settings(mocap_relay_settings* relay_new_settings)
+{
+    mutex->lock();
+    *relay_settings = *relay_new_settings;
+    mutex->unlock();
+}
+void mocap_relay_thread::get_settings(mocap_relay_settings* settings_out_)
+{
+    mutex->lock();
+    *settings_out_ = *relay_settings;
+    mutex->unlock();
+}
+
+void mocap_relay_thread::run()
+{
+    while (*(mocap_data_ptr) != NULL && !(QThread::currentThread()->isInterruptionRequested()))
+    {
+        // Keep processing frames as long as they are available
+        bool frame_processed = false;
+        do {
+            mocap_data_t data;
+            if (!(*mocap_data_ptr)->get_frame(relay_settings->frameid, data)) {
+                frame_processed = false; // No more frames available
+                break;
+            }
+
+            if (data.trackingValid && !data.equals(previous_data))
+            {
+                QByteArray pending_data = pack_most_recent_msg(data);
+                if (pending_data.isEmpty()) {
+                    frame_processed = false; // Error condition
+                    break;
+                }
+
+                emit write_to_port(pending_data);
+                previous_data = data;
+                frame_processed = true; // Continue processing more frames
+            } else {
+                frame_processed = false; // Frame not valid or same as previous
+            }
+        } while (frame_processed && *(mocap_data_ptr) != NULL && !(QThread::currentThread()->isInterruptionRequested()));
+
+        // Only sleep when no frames are available to process
+        if (!frame_processed) {
+            sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+        }
+    }
+}
+
+QByteArray mocap_relay_thread::pack_most_recent_msg(mocap_data_t data)
+{    
+    mavlink_message_t msg;
+
+    switch (relay_settings->msg_option) {
+    case mocap_relay_settings::mavlink_odometry:
+    {
+        mavlink_odometry_t odo{};
+        odo.time_usec = data.time_ms*1E3;
+        odo.x = data.x;
+        odo.y = data.y;
+        odo.z = data.z;
+        odo.q[0] = data.qw;
+        odo.q[1] = data.qx;
+        odo.q[2] = data.qy;
+        odo.q[3] = data.qz;
+        odo.frame_id = data.id;
+        if (data.trackingValid) odo.quality = 100;
+        else odo.quality = -1;
+
+        mavlink_msg_odometry_encode(relay_settings->sysid, relay_settings->compid, &msg, &odo);
+        break;
+    }
+    case mocap_relay_settings::mavlink_vision_position_estimate:
+    {
+        mavlink_vision_position_estimate_t vpe{};
+        vpe.usec = data.time_ms*1E3;
+        vpe.x = data.x;
+        vpe.y = data.y;
+        vpe.z = data.z;
+        vpe.roll = data.roll;
+        vpe.pitch = data.pitch;
+        vpe.yaw = data.yaw;
+
+        mavlink_msg_vision_position_estimate_encode(relay_settings->sysid, relay_settings->compid, &msg, &vpe);
+        break;
+    }}
+
+    // Use a larger buffer to prevent overflow (MAVLINK_MAX_PACKET_LEN is typically 280)
+    char buf[MAVLINK_MAX_PACKET_LEN] = {0};
+    unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, &msg);
+
+    // Safety check - ensure we don't exceed buffer size
+    if (len > MAVLINK_MAX_PACKET_LEN) {
+        qWarning() << "MAVLink message too large:" << len << "bytes, truncating";
+        len = MAVLINK_MAX_PACKET_LEN;
+    }
+
+    QByteArray data_out(buf, len);
+    return data_out;
+}
+
+
+
+mocap_data_inspector_thread::mocap_data_inspector_thread(QObject* parent, generic_thread_settings *new_settings)
+    : generic_thread(parent, new_settings)
+{
+    start(generic_thread_settings_.priority);
+}
+
+mocap_data_inspector_thread::~mocap_data_inspector_thread()
+{
+
+}
+
+void mocap_data_inspector_thread::new_data_available(void)
+{
+    mutex->lock();
+    new_data_available_ = true;
+    mutex->unlock();
+}
+
+void mocap_data_inspector_thread::reset(void)
+{
+    mutex->lock();
+    new_data_available_ = false;
+    mutex->unlock();
+}
+
+void mocap_data_inspector_thread::run()
+{
+    while (!(QThread::currentThread()->isInterruptionRequested()))
+    {
+        mutex->lock();
+        //check if new data is available (may not be the case if this thread is faster)
+        if (new_data_available_) emit time_to_update();
+        new_data_available_ = false;
+        mutex->unlock();
+        sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
+    }
+}
+
+
+mocap_manager::mocap_manager(QWidget *parent)
+    : QWidget(parent)
+    , ui(new Ui::mocap_manager)
+{
+    ui->setupUi(this);
+    setWindowFlags(Qt::Window);
+    setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
+    setWindowTitle("Motion Capture Manager");
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
+
+    // Make display fields non-interactive and set minimum widths
+    QStringList displayFields = {"fld_time", "fld_freq", "fld_x", "fld_y", "fld_z", "fld_qx", "fld_qy", "fld_qz", "fld_qw", "fld_roll", "fld_pitch", "fld_yaw"};
+    QFontMetrics fm(font());
+    int minWidth = fm.horizontalAdvance("-000.000000") + 20; // Padding for negative numbers and decimals
+    for (const QString& name : displayFields) {
+        if (auto field = findChild<QLineEdit*>(name)) {
+            field->setFocusPolicy(Qt::NoFocus);
+            field->setReadOnly(true);
+            field->setMinimumWidth(minWidth);
+        }
+    }
+
+    // Set minimum window size to accommodate content
+    setMinimumSize(900, 700);
+
+    // mutex = new QMutex;
+    mocap_data = new mocap_data_aggegator(this);
+
+    // Connect frame IDs updates to relay combo box
+    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_relay_mocap_frame_ids, Qt::QueuedConnection);
+
+    // Start fake mocap node (disabled by default; can be toggled later via settings)
+    {
+        generic_thread_settings fake_thr_set;
+        fake_thr_set.update_rate_hz = 60; // smooth circle
+        fake_thr_set.priority = QThread::NormalPriority;
+        fake_mocap_thread_ = new fake_mocap_thread(this, &fake_thr_set);
+        fake_mocap_thread_->update_settings(fake_settings_);
+        connect(fake_mocap_thread_, &fake_mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
+    }
+
+    ui->cmbx_host_address->setEditable(true);
+    ui->cmbx_local_address->setEditable(true);
+    ui->cmbx_local_port->setEditable(true);
+    ui->cmbx_multicast_address->setEditable(true);
+
+    ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+    ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+    ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+
+    ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS, "224.0.0.1"}));
+
+    ui->cmbx_local_port->setValidator(new QIntValidator(0, 65535));
+    ui->cmbx_local_port->addItems(QStringList(\
+        {QString::number(PORT_DATA),\
+        QString::number(PORT_COMMAND)}));
+    ui->cmbx_local_port->setCurrentIndex(0);
+
+    ui->cmbx_connection_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_connection_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
+    ui->txt_connection_read_rate->setValidator( new QIntValidator(1, 10000000, this) );
+
+    QStringList def_rotations = {\
+                                "NONE",\
+                                "Y-UP to NED",\
+                                "Z-UP to NED"
+    };
+    ui->cmbx_connection_rotation->addItems(def_rotations);
+    ui->cmbx_connection_rotation->setCurrentIndex(0);
+    // End of Open Data Socket Pannel //
+
+
+    // Start of MOCAP Data Inspector Pannel //
+    ui->cmbx_refresh_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_refresh_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::NormalPriority));
+    ui->txt_refresh_rate->setValidator( new QIntValidator(1, 120, this) );
+
+    ui->groupBox_not_active->setEnabled(true);
+    ui->groupBox_active->setEnabled(false);
+    auto applyGroupDimming = [this]() {
+        auto setDim = [](QWidget* w, bool dim) {
+            if (!w) return;
+            QGraphicsOpacityEffect* eff = qobject_cast<QGraphicsOpacityEffect*>(w->graphicsEffect());
+            if (!eff) { eff = new QGraphicsOpacityEffect(w); w->setGraphicsEffect(eff); }
+            eff->setOpacity(dim ? 0.4 : 1.0);
+        };
+        setDim(ui->groupBox_not_active, !ui->groupBox_not_active->isEnabled());
+        setDim(ui->groupBox_active, !ui->groupBox_active->isEnabled());
+    };
+    applyGroupDimming();
+    // Store for reuse
+    connect(ui->groupBox_not_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
+    connect(ui->groupBox_active, &QGroupBox::toggled, this, [applyGroupDimming](bool){ applyGroupDimming(); });
+    // End of MOCAP Data Inspector Pannel //
+    // Mocap inspector tree is now defined in the UI file
+    if (ui->tree_mocap_detail) {
+        mocapTree_ = ui->tree_mocap_detail;
+        mocapTree_->header()->setStretchLastSection(true);
+        mocapTree_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        mocapTree_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        mocapTree_->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        mocapTree_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        // Ensure column 0 (Name) never shrinks below its header text width
+        QFontMetrics fm(mocapTree_->font());
+        int headerMin = fm.horizontalAdvance(mocapTree_->headerItem()->text(0)) + 24; // padding
+        mocapTree_->header()->setMinimumSectionSize(headerMin);
+        mocapTree_->setColumnWidth(0, headerMin);
+    }
+
+    // Ensure scroll area resizes properly
+    if (auto scroll = findChild<QScrollArea*>("scrollArea")) {
+        scroll->setWidgetResizable(true);
+    }
+
+    // Keep mocap inspector checkboxes in sync with Plotting Manager deletions
+    auto* reg = &PlotSignalRegistry::instance();
+    connect(reg, &PlotSignalRegistry::signalsChanged, this, &mocap_manager::onRegistrySignalsChanged);
+
+    // Always append samples for tagged mocap signals in the background,
+    // regardless of whether the inspector view is visible
+    connect(mocap_data, &mocap_data_aggegator::frames_updated,
+        this, &mocap_manager::onFramesUpdatedBackground,
+        Qt::QueuedConnection);
+
+    // Start of MOCAP Relay Pannel //
+    ui->cmbx_relay_priority->addItems(default_ui_config::Priority::keys);
+    ui->cmbx_relay_priority->setCurrentIndex(default_ui_config::Priority::index(default_ui_config::Priority::TimeCriticalPriority));
+    ui->txt_relay_update_rate_hz->setValidator( new QIntValidator(1, 120, this) );
+    ui->cmbx_relay_msg_type->addItems(enum_helpers::get_all_keys_list<mocap_relay_settings::mocap_relay_msg_opt>());
+    ui->cmbx_relay_msg_type->setCurrentIndex(static_cast<int>(mocap_relay_settings::mocap_relay_msg_opt::mavlink_vision_position_estimate));
+
+    ui->btn_relay_delete->setVisible(false);
+    ui->btn_relay_add->setVisible(false);
+
+    ui->tableWidget_mocap_relay->setColumnCount(7);
+    ui->tableWidget_mocap_relay->setSortingEnabled(false);
+    ui->tableWidget_mocap_relay->setSelectionBehavior(QTableWidget::SelectionBehavior::SelectRows);
+    { //frameid
+        QTableWidgetItem *newItem = new QTableWidgetItem("Frame ID");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(0, newItem);
+    }
+    { //sysid
+        QTableWidgetItem *newItem = new QTableWidgetItem("System ID");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(1, newItem);
+    }
+    { //compid
+        QTableWidgetItem *newItem = new QTableWidgetItem("Component ID");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(2, newItem);
+    }
+    { //msg type
+        QTableWidgetItem *newItem = new QTableWidgetItem("Message Type");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(3, newItem);
+    }
+    { //port name
+        QTableWidgetItem *newItem = new QTableWidgetItem("Port");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(4, newItem);
+    }
+    { //rate
+        QTableWidgetItem *newItem = new QTableWidgetItem("Rate (Hz)");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(5, newItem);
+    }
+    { //priority
+        QTableWidgetItem *newItem = new QTableWidgetItem("Priority");
+        ui->tableWidget_mocap_relay->setHorizontalHeaderItem(6, newItem);
+    }
+    // End of MOCAP Relay Pannel //
+
+    // Periodic queue metrics updater: keeps Bytes/Frames/FrameAge plots live independently
+    mocapQueueTimer_ = new QTimer(this);
+    connect(mocapQueueTimer_, &QTimer::timeout, this, &mocap_manager::handleQueueMetricsTick);
+    updateQueueTimerFromUi();
+
+    // Load persisted settings/state for mocap manager
+    {
+        QSettings s;
+        s.beginGroup("mocap_manager");
+        // Restore window geometry/state
+        if (s.contains("geometry")) this->restoreGeometry(s.value("geometry").toByteArray());
+        const bool wasMax = s.value("window/maximized", false).toBool();
+        if (wasMax) this->setWindowState(Qt::WindowMaximized);
+
+        // Connection pane
+        ui->btn_connection_ipv6->setChecked(true); // IPv4 label is on ipv6 btn
+        const bool use_ipv6 = s.value("connection/use_ipv6", false).toBool();
+        ui->btn_connection_ipv6->setChecked(!use_ipv6);
+        ui->btn_connection_ipv4->setChecked(use_ipv6);
+        ui->cmbx_multicast_address->setCurrentText(s.value("connection/multicast_address", ui->cmbx_multicast_address->currentText()).toString());
+        ui->cmbx_host_address->setCurrentText(s.value("connection/host_address", ui->cmbx_host_address->currentText()).toString());
+        ui->cmbx_local_address->setCurrentText(s.value("connection/local_address", ui->cmbx_local_address->currentText()).toString());
+        ui->cmbx_local_port->setCurrentText(s.value("connection/local_port", ui->cmbx_local_port->currentText()).toString());
+        ui->cmbx_connection_rotation->setCurrentIndex(s.value("connection/rotation_index", ui->cmbx_connection_rotation->currentIndex()).toInt());
+        ui->cmbx_connection_priority->setCurrentIndex(s.value("connection/priority_index", ui->cmbx_connection_priority->currentIndex()).toInt());
+        ui->txt_connection_read_rate->setText(s.value("connection/read_rate_hz", ui->txt_connection_read_rate->text()).toString());
+
+        // Inspector settings
+        ui->cmbx_refresh_priority->setCurrentIndex(s.value("inspector/priority_index", ui->cmbx_refresh_priority->currentIndex()).toInt());
+        ui->txt_refresh_rate->setText(s.value("inspector/refresh_rate_hz", ui->txt_refresh_rate->text()).toString());
+        updateQueueTimerFromUi();
+
+        // Fake mocap settings
+        fake_settings_.enabled = s.value("fake/enabled", fake_settings_.enabled).toBool();
+        fake_settings_.period_s = s.value("fake/period_s", fake_settings_.period_s).toDouble();
+        fake_settings_.radius_m = s.value("fake/radius_m", fake_settings_.radius_m).toDouble();
+        fake_settings_.frame_id = s.value("fake/frame_id", fake_settings_.frame_id).toInt();
+        if (fake_mocap_thread_) fake_mocap_thread_->update_settings(fake_settings_);
+
+        // Relays list
+        const int relayCount = s.value("relay/count", 0).toInt();
+        for (int i = 0; i < relayCount; ++i) {
+            s.beginGroup(QString("relay/%1").arg(i));
+            mocap_relay_settings rs;
+            rs.frameid = s.value("frameid", -1).toInt();
+            rs.Port_Name = s.value("Port_Name", "").toString();
+            rs.msg_option = static_cast<mocap_relay_settings::mocap_relay_msg_opt>(s.value("msg_option", static_cast<int>(rs.msg_option)).toInt());
+            rs.sysid = static_cast<uint8_t>(s.value("sysid", 0).toInt());
+            rs.compid = static_cast<mavlink_enums::mavlink_component_id>(s.value("compid", static_cast<int>(rs.compid)).toInt());
+            rs.update_rate_hz = s.value("update_rate_hz", rs.update_rate_hz).toUInt();
+            rs.priority = s.value("priority", rs.priority).toInt();
+            s.endGroup();
+            if (rs.frameid >= 0 && !rs.Port_Name.isEmpty()) {
+                // Create relay thread
+                generic_thread_settings thr;
+                thr.update_rate_hz = rs.update_rate_hz;
+                thr.priority = static_cast<QThread::Priority>(rs.priority);
+                mocap_relay_thread* r = new mocap_relay_thread(this, &thr, &rs, &mocap_data);
+                QThread::msleep(50);
+                if (r && r->isRunning()) {
+                    Generic_Port* port_pointer = nullptr;
+                    if (emit get_port_pointer(rs.Port_Name, &port_pointer)) {
+                        connect(r, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port, Qt::QueuedConnection);
+                    }
+                    mocap_relay.push_back(r);
+                } else if (r) {
+                    r->terminate(); delete r;
+                }
+            }
+        }
+        repopulate_relay_table();
+
+        // Ensure address lists match the selected IP family
+        on_btn_connection_local_update_clicked();
+
+        // Reopen connection if previously active (silent)
+        const bool reopen = s.value("connection/was_open", false).toBool();
+        const bool wasVisible = s.value("window/visible", false).toBool();
+        if (reopen) {
+            startConnectionFromUi(true);
+            if (wasVisible) this->show();
+        }
+
+        s.endGroup();
+    }
+}
+
+mocap_manager::~mocap_manager()
+{
+    remove_all(false);
+    emit closed();
+    delete ui;
+    delete mocap_data;
+}
+
+void mocap_manager::closeEvent(QCloseEvent *event)
+{
+    // Persist current settings/state
+    {
+        QSettings s;
+        s.beginGroup("mocap_manager");
+        s.setValue("geometry", saveGeometry());
+        s.setValue("window/maximized", isMaximized());
+        s.setValue("window/visible", isVisible());
+        // Connection pane
+        const bool use_ipv6 = ui->btn_connection_ipv4->isChecked();
+        s.setValue("connection/use_ipv6", use_ipv6);
+        s.setValue("connection/multicast_address", ui->cmbx_multicast_address->currentText());
+        s.setValue("connection/host_address", ui->cmbx_host_address->currentText());
+        s.setValue("connection/local_address", ui->cmbx_local_address->currentText());
+        s.setValue("connection/local_port", ui->cmbx_local_port->currentText());
+        s.setValue("connection/rotation_index", ui->cmbx_connection_rotation->currentIndex());
+        s.setValue("connection/priority_index", ui->cmbx_connection_priority->currentIndex());
+        s.setValue("connection/read_rate_hz", ui->txt_connection_read_rate->text());
+        s.setValue("connection/was_open", mocap_thread_ && mocap_thread_->isRunning());
+        // Inspector
+        s.setValue("inspector/priority_index", ui->cmbx_refresh_priority->currentIndex());
+        s.setValue("inspector/refresh_rate_hz", ui->txt_refresh_rate->text());
+        // Fake mocap
+        s.setValue("fake/enabled", fake_settings_.enabled);
+        s.setValue("fake/period_s", fake_settings_.period_s);
+        s.setValue("fake/radius_m", fake_settings_.radius_m);
+        s.setValue("fake/frame_id", fake_settings_.frame_id);
+        // Relays list
+        s.setValue("relay/count", mocap_relay.size());
+        for (int i = 0; i < mocap_relay.size(); ++i) {
+            mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
+            s.beginGroup(QString("relay/%1").arg(i));
+            s.setValue("frameid", rs.frameid);
+            s.setValue("Port_Name", rs.Port_Name);
+            s.setValue("msg_option", static_cast<int>(rs.msg_option));
+            s.setValue("sysid", rs.sysid);
+            s.setValue("compid", static_cast<int>(rs.compid));
+            s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
+            s.setValue("priority", static_cast<int>(rs.priority));
+            s.endGroup();
+        }
+        s.endGroup();
+    }
+
+    // Hide the window instead of closing it
+    hide();
+    emit windowHidden();
+    event->accept();
+}
+
+void mocap_manager::showEvent(QShowEvent *event)
+{
+    // Check if mocap thread is running and update UI state accordingly
+    if (mocap_thread_ != nullptr && mocap_thread_->isRunning())
+    {
+        // Mocap is active
+        ui->groupBox_not_active->setEnabled(false);
+        ui->groupBox_active->setEnabled(true);
+        if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+        if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+        // dimming refresh
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(0.4);
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(1.0);
+    }
+    else
+    {
+        // Mocap is not active
+        ui->groupBox_not_active->setEnabled(true);
+        ui->groupBox_active->setEnabled(false);
+        if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+        if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+        // dimming refresh
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(1.0);
+        if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(0.4);
+    }
+    // Persist visibility state on show
+    {
+        QSettings s; s.beginGroup("mocap_manager");
+        s.setValue("window/visible", true);
+        s.endGroup();
+    }
+    QWidget::showEvent(event);
+}
+
+void mocap_manager::remove_all(bool remove_settings)
+{
+    // stop fake first
+    if (fake_mocap_thread_)
+    {
+        if (!fake_mocap_thread_->isFinished())
+        {
+            fake_mocap_thread_->requestInterruption();
+            for (int ii = 0; ii < 300; ++ii)
+            {
+                if (!fake_mocap_thread_->isRunning() && fake_mocap_thread_->isFinished()) break;
+                if (ii == 299) fake_mocap_thread_->terminate();
+                QThread::msleep(10);
+            }
+        }
+        fake_mocap_thread_ = nullptr;
+    }
+    terminate_mocap_relay_thread();
+    terminate_visuals_thread();
+    terminate_mocap_processing_thread();
+}
+
+void mocap_manager::on_btn_open_data_socket_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(1);
+    ui->cmbx_local_port->clear();
+    ui->cmbx_local_port->addItems(QStringList(\
+        {QString::number(PORT_DATA),\
+         QString::number(PORT_COMMAND)}));
+    ui->cmbx_local_port->setCurrentIndex(0);
+    on_btn_connection_local_update_clicked();
+    // ensure dimming reflects current enabled state
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(ui->groupBox_not_active->isEnabled()?1.0:0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(ui->groupBox_active->isEnabled()?1.0:0.4);
+}
+
+
+void mocap_manager::on_btn_connection_local_update_clicked()
+{
+    ui->cmbx_multicast_address->clear();
+    ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS, "224.0.0.1"}));
+    ui->cmbx_host_address->clear();
+    ui->cmbx_local_address->clear();
+
+    if (ui->btn_connection_ipv4->isChecked() == 0)
+    {
+        ui->cmbx_multicast_address->setCurrentText(MULTICAST_ADDRESS);
+        const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHost);
+        const QHostAddress &anyhost = QHostAddress(QHostAddress::Any);
+        ui->cmbx_host_address->addItem(localhost.toString());
+        ui->cmbx_local_address->addItem(anyhost.toString());
+        for (const QHostAddress &address: QNetworkInterface::allAddresses())
+        {
+            if (address.protocol() == QAbstractSocket::IPv4Protocol && address != localhost)
+            {
+                ui->cmbx_host_address->addItem(address.toString());
+            }
+            if (address.protocol() == QAbstractSocket::IPv4Protocol && address != anyhost)
+            {
+                ui->cmbx_local_address->addItem(address.toString());
+            }
+        }
+    }
+    else
+    {
+        ui->cmbx_multicast_address->clear();
+        ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS_6, "0:0:0:0:0:FFFF:E000:0001"}));
+        ui->cmbx_multicast_address->setCurrentText(MULTICAST_ADDRESS_6);
+        const QHostAddress &localhost = QHostAddress(QHostAddress::LocalHostIPv6);
+        const QHostAddress &anyhost = QHostAddress(QHostAddress::AnyIPv6);
+        ui->cmbx_host_address->addItem(localhost.toString());
+        ui->cmbx_local_address->addItem(anyhost.toString());
+        for (const QHostAddress &address: QNetworkInterface::allAddresses())
+        {
+            if (address.protocol() == QAbstractSocket::IPv6Protocol && address != localhost)
+            {
+                ui->cmbx_host_address->addItem(address.toString());
+            }
+            if (address.protocol() == QAbstractSocket::IPv6Protocol && address != anyhost)
+            {
+                ui->cmbx_local_address->addItem(address.toString());
+            }
+        }
+    }
+
+    ui->cmbx_local_address->setCurrentIndex(0);
+}
+
+void mocap_manager::on_btn_connection_go_back_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(ui->groupBox_not_active->isEnabled()?1.0:0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(ui->groupBox_active->isEnabled()?1.0:0.4);
+}
+
+
+void mocap_manager::on_btn_connection_confirm_clicked()
+{
+    startConnectionFromUi(false);
+}
+
+bool mocap_manager::startConnectionFromUi(bool silent)
+{
+    generic_thread_settings thread_settings_;
+    thread_settings_.update_rate_hz = ui->txt_connection_read_rate->text().toUInt();
+    default_ui_config::Priority::key2value(ui->cmbx_connection_priority->currentText(),thread_settings_.priority);
+
+    mocap_settings udp_settings_;
+    QString rotation_type = ui->cmbx_connection_rotation->currentText();
+    if (rotation_type.compare("NONE") == 0) udp_settings_.data_rotation =  NONE;
+    else if (rotation_type.compare("Y-UP to NED") == 0) udp_settings_.data_rotation =  YUP2NED;
+    else if (rotation_type.compare("Z-UP to NED") == 0) udp_settings_.data_rotation =  ZUP2NED;
+
+    udp_settings_.multicast_address = ui->cmbx_multicast_address->currentText();
+    udp_settings_.host_address = (ui->cmbx_host_address->currentText());
+
+    udp_settings_.local_address = (ui->cmbx_local_address->currentText());
+    udp_settings_.local_port = ui->cmbx_local_port->currentText().toUInt();
+
+    on_btn_terminate_all_clicked();
+
+    mocap_thread_ = new mocap_thread(nullptr, &thread_settings_, &udp_settings_);
+
+    QThread::msleep(50);
+    if (!mocap_thread_->isRunning())
+    {
+        if (!silent) {
+            (new QErrorMessage)->showMessage("Error: mocap processing thread is not responding\n");
+        }
+        mocap_thread_->terminate();
+        delete mocap_thread_;
+        mocap_thread_ = NULL;
+        return false;
+    }
+    else
+    {
+        if (!silent) {
+            // build detailed text including interface info and simple data check
+            QString detail = udp_settings_.get_QString() + thread_settings_.get_QString();
+            // interface name for information
+            // figure out which interface the thread chose; replicate the
+            // same logic used by mocap_thread::start without poking private
+            // members.
+            QNetworkInterface iface;
+            mocap_optitrack tmp;
+            if (!udp_settings_.host_address.isEmpty()) {
+                tmp.get_network_interface(iface, udp_settings_.host_address);
+            }
+            if (iface.name().isEmpty()) {
+                tmp.guess_optitrack_network_interface(iface);
+            }
+            if (!iface.name().isEmpty())
+                detail += QString("\nInterface used: %1").arg(iface.name());
+
+            // give the socket a moment to collect data and then look at backlog
+            int pending=0, frames=0;
+            mocap_thread_->get_backlog(pending, frames);
+            // QThread::msleep(500);
+            // mocap_thread_->get_backlog(pending, frames);
+
+            // build an optional warning string that will be shown prominently
+            QString warningText;
+            if (frames == 0) {
+                warningText = "<b>WARNING:</b><br>";
+                // clearly explain the situation before giving the fix command
+                warningText += "No mocap packets have been received yet. ";
+                warningText += "If you have not yet started streaming data, this is expected. ";
+                warningText += "If you did and all settings are correct (check details), ";
+                warningText += "then this usually means the UDP port is blocked by a local firewall.";
+#if defined(Q_OS_WIN)
+                warningText += "<br>Make sure port " + QString::number(udp_settings_.local_port)
+                               + " is allowed in your firewall.";
+                warningText += "<br>(use Windows Defender &gt; Advanced &gt; Inbound Rules.)";
+#else
+                warningText += "<br>Allow the port with the following command:";
+                warningText += "<br><a href=\"copy\" style=\"font-family:monospace;\">sudo ufw allow proto udp to any port "
+                               + QString::number(udp_settings_.local_port)
+                               + "</a>";
+#endif
+            }
+
+            QMessageBox msgBox;
+            msgBox.setTextFormat(Qt::RichText);
+            msgBox.setText("Successfully Started MOCAP UDP Communication!");
+            if (!warningText.isEmpty()) {
+                msgBox.setInformativeText(warningText);
+                msgBox.setIcon(QMessageBox::Warning);
+#ifndef Q_OS_WIN
+                // make all labels in the informative area support links and copy when activated
+                for (QLabel *lbl : msgBox.findChildren<QLabel*>()) {
+                    lbl->setTextInteractionFlags(Qt::TextBrowserInteraction);
+                    lbl->setOpenExternalLinks(false);
+                    QObject::connect(lbl, &QLabel::linkActivated, [=](const QString &link){
+                        if (link == "copy") {
+                            QClipboard *clip = QApplication::clipboard();
+                            clip->setText(QString("sudo ufw allow proto udp to any port %1").arg(udp_settings_.local_port));
+                        }
+                    });
+                }
+#endif
+            }
+            msgBox.setDetailedText(detail);
+            // make dialog a bit wider so inline clipboard icon doesn't wrap
+            msgBox.setMinimumSize(600, msgBox.minimumSizeHint().height());
+            msgBox.resize(600, msgBox.sizeHint().height());
+
+            // if we haven't seen any data yet, update dialog when first frame arrives
+            if (!mocap_thread_->hasReceivedData()) {
+                QMetaObject::Connection conn;
+                conn = QObject::connect(mocap_thread_, &mocap_thread::update,
+                    &msgBox, [&](QVector<optitrack_message_t>, mocap_rotation) mutable {
+                        // got first packet, flip to success state
+                        msgBox.setIcon(QMessageBox::Information);
+                        msgBox.setText("Successfully received frames from mocap.");
+                        msgBox.setInformativeText("");
+                    }, Qt::QueuedConnection);
+                // ensure we disconnect when the dialog goes away
+                QObject::connect(&msgBox, &QDialog::finished, &msgBox, [conn](int){
+                    QObject::disconnect(conn);
+                });
+            }
+
+            // always include an Ok button so user can dismiss explicitly
+            msgBox.setStandardButtons(QMessageBox::Ok);
+
+            msgBox.exec();
+        }
+    ui->groupBox_not_active->setEnabled(false);
+    ui->groupBox_active->setEnabled(true);
+    if (ui->groupBox_not_active->graphicsEffect()) ui->groupBox_not_active->graphicsEffect()->setEnabled(true);
+    if (ui->groupBox_active->graphicsEffect()) ui->groupBox_active->graphicsEffect()->setEnabled(true);
+    // dimming refresh
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(0.4);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(1.0);
+        connect(mocap_thread_, &mocap_thread::update, mocap_data, &mocap_data_aggegator::update, Qt::DirectConnection);
+    }
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(0);
+
+    // Persist connection/inspector settings snapshot
+    QSettings s; s.beginGroup("mocap_manager");
+    s.setValue("connection/use_ipv6", ui->btn_connection_ipv4->isChecked());
+    s.setValue("connection/multicast_address", ui->cmbx_multicast_address->currentText());
+    s.setValue("connection/host_address", ui->cmbx_host_address->currentText());
+    s.setValue("connection/local_address", ui->cmbx_local_address->currentText());
+    s.setValue("connection/local_port", ui->cmbx_local_port->currentText());
+    s.setValue("connection/rotation_index", ui->cmbx_connection_rotation->currentIndex());
+    s.setValue("connection/priority_index", ui->cmbx_connection_priority->currentIndex());
+    s.setValue("connection/read_rate_hz", ui->txt_connection_read_rate->text());
+    s.setValue("connection/was_open", mocap_thread_ && mocap_thread_->isRunning());
+    s.endGroup();
+
+    return mocap_thread_ && mocap_thread_->isRunning();
+}
+
+
+void mocap_manager::on_btn_connection_ipv6_toggled(bool checked)
+{
+    if (!checked)
+    {
+        ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
+        ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
+        ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv6,this));
+    }
+    else
+    {
+        ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+        ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+        ui->cmbx_multicast_address->setValidator(new QRegularExpressionValidator(regexp_IPv4,this));
+    }
+    on_btn_connection_local_update_clicked();
+}
+
+void mocap_manager::terminate_visuals_thread(void)
+{
+    if (mocap_data_inspector_thread_ != NULL)
+    {
+        if (!mocap_data_inspector_thread_->isFinished())
+        {
+            mocap_data_inspector_thread_->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
+            {
+                if (!mocap_data_inspector_thread_->isRunning() && mocap_data_inspector_thread_->isFinished())
+                {
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap data inspector thread, manually terminating...\n");
+                    mocap_data_inspector_thread_->terminate();
+                }
+
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
+        }
+        mocap_data_inspector_thread_ = nullptr;
+    }
+}
+void mocap_manager::terminate_mocap_processing_thread(void)
+{
+    if (mocap_thread_ != NULL)
+    {
+        if (!(mocap_thread_)->isFinished())
+        {
+            (mocap_thread_)->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
+            {
+                if (!(mocap_thread_)->isRunning() && (mocap_thread_)->isFinished())
+                {
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap processing thread, manually terminating...\n");
+                    (mocap_thread_)->terminate();
+                }
+
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
+        }
+        (mocap_thread_) = nullptr;
+    }
+}
+
+void mocap_manager::on_btn_terminate_all_clicked()
+{
+    terminate_mocap_relay_thread();
+    terminate_visuals_thread();
+    terminate_mocap_processing_thread();
+
+    ui->groupBox_not_active->setEnabled(true);
+    ui->groupBox_active->setEnabled(false);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_not_active->graphicsEffect())) eff->setOpacity(1.0);
+    if (auto eff = qobject_cast<QGraphicsOpacityEffect*>(ui->groupBox_active->graphicsEffect())) eff->setOpacity(0.4);
+
+    // Persist that connection is closed
+    QSettings s; s.beginGroup("mocap_manager");
+    s.setValue("connection/was_open", false);
+    s.endGroup();
+}
+
+
+void mocap_manager::on_btn_mocap_data_inspector_clicked()
+{
+    //first, let's start the inspector thread:
+    generic_thread_settings thread_settings_;
+    thread_settings_.priority = QThread::NormalPriority;
+    thread_settings_.update_rate_hz = 30;
+    ui->cmbx_refresh_priority->setCurrentIndex(6);
+    ui->txt_refresh_rate->setText("30");
+    ui->btn_refresh_clear->click(); //reset display
+
+    terminate_visuals_thread();
+
+    mocap_data_inspector_thread_ = new mocap_data_inspector_thread(this, &thread_settings_);
+    QThread::msleep(100); // Reduced from 500ms to 100ms
+    if (!mocap_data_inspector_thread_->isRunning())
+    {
+        (new QErrorMessage)->showMessage("Error: MOCAP data inspector thread is not responding\n");
+        mocap_data_inspector_thread_->terminate();
+        delete mocap_data_inspector_thread_;
+        mocap_data_inspector_thread_ = nullptr;
+        return;
+    }
+
+    update_visuals_mocap_frame_ids(mocap_data->get_ids()); //get most recent ids
+
+    //connect data aggregator updates:
+    connect(mocap_data, &mocap_data_aggegator::frame_ids_updated, this, &mocap_manager::update_visuals_mocap_frame_ids, Qt::QueuedConnection);
+    connect(mocap_data, &mocap_data_aggegator::frames_updated, mocap_data_inspector_thread_, &mocap_data_inspector_thread::new_data_available, Qt::DirectConnection);
+
+    //linking all updates from the inspector thread to this UI:
+    connect(mocap_data_inspector_thread_, &mocap_data_inspector_thread::time_to_update, this, &mocap_manager::update_visuals_mocap_data, Qt::QueuedConnection);
+    connect(this, &mocap_manager::update_visuals_settings, mocap_data_inspector_thread_, &mocap_data_inspector_thread::update_settings, Qt::DirectConnection);
+    connect(this, &mocap_manager::reset_visuals, mocap_data_inspector_thread_, &mocap_data_inspector_thread::reset, Qt::DirectConnection);
+
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(2);
+    setWindowTitle("Motion Capture Manager — Data Inspector");
+}
+
+void mocap_manager::on_btn_fake_mocap_clicked()
+{
+    auto *dlg = new FakeMocapDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose, true);
+    dlg->setModal(false);
+    dlg->setWindowModality(Qt::NonModal);
+    dlg->setSettings(fake_settings_);
+    connect(dlg, &FakeMocapDialog::settingsChanged, this, [this](const fake_mocap_settings& s){
+        fake_settings_ = s;
+        if (fake_mocap_thread_) fake_mocap_thread_->update_settings(fake_settings_);
+        QSettings st; st.beginGroup("mocap_manager");
+        st.setValue("fake/enabled", fake_settings_.enabled);
+        st.setValue("fake/period_s", fake_settings_.period_s);
+        st.setValue("fake/radius_m", fake_settings_.radius_m);
+        st.setValue("fake/frame_id", fake_settings_.frame_id);
+        st.endGroup();
+    });
+    dlg->show();
+}
+
+
+void mocap_manager::on_btn_connection_go_back_2_clicked()
+{
+    terminate_visuals_thread();
+    on_btn_connection_go_back_clicked();
+    setWindowTitle("Motion Capture Manager");
+}
+
+
+void mocap_manager::on_btn_refresh_update_settings_clicked()
+{
+    generic_thread_settings thread_settings_;
+
+    // mutex->lock();
+    thread_settings_.update_rate_hz = ui->txt_refresh_rate->text().toUInt();
+    default_ui_config::Priority::key2value(ui->cmbx_refresh_priority->currentText(), thread_settings_.priority);
+    // mutex->unlock();
+
+    emit update_visuals_settings(&thread_settings_);
+    // Keep periodic queue/age updater in sync with inspector rate
+    updateQueueTimerFromUi();
+
+    // Persist inspector settings
+    QSettings s; s.beginGroup("mocap_manager");
+    s.setValue("inspector/priority_index", ui->cmbx_refresh_priority->currentIndex());
+    s.setValue("inspector/refresh_rate_hz", ui->txt_refresh_rate->text());
+    s.endGroup();
+}
+
+void mocap_manager::update_visuals_mocap_frame_ids(QVector<int> frame_ids)
+{
+    QStringList new_list_;
+    int index = -1;
+    QString current_selection = ui->cmbx_frameid->currentText();
+    for (int i = 0; i < frame_ids.size(); i++)
+    {
+        QString tmp = QString::number(frame_ids[i]);
+        new_list_.append(tmp);
+        if (tmp == current_selection) index = i;
+    }
+
+    // mutex->lock();
+    ui->cmbx_frameid->clear();
+    if (!new_list_.isEmpty()) ui->cmbx_frameid->addItems(new_list_);
+    if (index > -1) ui->cmbx_frameid->setCurrentIndex(index);
+    // mutex->unlock();
+}
+
+void mocap_manager::update_visuals_mocap_data(void)
+{
+    mocap_data_t buff;
+    int ID = ui->cmbx_frameid->currentText().toInt();
+    QVector<int> ids = mocap_data->get_ids();
+    if (ids.contains(ID) && mocap_data->get_frame(ID, buff))
+    {
+        if (auto t = findChild<QLineEdit*>("fld_time")) t->setVisible(false);
+        if (auto f = findChild<QLineEdit*>("fld_freq")) f->setVisible(false);
+        // Drive valid indicator LED
+        if (auto led = findChild<QLabel*>("led_valid")) {
+            if (buff.trackingValid) {
+                led->setStyleSheet("background-color: #2ecc71; border-radius: 10px; border: 1px solid #666;");
+                led->setToolTip("Tracking Valid");
+            } else {
+                led->setStyleSheet("background-color: #e74c3c; border-radius: 10px; border: 1px solid #666;");
+                led->setToolTip("Tracking Invalid");
+            }
+        }
+        update_mocap_tree();
+    }
+}
+
+void mocap_manager::on_btn_refresh_clear_clicked()
+{
+    // Guard against updates firing mid-reset
+    mocapTreeResetting_ = true;
+    auto setIf = [this](const char* name, const QString& val){ if (auto w = findChild<QLineEdit*>(name)) w->setText(val); };
+    setIf("fld_time", "0");
+    setIf("fld_freq", "0.00");
+    setIf("fld_x", "0.000000");
+    setIf("fld_y", "0.000000");
+    setIf("fld_z", "0.000000");
+    setIf("fld_qx", "0.000000");
+    setIf("fld_qy", "0.000000");
+    setIf("fld_qz", "0.000000");
+    setIf("fld_qw", "0.000000");
+    setIf("fld_roll", "0.00");
+    setIf("fld_pitch", "0.00");
+    setIf("fld_yaw", "0.00");
+    // Reset valid LED to red
+    if (auto led = findChild<QLabel*>("led_valid")) {
+        led->setStyleSheet("background-color: #e74c3c; border-radius: 10px; border: 1px solid #666;");
+        led->setToolTip("Tracking Invalid");
+    }
+
+    QVector<int> IDs = mocap_data->get_ids();
+    if (!IDs.isEmpty()) update_visuals_mocap_frame_ids(IDs);
+    emit reset_visuals();
+    if (mocapTree_) {
+        // Safely clear maps and rebuild
+        mocapItemMap_.clear();
+        mocapCheckMap_.clear();
+        mocapTree_->clear();
+        // Force a refresh once to recreate items for current frame
+        update_mocap_tree();
+    }
+    mocapTreeResetting_ = false;
+}
+
+void mocap_manager::update_mocap_tree()
+{
+    if (!mocapTree_ || mocapTreeResetting_) return;
+    mocap_data_t buff;
+    const QString frameId = ui->cmbx_frameid->currentText();
+    const int ID = frameId.toInt();
+    if (!mocap_data->get_frame(ID, buff)) return;
+
+    mocapTree_->setUpdatesEnabled(false);
+
+    // If frame ID changed, clear caches but keep tree
+    if (mocapCurrentFrameId_ != frameId) {
+        mocapCurrentFrameId_ = frameId;
+        mocapItemMap_.clear();
+        mocapCheckMap_.clear();
+        mocapTree_->clear();
+    }
+
+    auto ensureGroup = [this](const QString& key, const QString& title) -> QTreeWidgetItem* {
+        QTreeWidgetItem* item = mocapItemMap_.value(key, nullptr);
+        if (!item) {
+            QTreeWidgetItem* parentItem = nullptr;
+            const int slashIdx = key.lastIndexOf('/');
+            if (slashIdx > 0) {
+                const QString parentKey = key.left(slashIdx);
+                parentItem = mocapItemMap_.value(parentKey, nullptr);
+            }
+            if (parentItem) item = new QTreeWidgetItem(parentItem);
+            else            item = new QTreeWidgetItem(mocapTree_);
+            item->setText(0, title);
+            mocapItemMap_[key] = item;
+            mocapTree_->expandItem(item);
+        }
+        return item;
+    };
+
+    auto ensureLeaf = [this, &frameId](QTreeWidgetItem* parent, const QString& name, const QString& path) -> QTreeWidgetItem* {
+        const QString key = path;
+        QTreeWidgetItem* item = mocapItemMap_.value(key, nullptr);
+        if (!item) {
+            item = new QTreeWidgetItem(parent);
+            item->setText(0, name);
+            mocapItemMap_[key] = item;
+            // Create or reuse checkbox for plottable signals.
+            // Allow for non-common paths, plus specific common metrics we want plottable.
+            if (!path.startsWith("common/") || path.startsWith("common/queue/") || path == QStringLiteral("common/frame_age_ms")) {
+                QCheckBox* cb = mocapCheckMap_.value(key, nullptr);
+                if (!cb) {
+                    cb = new QCheckBox(mocapTree_);
+                    mocapCheckMap_[key] = cb;
+                    const QString plotId = QString("mocap/%1/%2").arg(frameId).arg(path);
+                    cb->setProperty("plotId", plotId);
+                    cb->setProperty("plotLabel", QString("Mocap | %1 %2").arg(frameId).arg(name));
+                    bool checked = false;
+                    const auto defs = PlotSignalRegistry::instance().listSignals();
+                    for (const auto& d : defs) { if (d.id == plotId) { checked = true; break; } }
+                    cb->blockSignals(true);
+                    cb->setChecked(checked);
+                    cb->blockSignals(false);
+                    QObject::connect(cb, &QCheckBox::toggled, mocapTree_, [cb](bool on){
+                        const QString id = cb->property("plotId").toString();
+                        const QString label = cb->property("plotLabel").toString();
+                        if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
+                        else    PlotSignalRegistry::instance().untagSignal(id);
+                    });
+                }
+                mocapTree_->setItemWidget(item, 2, cb);
+            }
+        }
+        return item;
+    };
+
+    // Ensure groups
+    QTreeWidgetItem* gCommon= ensureGroup("group/common", "Common");
+    QTreeWidgetItem* gQueue = ensureGroup("group/common/queue", "Queue Depth");
+    QTreeWidgetItem* gBasic = ensureGroup("group/frame", QString("Frame ID: %1").arg(ID));
+    QTreeWidgetItem* gPos   = ensureGroup("group/frame/pos",   "Position (m)");
+    QTreeWidgetItem* gQuat  = ensureGroup("group/frame/quat",  "Quaternion");
+    QTreeWidgetItem* gEul   = ensureGroup("group/frame/eul",   "Euler Angles (rad)");
+
+    // Ensure leaves
+    auto setValue = [](QTreeWidgetItem* it, const QString& val){ if (it) it->setText(1, val); };
+
+    // Queue depth (bytes/frames ready)
+    // Queue depth: separate plottable metrics
+    int pendingBytes = 0;
+    int readyFrames = 0;
+    if (mocap_thread_) {
+        mocap_thread_->get_backlog(pendingBytes, readyFrames);
+    }
+    setValue(ensureLeaf(gQueue, "Bytes",  "common/queue/bytes"),  QString::number(pendingBytes));
+    setValue(ensureLeaf(gQueue, "Frames", "common/queue/frames"), QString::number(readyFrames));
+
+    // Do not append queue metrics here; periodic updater handles plotting
+
+    // Frame age (ms): time since frame timestamp
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 ageMs = (buff.time_ms > 0) ? (nowMs - static_cast<qint64>(buff.time_ms)) : 0;
+    setValue(ensureLeaf(gCommon, "Frame Age (ms)", "common/frame_age_ms"), QString::number(ageMs));
+
+    setValue(ensureLeaf(gBasic, "Time (ms)",        "time_ms"),        QString::number(buff.time_ms));
+    setValue(ensureLeaf(gBasic, "Frequency (Hz)",   "freq_hz"),        QString::number(buff.freq_hz, 'f', 2));
+    setValue(ensureLeaf(gBasic, "Tracking Valid",   "trackingValid"),  buff.trackingValid?"YES":"NO");
+
+    setValue(ensureLeaf(gPos,   "x",                "pos/x"),          QString::number(buff.x, 'f', 6));
+    setValue(ensureLeaf(gPos,   "y",                "pos/y"),          QString::number(buff.y, 'f', 6));
+    setValue(ensureLeaf(gPos,   "z",                "pos/z"),          QString::number(buff.z, 'f', 6));
+
+    setValue(ensureLeaf(gQuat,  "qx",               "quat/qx"),        QString::number(buff.qx, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qy",               "quat/qy"),        QString::number(buff.qy, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qz",               "quat/qz"),        QString::number(buff.qz, 'f', 6));
+    setValue(ensureLeaf(gQuat,  "qw",               "quat/qw"),        QString::number(buff.qw, 'f', 6));
+
+    setValue(ensureLeaf(gEul,   "roll",             "euler/roll"),     QString::number(buff.roll, 'f', 6));
+    setValue(ensureLeaf(gEul,   "pitch",            "euler/pitch"),    QString::number(buff.pitch, 'f', 6));
+    setValue(ensureLeaf(gEul,   "yaw",              "euler/yaw"),      QString::number(buff.yaw, 'f', 6));
+
+    // Do not append frame age here; only when new frames arrive
+
+    mocapTree_->setUpdatesEnabled(true);
+
+    // No per-frame appends here: handled by onFramesUpdatedBackground()
+}
+
+void mocap_manager::onRegistrySignalsChanged() {
+    // Sync checkboxes with current registry: uncheck any that were removed
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    QSet<QString> keep; for (const auto& d : defs) keep.insert(d.id);
+    // Update existing checkboxes
+    for (auto it = mocapCheckMap_.begin(); it != mocapCheckMap_.end(); ++it) {
+        QCheckBox* cb = it.value();
+        if (!cb) continue;
+        const QString id = cb->property("plotId").toString();
+        const bool shouldBeChecked = keep.contains(id);
+        if (cb->isChecked() != shouldBeChecked) {
+            cb->blockSignals(true);
+            cb->setChecked(shouldBeChecked);
+            cb->blockSignals(false);
+        }
+    }
+}
+
+void mocap_manager::onFramesUpdatedBackground(QVector<mocap_data_t> frames)
+{
+    // Append samples for tagged mocap signals independent of UI visibility
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    if (defs.isEmpty()) return;
+
+    for (const auto& buff : frames) {
+        const QString base = QString("mocap/%1/").arg(buff.id);
+        const qint64 t_ns = static_cast<qint64>(buff.time_ms) * 1000000LL;
+        for (const auto& d : defs) {
+            if (!d.id.startsWith(base)) continue;
+            double value = 0.0;
+            const QString path = d.id.mid(base.size());
+            if      (path == "time_ms")       value = static_cast<double>(buff.time_ms);
+            else if (path == "freq_hz")       value = buff.freq_hz;
+            else if (path == "trackingValid") value = buff.trackingValid ? 1.0 : 0.0;
+            else if (path == "pos/x")         value = buff.x;
+            else if (path == "pos/y")         value = buff.y;
+            else if (path == "pos/z")         value = buff.z;
+            else if (path == "quat/qx")       value = buff.qx;
+            else if (path == "quat/qy")       value = buff.qy;
+            else if (path == "quat/qz")       value = buff.qz;
+            else if (path == "quat/qw")       value = buff.qw;
+            else if (path == "euler/roll")    value = buff.roll; // radians
+            else if (path == "euler/pitch")   value = buff.pitch;
+            else if (path == "euler/yaw")     value = buff.yaw;
+            // Skip queue metrics and frame_age here; handled by periodic updater
+            else continue;
+            PlotSignalRegistry::instance().appendSample(d.id, t_ns, value);
+        }
+    }
+}
+
+void mocap_manager::handleQueueMetricsTick()
+{
+    // Periodically update queue metrics (bytes/frames) and frame age for any tagged signals
+    const auto defs = PlotSignalRegistry::instance().listSignals();
+    if (defs.isEmpty()) return;
+
+    int backlogBytes = 0;
+    int backlogFrames = 0;
+    if (mocap_thread_) {
+        mocap_thread_->get_backlog(backlogBytes, backlogFrames);
+    }
+    const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+    const qint64 now_ns = now_ms * 1000000LL;
+
+    // For frame age, we need the latest data timestamp per id if available
+    // We'll read UI-selected ID and also iterate all mocap ids to cover tagged signals
+    QVector<int> ids = mocap_data ? mocap_data->get_ids() : QVector<int>();
+    QHash<int, mocap_data_t> latestById;
+    for (int id : ids) {
+        mocap_data_t f; if (mocap_data->get_frame(id, f)) latestById.insert(id, f);
+    }
+
+    for (const auto& d : defs) {
+        // Expect ids like mocap/<id>/common/queue/(bytes|frames) or common/frame_age_ms
+        if (!d.id.startsWith("mocap/")) continue;
+        const int firstSlash = d.id.indexOf('/', 6);
+        if (firstSlash <= 0) continue;
+        bool okId = false; int id = d.id.mid(6, firstSlash-6).toInt(&okId);
+        if (!okId) continue;
+        const QString path = d.id.mid(firstSlash+1);
+        if (path == "common/queue/bytes") {
+            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(backlogBytes));
+        } else if (path == "common/queue/frames") {
+            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(backlogFrames));
+        } else if (path == "common/frame_age_ms") {
+            const qint64 t_ms = latestById.contains(id) ? static_cast<qint64>(latestById[id].time_ms) : 0;
+            const qint64 age_ms = (t_ms > 0) ? (now_ms - t_ms) : 0;
+            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(age_ms));
+        }
+    }
+}
+
+void mocap_manager::updateQueueTimerFromUi()
+{
+    // Sync timer with the inspector refresh rate (default 30 Hz)
+    int hz = 30;
+    if (auto rateEdit = findChild<QLineEdit*>("txt_refresh_rate")) {
+        bool ok = false;
+        int v = rateEdit->text().toInt(&ok);
+        if (ok && v > 0) hz = v;
+    }
+    const int intervalMs = qMax(1, static_cast<int>(1000.0 / static_cast<double>(hz)));
+    mocapQueueTimer_->setInterval(intervalMs);
+    if (!mocapQueueTimer_->isActive()) mocapQueueTimer_->start();
+}
+
+
+void mocap_manager::repopulate_relay_table()
+{
+    // Clear the table first
+    while (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->tableWidget_mocap_relay->removeRow(0);
+    }
+
+    // Repopulate with existing relays
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings settings;
+        mocap_relay[i]->get_settings(&settings);
+
+        int row_index = ui->tableWidget_mocap_relay->rowCount();
+        ui->tableWidget_mocap_relay->insertRow(row_index);
+
+        // Frame ID
+        QTableWidgetItem *frameItem = new QTableWidgetItem(QString::number(settings.frameid));
+        frameItem->setFlags(frameItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 0, frameItem);
+
+        // System ID
+        QTableWidgetItem *sysItem = new QTableWidgetItem(QString::number(settings.sysid));
+        sysItem->setFlags(sysItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 1, sysItem);
+
+        // Component ID
+        QTableWidgetItem *compItem = new QTableWidgetItem(enum_helpers::value2key(settings.compid));
+        compItem->setFlags(compItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 2, compItem);
+
+        // Message Type
+        QTableWidgetItem *msgItem = new QTableWidgetItem(enum_helpers::value2key(settings.msg_option));
+        msgItem->setFlags(msgItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 3, msgItem);
+
+        // Port Name
+        QTableWidgetItem *portItem = new QTableWidgetItem(settings.Port_Name);
+        portItem->setFlags(portItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 4, portItem);
+
+        // Update Rate
+        QTableWidgetItem *rateItem = new QTableWidgetItem(QString::number(settings.update_rate_hz));
+        rateItem->setFlags(rateItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 5, rateItem);
+
+        // Priority
+        QTableWidgetItem *priorityItem = new QTableWidgetItem(default_ui_config::Priority::value2key(static_cast<QThread::Priority>(settings.priority)));
+        priorityItem->setFlags(priorityItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 6, priorityItem);
+    }
+
+    // Update delete button visibility
+    if (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->btn_relay_delete->setVisible(true);
+    } else {
+        ui->btn_relay_delete->setVisible(false);
+    }
+
+    // Set header resize modes: first 6 columns resize to contents, last column stretches
+    for (int i = 0; i < 6; ++i) {
+        ui->tableWidget_mocap_relay->horizontalHeader()->setSectionResizeMode(i, QHeaderView::ResizeToContents);
+        ui->tableWidget_mocap_relay->horizontalHeader()->setSectionResizeMode(i, QHeaderView::Stretch);
+    }
+}
+
+void mocap_manager::on_btn_configure_data_bridge_clicked()
+{
+    ui->stackedWidget_main_scroll_window->setCurrentIndex(3);
+    refresh_relay();
+    repopulate_relay_table();
+}
+
+
+void mocap_manager::on_btn_relay_go_back_clicked()
+{
+    on_btn_connection_go_back_clicked();
+}
+
+void mocap_manager::update_relay_mocap_frame_ids(QVector<int> frame_ids)
+{
+    QStringList new_list_;
+    int index = -1;
+    QString current_selection = ui->cmbx_relay_frameid->currentText();
+    for (int i = 0; i < frame_ids.size(); i++)
+    {
+        QString tmp = QString::number(frame_ids[i]);
+        new_list_.append(tmp);
+        if (tmp == current_selection) index = i;
+    }
+
+    ui->cmbx_relay_frameid->clear();
+    if (!new_list_.isEmpty()) ui->cmbx_relay_frameid->addItems(new_list_);
+    if (index > -1) ui->cmbx_relay_frameid->setCurrentIndex(index);
+}
+void mocap_manager::update_relay_port_list(QVector<QString> new_port_list)
+{
+    if (new_port_list.length() > 0)
+    {
+        QString current_selection = ui->cmbx_relay_port_name->currentText();
+        ui->cmbx_relay_port_name->clear();
+        ui->cmbx_relay_port_name->addItems(new_port_list);
+        int index = new_port_list.indexOf(current_selection);
+        if (index > -1) ui->cmbx_relay_port_name->setCurrentIndex(index);
+
+        if (!mocap_relay.isEmpty()) //check if any of the relays must be removed
+        {
+            for(int row_ind = mocap_relay.size()-1; row_ind > -1; row_ind--)
+            {
+                if (new_port_list.contains(ui->tableWidget_mocap_relay->item(row_ind,4)->text())) continue;
+
+                mocap_relay[row_ind]->requestInterruption();
+                for (int ii = 0; ii < 300; ii++)
+                {
+                    if (!mocap_relay[row_ind]->isRunning() && mocap_relay[row_ind]->isFinished())
+                    {
+                        break;
+                    }
+                    else if (ii == 299) //too long!, let's just end it...
+                    {
+                        (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap relay thread, manually terminating...\n");
+                        mocap_relay[row_ind]->terminate();
+                    }
+                    //let's give it some time to exit cleanly
+                    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+                }
+                mocap_relay.remove(row_ind);
+                ui->tableWidget_mocap_relay->removeRow(row_ind);
+                if (ui->tableWidget_mocap_relay->rowCount() < 1)ui->btn_relay_delete->setVisible(false);
+            }
+
+        } else ui->btn_relay_delete->setVisible(false);
+
+        if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
+        {
+            ui->btn_relay_add->setVisible(true);
+        }
+
+        // Persist relays list
+        QSettings s; s.beginGroup("mocap_manager");
+        s.setValue("relay/count", mocap_relay.size());
+        for (int i = 0; i < mocap_relay.size(); ++i) {
+            mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
+            s.beginGroup(QString("relay/%1").arg(i));
+            s.setValue("frameid", rs.frameid);
+            s.setValue("Port_Name", rs.Port_Name);
+            s.setValue("msg_option", static_cast<int>(rs.msg_option));
+            s.setValue("sysid", rs.sysid);
+            s.setValue("compid", static_cast<int>(rs.compid));
+            s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
+            s.setValue("priority", static_cast<int>(rs.priority));
+            s.endGroup();
+        }
+        s.endGroup();
+    }
+    else
+    {
+        ui->cmbx_relay_port_name->clear();
+        ui->btn_relay_add->setVisible(false);
+        ui->btn_relay_delete->setVisible(false);
+    }
+}
+void mocap_manager::update_relay_sysid_list(QVector<uint8_t> new_sysids)
+{
+    if (new_sysids.length() > 0)
+    {
+        QString current_selection = ui->cmbx_relay_sysid->currentText();
+        ui->cmbx_relay_sysid->clear();
+        QStringList list;
+        int ind = -1;
+        for (int i = 0; i < new_sysids.length(); i++)
+        {
+            list.push_back(QString::number(new_sysids[i]));
+            if (current_selection == list[i]) ind  = i;
+        }
+        ui->cmbx_relay_sysid->addItems(list);
+        if (ind > -1) ui->cmbx_relay_sysid->setCurrentIndex(ind);
+
+        if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
+        {
+            ui->btn_relay_add->setVisible(true);
+        }
+    }
+    else
+    {
+        ui->cmbx_relay_sysid->clear();
+        ui->cmbx_relay_compid->clear();
+        ui->cmbx_relay_port_name->clear();
+        ui->btn_relay_add->setVisible(false);
+        ui->btn_relay_delete->setVisible(false);
+    }
+
+}
+void mocap_manager::update_relay_compids(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compids)
+{
+    if (sysid == ui->cmbx_relay_sysid->currentText().toInt())
+    {
+
+        if (compids.length() > 0)
+        {
+            QString current_selection = ui->cmbx_relay_compid->currentText();
+            ui->cmbx_relay_compid->clear();
+            QStringList list;
+            int ind = -1;
+            for (int i = 0; i < compids.length(); i++) {
+                list.push_back(enum_helpers::value2key(compids[i]));
+                if (current_selection == list[i]) ind  = i;
+            }
+            ui->cmbx_relay_compid->addItems(list);
+            if (ind > -1) ui->cmbx_relay_compid->setCurrentIndex(ind);
+
+            if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
+            {
+                ui->btn_relay_add->setVisible(true);
+            }
+        }
+        else
+        {
+            ui->cmbx_relay_compid->clear();
+            ui->cmbx_relay_port_name->clear();
+            ui->btn_relay_add->setVisible(false);
+            ui->btn_relay_delete->setVisible(false);
+        }
+    }
+}
+
+void mocap_manager::on_cmbx_relay_sysid_currentTextChanged(const QString &arg1)
+{
+    //update compids:
+    if (!arg1.isEmpty())
+    {
+        uint8_t current_sysid = arg1.toInt();
+        update_relay_compids(current_sysid, emit get_compids(current_sysid));
+    }
+}
+
+void mocap_manager::refresh_relay(void)
+{
+    //update frame_ids:
+    update_relay_mocap_frame_ids(mocap_data->get_ids());
+
+    //update sysids:
+    update_relay_sysid_list(emit get_sysids());
+
+    //update compids:
+    uint8_t current_sysid = ui->cmbx_relay_sysid->currentText().toInt();
+    update_relay_compids(current_sysid, emit get_compids(current_sysid));
+
+    //update port names:
+    update_relay_port_list(emit get_port_names());
+}
+
+
+
+
+void mocap_manager::terminate_mocap_relay_thread(void)
+{
+    // Tell threads to quit
+    for (auto mocap_relay_ : mocap_relay) {
+        mocap_relay_->requestInterruption();
+    }
+
+    // Wait for threads to finish and clean up
+    for (auto mocap_relay_ : mocap_relay) {
+        for (int ii = 0; ii < 300; ii++) {
+            if (!mocap_relay_->isRunning() && mocap_relay_->isFinished()) {
+                break;
+            } else if (ii == 299) {
+                qWarning() << "Warning: Failed to gracefully stop mocap relay thread, terminating forcefully";
+                mocap_relay_->terminate();
+            }
+            QThread::msleep(10); // Use msleep instead of sleep for shorter delays
+        }
+        // Properly disconnect before deletion
+        Generic_Port* port_pointer = nullptr;
+        mocap_relay_settings relay_settings;
+        mocap_relay_->get_settings(&relay_settings);
+        if (emit get_port_pointer(relay_settings.Port_Name, &port_pointer)) {
+            disconnect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port);
+        }
+        delete mocap_relay_; // Clean up memory
+    }
+
+    mocap_relay.clear();
+    while (ui->tableWidget_mocap_relay->rowCount() > 0) {
+        ui->tableWidget_mocap_relay->removeRow(ui->tableWidget_mocap_relay->rowCount() - 1);
+    }
+}
+
+
+
+void mocap_manager::on_btn_relay_add_clicked()
+{
+
+    mocap_relay_settings relay_settings;
+    relay_settings.frameid = ui->cmbx_relay_frameid->currentText().toInt();
+    relay_settings.sysid = ui->cmbx_relay_sysid->currentText().toUInt();
+    enum_helpers::key2value(ui->cmbx_relay_compid->currentText(), relay_settings.compid);
+    relay_settings.Port_Name = ui->cmbx_relay_port_name->currentText();
+    enum_helpers::key2value(ui->cmbx_relay_msg_type->currentText(), relay_settings.msg_option);
+    relay_settings.update_rate_hz = ui->txt_relay_update_rate_hz->text().toUInt();
+    QThread::Priority temp_priority;
+    default_ui_config::Priority::key2value(ui->cmbx_relay_priority->currentText(), temp_priority);
+    relay_settings.priority = static_cast<int>(temp_priority);
+
+    // Validate relay settings
+    if (relay_settings.frameid < 0) {
+        qWarning() << "Invalid frame ID:" << relay_settings.frameid;
+        return;
+    }
+    if (relay_settings.Port_Name.isEmpty()) {
+        qWarning() << "Port name cannot be empty";
+        return;
+    }
+
+    // Check for duplicate relays
+    for (const auto& existing_relay : mocap_relay) {
+        mocap_relay_settings existing_settings;
+        existing_relay->get_settings(&existing_settings);
+        if (existing_settings.frameid == relay_settings.frameid &&
+            existing_settings.Port_Name == relay_settings.Port_Name) {
+            qWarning() << "Relay already exists for frame" << relay_settings.frameid << "on port" << relay_settings.Port_Name;
+            return;
+        }
+    }
+
+    generic_thread_settings thread_settings_;
+    default_ui_config::Priority::key2value(ui->cmbx_relay_priority->currentText(), thread_settings_.priority);
+    thread_settings_.update_rate_hz = ui->txt_relay_update_rate_hz->text().toUInt();
+
+
+    mocap_relay_thread* mocap_relay_ = new mocap_relay_thread(this, &thread_settings_, &relay_settings, &mocap_data);
+    QThread::msleep(100); // Reduced from 500ms to 100ms
+    if (!mocap_relay_->isRunning())
+    {
+        qWarning() << "Error: MOCAP relay thread failed to start";
+        mocap_relay_->terminate();
+        delete mocap_relay_;
+        mocap_relay_ = nullptr;
+        return;
+    }
+    Generic_Port* port_pointer = nullptr;
+
+    if (! emit get_port_pointer(relay_settings.Port_Name, &port_pointer))
+    {
+        qWarning() << "Error: Failed to find port:" << relay_settings.Port_Name;
+        if (!mocap_relay_->isFinished())
+        {
+            mocap_relay_->requestInterruption();
+            for (int ii = 0; ii < 300; ii++)
+            {
+                if (!mocap_relay_->isRunning() && mocap_relay_->isFinished())
+                {
+                    break;
+                }
+                else if (ii == 299)
+                {
+                    (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap relay thread, manually terminating...\n");
+                    mocap_relay_->terminate();
+                }
+
+                QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+            }
+        }
+        mocap_relay_ = nullptr;
+        return;
+    }
+
+    int row_index = ui->tableWidget_mocap_relay->rowCount();
+    ui->tableWidget_mocap_relay->insertRow(row_index); //append row
+
+    { //frameid
+        QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.frameid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 0, newItem);
+    }
+    { //sysid
+        QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.sysid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 1, newItem);
+    }
+    { //compid
+        QTableWidgetItem *newItem = new QTableWidgetItem(enum_helpers::value2key(relay_settings.compid));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 2, newItem);
+    }
+    { //msg type
+        QTableWidgetItem *newItem = new QTableWidgetItem(enum_helpers::value2key(relay_settings.msg_option));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 3, newItem);
+    }
+    { //port name
+        QTableWidgetItem *newItem = new QTableWidgetItem(relay_settings.Port_Name);
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 4, newItem);
+    }
+    { //rate
+        QTableWidgetItem *newItem = new QTableWidgetItem(QString::number(relay_settings.update_rate_hz));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 5, newItem);
+    }
+    { //priority
+        QTableWidgetItem *newItem = new QTableWidgetItem(default_ui_config::Priority::value2key(static_cast<QThread::Priority>(relay_settings.priority)));
+        newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
+        ui->tableWidget_mocap_relay->setItem(row_index, 6, newItem);
+    }
+
+    mocap_relay.push_back(mocap_relay_);
+    connect(mocap_relay_, &mocap_relay_thread::write_to_port, port_pointer, &Generic_Port::write_to_port, Qt::QueuedConnection);
+
+    // Persist relays list
+    QSettings s; s.beginGroup("mocap_manager");
+    s.setValue("relay/count", mocap_relay.size());
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
+        s.beginGroup(QString("relay/%1").arg(i));
+        s.setValue("frameid", rs.frameid);
+        s.setValue("Port_Name", rs.Port_Name);
+        s.setValue("msg_option", static_cast<int>(rs.msg_option));
+        s.setValue("sysid", rs.sysid);
+        s.setValue("compid", static_cast<int>(rs.compid));
+        s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
+        s.setValue("priority", static_cast<int>(rs.priority));
+        s.endGroup();
+    }
+    s.endGroup();
+}
+
+void mocap_manager::on_btn_relay_delete_clicked()
+{
+    if (!mocap_relay.isEmpty())
+    {
+        int row_ind = ui->tableWidget_mocap_relay->currentRow();
+        if (row_ind < 0 || row_ind > mocap_relay.length()) return;
+
+        mocap_relay[row_ind]->requestInterruption();
+        for (int ii = 0; ii < 300; ii++)
+        {
+            if (!mocap_relay[row_ind]->isRunning() && mocap_relay[row_ind]->isFinished())
+            {
+                break;
+            }
+            else if (ii == 299) //too long!, let's just end it...
+            {
+                qWarning() << "Warning: Failed to gracefully stop mocap relay thread, terminating forcefully";
+                mocap_relay[row_ind]->terminate();
+            }
+            //let's give it some time to exit cleanly
+            QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
+        }
+        mocap_relay.remove(row_ind);
+        ui->tableWidget_mocap_relay->removeRow(row_ind);
+        if (ui->tableWidget_mocap_relay->rowCount() < 1) ui->btn_relay_delete->setVisible(false);
+
+        // Persist updated relays list
+        QSettings s; s.beginGroup("mocap_manager");
+        s.setValue("relay/count", mocap_relay.size());
+        for (int i = 0; i < mocap_relay.size(); ++i) {
+            mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
+            s.beginGroup(QString("relay/%1").arg(i));
+            s.setValue("frameid", rs.frameid);
+            s.setValue("Port_Name", rs.Port_Name);
+            s.setValue("msg_option", static_cast<int>(rs.msg_option));
+            s.setValue("sysid", rs.sysid);
+            s.setValue("compid", static_cast<int>(rs.compid));
+            s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
+            s.setValue("priority", static_cast<int>(rs.priority));
+            s.endGroup();
+        }
+        s.endGroup();
+
+    } else ui->btn_relay_delete->setVisible(false);
+}
+
+
+QString mocap_manager::get_relay_status_info()
+{
+    QString status = QString("Active Relays: %1\n\n").arg((int)mocap_relay.size());
+
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings settings;
+        mocap_relay[i]->get_settings(&settings);
+
+        status += QString("Relay %1:\n").arg(i + 1);
+        status += QString("  Frame ID: %1\n").arg(settings.frameid);
+        status += QString("  System ID: %1\n").arg(settings.sysid);
+        status += QString("  Component ID: %1\n").arg(settings.compid);
+        status += QString("  Port: %1\n").arg(settings.Port_Name);
+        status += QString("  Message Type: %1\n").arg(enum_helpers::value2key(settings.msg_option));
+        status += QString("  Thread Status: %1\n").arg(mocap_relay[i]->isRunning() ? "Running" : "Stopped");
+        status += "\n";
+    }
+
+    return status;
+}
+
+void mocap_manager::on_tableWidget_mocap_relay_itemSelectionChanged()
+{
+    int row_ind = ui->tableWidget_mocap_relay->currentRow();
+    if (row_ind < 0 || row_ind > mocap_relay.length()) ui->btn_relay_delete->setVisible(false);
+    else ui->btn_relay_delete->setVisible(true);
+}
+

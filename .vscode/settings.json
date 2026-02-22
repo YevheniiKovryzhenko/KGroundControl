@@ -3,6 +3,7 @@
     "cmake.configureOnOpen": true,
     "cmake.configureOnEdit": true,
     "cmake.buildBeforeRun": true,
+    "cmake.buildArgs": [],
     // Keep editor niceties
     "files.associations": {
         "*.cpp": "cpp",

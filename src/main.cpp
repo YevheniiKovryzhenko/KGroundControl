@@ -33,12 +33,12 @@
  ****************************************************************************/
 
 #include "kgroundcontrol.h"
-
 #include <QApplication>
 #include <QPalette>
 #include <QStyleFactory>
 #include <QSettings>
 #include <QFont>
+#include <QToolTip>
 
 void configureDarkStyle()
 {
@@ -46,11 +46,21 @@ void configureDarkStyle()
     QPalette darkPalette;
     darkPalette.setColor(QPalette::BrightText, Qt::red);
     darkPalette.setColor(QPalette::WindowText, Qt::white);
-    darkPalette.setColor(QPalette::ToolTipBase, Qt::white);
-    darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+    // Make tooltips use a dark background with light text so they are
+    // readable with the application's dark theme.
+    QColor tooltipBg(50, 50, 50); // slightly lighter than Window for contrast
+    QColor tooltipText(230, 230, 230);
+    darkPalette.setColor(QPalette::ToolTipBase, tooltipBg);
+    darkPalette.setColor(QPalette::ToolTipText, tooltipText);
     darkPalette.setColor(QPalette::Text, Qt::white);
     darkPalette.setColor(QPalette::ButtonText, Qt::white);
     darkPalette.setColor(QPalette::HighlightedText, Qt::black);
+    // Make placeholder/suggestion text slightly dim but readable on dark backgrounds
+    QColor placeholder(170, 170, 170);
+    darkPalette.setColor(QPalette::PlaceholderText, placeholder);
+    // Also ensure disabled text remains readable
+    darkPalette.setColor(QPalette::Disabled, QPalette::Text, QColor(160,160,160));
+    darkPalette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(160,160,160));
     darkPalette.setColor(QPalette::Window, QColor(53, 53, 53));
     darkPalette.setColor(QPalette::Base, QColor(25, 25, 25));
     darkPalette.setColor(QPalette::AlternateBase, QColor(53, 53, 53));
@@ -63,6 +73,35 @@ void configureDarkStyle()
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+
+    // ensure QSettings reads from our application namespace even before we
+    // create the main window.  without this the early check below always
+    // returned the default value (true) because no organization/app name was
+    // configured yet.
+    QCoreApplication::setOrganizationName("YevheniiKovryzhenko");
+    QCoreApplication::setOrganizationDomain("https://github.com/YevheniiKovryzhenko/KGroundControl");
+    QCoreApplication::setApplicationName("KGroundControl");
+
+    // if the user has simply downloaded and executed the ELF, move it into
+    // the expected per-user bin directory before doing anything else.  the
+    // helper will copy, launch the new copy, and terminate this process;
+    // returning true signals that we should bail out immediately.
+#ifdef Q_OS_LINUX
+    {
+        // if the user disabled auto-install behaviour we should skip the old
+        // copy-and-relaunch logic entirely.  read the flag directly from
+        // settings since nothing else has been initialised yet.
+        QSettings appSettings;
+        bool autoInstall = appSettings.value("kgroundcontrol/auto_install_on_startup", true).toBool();
+        if (autoInstall && UpdateManager::installIfNotInUserBin()) {
+            return 0;
+        }
+        else if (!autoInstall) {
+            qDebug() << "[main] auto-install disabled in settings, launch proceeds without relocating binary";
+        }
+    }
+#endif
+
     KGroundControl w;
 
     /*
@@ -78,7 +117,21 @@ int main(int argc, char *argv[])
     QString fontFamily = appSettings.value("kgroundcontrol/font_family", QString("Ubuntu Sans")).toString();
     int fontSize = appSettings.value("kgroundcontrol/font_point_size", 11).toInt();
     a.setFont(QFont(fontFamily, fontSize));
-    a.setStyleSheet("QTextBrowser { background: transparent; }");
+    // Keep QTextBrowser transparent but also ensure QToolTip uses a
+    // consistent dark style matching the palette. Use rgba for a subtle
+    // translucent background and a clear border to separate from content.
+    QColor tooltipBg(50, 50, 50); // slightly lighter than Window for contrast
+    QColor tooltipText(230, 230, 230);
+    QString tooltipStyle = QString(
+        "QTextBrowser { background: transparent; }"
+        "QToolTip { background-color: rgba(%1,%2,%3,230); color: %4; border: 1px solid rgba(0,0,0,120); padding: 4px; }"
+    ).arg(tooltipBg.red()).arg(tooltipBg.green()).arg(tooltipBg.blue()).arg(tooltipText.name());
+    a.setStyleSheet(tooltipStyle);
+
+    // Ensure tooltip font matches application font for consistent sizing
+    QFont tipFont = a.font();
+    tipFont.setPointSize(fontSize);
+    QToolTip::setFont(tipFont);
 
     w.show();
     return a.exec();

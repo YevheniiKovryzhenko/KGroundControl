@@ -44,7 +44,7 @@
 #include <QSettings>
 
 #include "optitrack.hpp"
-#include "mavlink_enum_types.h"
+#include "mavlink_communication/mavlink_enum_types.h"
 
 enum connection_type
 {
@@ -251,6 +251,16 @@ public:
 
     // Plotting buffer (seconds)
     double plot_buffer_duration_sec = 60.0;
+    
+    // Auto-update preferences
+    bool check_updates_on_startup = true;
+
+    // Self‑install preferences: when true the application will automatically
+    // copy itself into ~/.local/bin and update its desktop entry on each
+    // launch.  This behaviour is useful for end‑users but can interfere with
+    // development or manual packaging.  The new checkbox in the General
+    // settings panel controls this flag.
+    bool auto_install_on_startup = true;
 
 
     QString get_QString(void);
@@ -288,6 +298,8 @@ public:
 
     QString get_QString(void);
     void printf(void);
+    void save(QSettings &settings);
+    bool load(QSettings &settings);
 };
 
 
@@ -318,7 +330,7 @@ public:
     mocap_relay_msg_opt msg_option = mavlink_vision_position_estimate;
     uint8_t sysid = 0;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
-    uint32_t update_rate_hz = 30;
+    uint32_t update_rate_hz = 40;
     int priority = 0;
 
     QString get_QString(void);

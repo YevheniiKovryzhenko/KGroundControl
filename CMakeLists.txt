@@ -5,10 +5,9 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.3 LANGUAGES CXX)
+project(KGroundControl VERSION 1.2.9 LANGUAGES CXX)
 
-set(QT_TARGET_VERSION 6.9.2)
-# set(QT_TARGET_VERSION 6.7.2)
+set(QT_TARGET_VERSION 6.10.2)
 
 # Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)
 if(MSVC OR CMAKE_GENERATOR MATCHES "Multi-Config")
@@ -35,8 +34,10 @@ if(WIN32)
     set(QT_PATHS
         "$ENV{QTDIR}"
         # Static Qt installations
+        "C:/Qt/Static/v${QT_TARGET_VERSION}/install"
         "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
         # Dynamic Qt installations (fallback)
+        "C:/Qt/Shared/v${QT_TARGET_VERSION}/install"
         "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"        
         # Standard dynamic Qt installations (fallback)
         "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
@@ -52,13 +53,13 @@ if(WIN32)
             message(STATUS "Found Qt installation at: ${QT_PATH}")
             set(CMAKE_PREFIX_PATH "${QT_PATH}")
             
-            # Set QT_STATIC_BUILD based on the Qt installation type
-            if("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
-                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
-                message(STATUS "Using dynamic Qt libraries")
-            elseif("${QT_PATH}" MATCHES ".*Qt_Static.*" OR "${QT_PATH}" MATCHES ".*static.*")
+            # Set QT_STATIC_BUILD based on the Qt installation type (check static patterns FIRST!)
+            if("${QT_PATH}" MATCHES ".*[Ss]tatic.*" OR "${QT_PATH}" MATCHES ".*Qt_Static.*")
                 set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
                 message(STATUS "Using static Qt libraries")
+            elseif("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
+                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
+                message(STATUS "Using dynamic Qt libraries")
             endif()
             
             break()
@@ -114,6 +115,9 @@ set(CMAKE_AUTOUIC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/ui_autogen)
 set(CMAKE_AUTOMOC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/moc_autogen)
 set(CMAKE_AUTORCC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/rcc_autogen)
 
+# Set search path for UI files (moved to ui/ directory)
+set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
+
 # Suppress CMake developer warnings
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE INTERNAL "Suppress CMake developer warnings")
 
@@ -128,36 +132,22 @@ if(MSVC)
     add_compile_options(/wd4100 /wd4189 /wd4244 /wd4267)
 endif()
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+# Define simple debugging macros for every build configuration.  `QT_NO_DEBUG_OUTPUT`
+# causes qDebug()/qInfo()/qWarning() etc to be compiled away and is required on
+# platforms (Linux, non‑MSVC Qt builds) where the Qt libraries themselves
+# don’t automatically set it for Release configurations.  The companion
+# `DEBUG` macro makes any existing `#ifdef DEBUG` guards behave sensibly.
+# These definitions are unconditional; the MSVC runtime logic below is a
+# separate concern.
+add_compile_definitions(
+    $<$<CONFIG:Debug>:DEBUG>
+    $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
+)
 
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
-
-# Configure for static Qt builds
-if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
-    message(STATUS "Configuring for static Qt build")
-    add_definitions(-DQT_STATICPLUGIN)
-
-    # For static builds, we need to link against all required Qt libraries
-    if(WIN32)
-        # Windows static linking may require additional libraries
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO")
-        if(MSVC)
-            # MSVC specific static linking flags
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:libcmt.lib /NODEFAULTLIB:msvcrt.lib")
-            # Additional flags for static Qt builds
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /FORCE:MULTIPLE")
-        endif()
-    endif()
-else()
-    message(STATUS "Configuring for dynamic Qt build")
-endif()
-
-# If building Debug and using static Qt, optionally align MSVC runtime with Release if no debug Qt libs exist
+# **IMPORTANT**: Configure MSVC runtime BEFORE fetching dependencies
+# This ensures all dependencies (QSimpleUpdater, SDL2) use the same runtime library
 if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
-    # Heuristic: look for a debug-suffixed Qt6Core*d.lib under prefix path
+    # Check if debug static Qt core library exists
     set(_qt_debug_core_lib_found FALSE)
     if(CMAKE_PREFIX_PATH)
         file(GLOB _qt_core_debug_candidates
@@ -165,83 +155,149 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_
             "${CMAKE_PREFIX_PATH}/lib/Qt6Cored.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core_debug.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core*d.lib")
         if(_qt_core_debug_candidates)
             set(_qt_debug_core_lib_found TRUE)
+            message(STATUS "Found debug Qt libraries; using /MDd runtime")
         endif()
     endif()
     if(NOT _qt_debug_core_lib_found)
-        message(WARNING "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to avoid LNK2038 with release-only Qt.")
-        # Force multi-threaded DLL runtime (Release) for all configs so this target matches Qt objects
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
-        # Remove /MDd from existing flags (CMake might have already applied it before policy CMP0091)
-        foreach(_flag_var CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
-            if(${_flag_var} MATCHES "/MDd")
-                string(REGEX REPLACE "/MDd" "/MD" ${_flag_var} "${${_flag_var}}")
-            endif()
-        endforeach()
-        # Disable iterator debugging for this target to match release Qt libs (iterator debug level 0)
+        message(STATUS "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to match release-only Qt.")
+        # Force multi-threaded DLL runtime (Release) for all configs to match release-only Qt
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "Force Release runtime in Debug config" FORCE)
+        # Disable iterator debugging to match release Qt libs
         add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+        # also define a simple DEBUG macro when building in Debug mode so any
+        # legacy #ifdef DEBUG blocks remain active without the user having to
+        # set it manually.  Qt normally defines QT_NO_DEBUG_OUTPUT in non‑debug
+        # builds, but some Qt installations (especially when static or built in
+        # debug mode) do not.  We force the definition ourselves to guarantee
+        # that qDebug()/qWarning() etc. are no‑ops outside of Debug configs.
+        add_compile_definitions(
+            $<$<CONFIG:Debug>:DEBUG>
+            $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
+        )
     endif()
 endif()
 
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
+
+# Fetch QSimpleUpdater for auto-update functionality
+include(FetchContent)
+FetchContent_Declare(
+    QSimpleUpdater
+    GIT_REPOSITORY https://github.com/alex-spataru/QSimpleUpdater.git
+    GIT_TAG        master
+)
+set(QSIMPLEUPDATER_EXAMPLE OFF CACHE BOOL "Do not build QSimpleUpdater examples" FORCE)
+FetchContent_MakeAvailable(QSimpleUpdater)
+
+# Fetch SDL2 for hardware I/O and graphics
+# Configure SDL2 for static compilation BEFORE declaring
+set(SDL_SHARED OFF CACHE BOOL "Build SDL2 as shared library" FORCE)
+set(SDL_STATIC ON CACHE BOOL "Build SDL2 as static library" FORCE)
+set(SDL_TEST OFF CACHE BOOL "Build SDL2 tests" FORCE)
+FetchContent_Declare(
+    SDL2
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG        release-2.32.10
+)
+FetchContent_Populate(SDL2)
+add_subdirectory(${sdl2_SOURCE_DIR} ${sdl2_BINARY_DIR})
+
+# Configure for static Qt builds
+if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
+    message(STATUS "Configuring for static Qt build")
+    add_definitions(-DQT_STATICPLUGIN)
+else()
+    message(STATUS "Configuring for dynamic Qt build")
+endif()
+
 set(PROJECT_HEADERS
-    include/connection_manager.h
-    include/generic_port.h
     include/kgroundcontrol.h
-    include/mavlink_enum_types.h
-    include/mavlink_inspector.h
-    include/serial_port.h
     include/settings.h
     include/threads.h
-    include/udp_port.h
-    include/mocap_manager.h
     include/relaydialog.h
     include/signal_filters.h
-    include/keybinddialog.h
     # include/cartography.h
     include/default_ui_config.h
-    include/joystick.h
-    include/joystick_manager.h
-    include/remote_control_manager.h
-    include/fake_mocap_dialog.h
-    include/plotting_manager.h
-    include/plot_signal_registry.h
-    include/plot_canvas.h
+    include/collapsible_group.h
+    include/update_manager.h
+    
+    # Hardware I/O group
+    include/hardware_io/connection_manager.h
+    include/hardware_io/generic_port.h
+    include/hardware_io/joystick.h
+    include/hardware_io/joystick_manager.h
+    include/hardware_io/serial_port.h
+    include/hardware_io/udp_port.h
+    
+    # MAVLink Communication group
+    include/mavlink_communication/mavlink_enum_types.h
+    include/mavlink_communication/mavlink_inspector.h
+    include/mavlink_communication/remote_control_manager.h
+    include/mavlink_communication/keybinddialog.h
+    
+    # Motion Capture group
+    include/mocap/fake_mocap_dialog.h
+    include/mocap/mocap_manager.h
+    
+    # Plot group
+    include/plot/plotting_manager.h
+    include/plot/plot_signal_registry.h
+    include/plot/plot_canvas.h
+    include/plot/create_3d_group_dialog.h
+    include/plot/sci_doublespinbox.h
 )
 
 set(PROJECT_SOURCES
-    src/connection_manager.cpp
     src/kgroundcontrol.cpp
     src/main.cpp
-    src/mavlink_inspector.cpp
-    src/serial_port.cpp
     src/settings.cpp
     src/threads.cpp
-    src/udp_port.cpp
-    src/mocap_manager.cpp
     src/relaydialog.cpp
     src/signal_filters.cpp
-    src/keybinddialog.cpp
-    # src/cartography.cpp
     src/default_ui_config.cpp
-    src/joystick.cpp
-    src/joystick_manager.cpp
-    src/remote_control_manager.cpp
-    src/fake_mocap_dialog.cpp
-    src/plotting_manager.cpp
-    src/plot_signal_registry.cpp
-    src/plot_canvas.cpp
+    src/collapsible_group.cpp
+    src/update_manager.cpp
+    
+    # Hardware I/O group
+    src/hardware_io/connection_manager.cpp
+    src/hardware_io/joystick.cpp
+    src/hardware_io/joystick_manager.cpp
+    src/hardware_io/serial_port.cpp
+    src/hardware_io/udp_port.cpp
+    
+    # MAVLink Communication group
+    src/mavlink_communication/mavlink_inspector.cpp
+    src/mavlink_communication/remote_control_manager.cpp
+    src/mavlink_communication/keybinddialog.cpp
+    
+    # Motion Capture group
+    src/mocap/fake_mocap_dialog.cpp
+    src/mocap/mocap_manager.cpp
+    
+    # Plot group
+    src/plot/plotting_manager.cpp
+    src/plot/plot_signal_registry.cpp
+    src/plot/plot_canvas.cpp
+    src/plot/create_3d_group_dialog.cpp
 )
 
 set(PROJECT_UI
-    src/kgroundcontrol.ui
-    src/mavlink_inspector.ui
-    src/mocap_manager.ui
-    src/relaydialog.ui
-    src/mavlink_inspector_msg.ui
-    src/keybinddialog.ui
-    # src/cartography.ui
-    src/joystick_manager.ui
-    src/fake_mocap_dialog.ui
-    src/plotting_manager.ui
+    ui/kgroundcontrol.ui
+    ui/mavlink_inspector.ui
+    ui/mocap_manager.ui
+    ui/relaydialog.ui
+    ui/mavlink_inspector_msg.ui
+    ui/keybinddialog.ui
+    # ui/cartography.ui
+    ui/joystick_manager.ui
+    ui/fake_mocap_dialog.ui
+    ui/plotting_manager.ui
+    ui/create_3d_group_dialog.ui
 )
 
 set(PROJECT_RESOURCES
@@ -304,15 +360,30 @@ target_include_directories(KGroundControl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/s
 # Include build directory for auto-generated UI headers
 target_include_directories(KGroundControl PRIVATE "${CMAKE_BINARY_DIR}/ui_autogen")
 
+# Define version information for auto-updater
+target_compile_definitions(KGroundControl PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+    APP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    APP_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+)
+
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Location)
 
-# Link all the outside libraries used in this project (from libs folder):
+# Link QSimpleUpdater for auto-update functionality
+target_link_libraries(KGroundControl PRIVATE QSimpleUpdater)
+
+# Link all the outside libraries used in this project (from libs folder and FetchContent):
 target_link_libraries(KGroundControl PRIVATE mavlink)
 target_link_libraries(KGroundControl PRIVATE optitrack)
-target_link_libraries(KGroundControl PRIVATE SDL2main SDL2-static)
+# Do not link SDL2main when using Qt (Qt provides its own WinMain entrypoint).
+# Define SDL_MAIN_HANDLED so SDL does not redefine main.
+target_compile_definitions(KGroundControl PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(KGroundControl PRIVATE SDL2-static)
+# Add SDL2 include directory (from FetchContent)
+target_include_directories(KGroundControl PRIVATE ${sdl2_SOURCE_DIR}/include)
 
 # Static Qt build additional libraries
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
@@ -355,12 +426,13 @@ endif()
 
 # Include plugins (limit for Linux static builds to avoid pulling in QtPdf, etc.)
 if(UNIX AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
-    # Disable default plugin auto-imports and include only the Xcb platform plugin
+    # Disable default plugin auto-imports and include only essential plugins
     # to prevent linking optional plugins such as QtPdf on static builds.
     qt_import_plugins(KGroundControl
         NO_DEFAULT
         INCLUDE
             Qt6::QXcbIntegrationPlugin
+            Qt6::QTlsBackendOpenSSLPlugin
     )
 endif()
 
@@ -412,6 +484,60 @@ set_target_properties(KGroundControl PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Determine OS name and architecture for versioned binary naming.
+# The value produced here must match the strings used by the auto‑update
+# workflow when constructing asset names.  "Windows" and "macOS" are
+# hard-coded; on Linux we attempt to read /etc/os-release and produce a
+# string such as "Ubuntu_24.04" or "Debian_12".  This keeps the
+# DistributionKit artifact name aligned with the platform key logic used at
+# runtime, while still being readable for human operators.
+if(WIN32)
+    set(OS_NAME "Windows")
+    set(BINARY_EXTENSION ".exe")
+elseif(UNIX AND NOT APPLE)
+    # default fallback if detection fails
+    set(OS_NAME "linux")
+    set(BINARY_EXTENSION "")
+    if(EXISTS "/etc/os-release")
+        file(READ "/etc/os-release" _osrel)
+        # anchor regexes to start of line to avoid matching VERSION_ID for ID
+        string(REGEX MATCH "(^|\n)ID=\"?([^\n\"]+)\"?" _match "${_osrel}")
+        set(_id "${CMAKE_MATCH_2}")
+        string(REGEX MATCH "(^|\n)VERSION_ID=\"?([^\n\"]+)\"?" _match2 "${_osrel}")
+        set(_ver "${CMAKE_MATCH_2}")
+
+        # sanitize and format: capitalize ID.  version string is left
+        # unchanged except for optional quoting; dots are desirable because
+        # they match the naming convention used in the update JSON and
+        # asset names (e.g. Ubuntu_22.04).
+        string(TOLOWER "${_id}" _id_low)
+        string(SUBSTRING "${_id_low}" 0 1 _first)
+        string(TOUPPER "${_first}" _first_up)
+        string(SUBSTRING "${_id_low}" 1 -1 _rest)
+        string(CONCAT _id_fmt "${_first_up}${_rest}")
+        set(_ver_fmt "${_ver}")
+        set(OS_NAME "${_id_fmt}_${_ver_fmt}")
+    endif()
+elseif(APPLE)
+    set(OS_NAME "macOS")
+    set(BINARY_EXTENSION "")
+else()
+    set(OS_NAME "Unknown")
+    set(BINARY_EXTENSION "")
+endif()
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(ARCH_NAME "x64")
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(ARCH_NAME "x86")
+else()
+    set(ARCH_NAME "unknown")
+endif()
+
+# Versioned binary name: KGroundControl_v1.2.3_Ubuntu_24.04_x64
+set(VERSIONED_BINARY_NAME "KGroundControl_v${PROJECT_VERSION}_${OS_NAME}_${ARCH_NAME}${BINARY_EXTENSION}")
+message(STATUS "Versioned binary name: ${VERSIONED_BINARY_NAME}")
+
 include(GNUInstallDirs)
 install(TARGETS KGroundControl
     BUNDLE DESTINATION .
@@ -452,7 +578,13 @@ set(_IS_STATIC_GENEX "$<OR:$<BOOL:${FORCE_QT_STATIC}>,$<BOOL:${QT_STATIC_BUILD}>
 set(_STATIC_OR_SHARED "$<IF:${_IS_STATIC_GENEX},Static,Shared>")
 # Determine config name at build time; fall back to CMAKE_BUILD_TYPE for single-config generators
 set(_CONFIG_GENEX "$<IF:$<STREQUAL:$<CONFIG>,>,${CMAKE_BUILD_TYPE},$<CONFIG>>")
-set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${_STATIC_OR_SHARED}")
+# include OS_NAME so kits built on different OS/distributions do not
+# collide.  the variable is already defined above when we compute
+# VERSIONED_BINARY_NAME, but it may be empty during project configuration
+# if the detection ran later – ensure we compute it first by reusing the
+# logic or simply evaluating the same snippet here.  for simplicity we
+# assume OS_NAME has been set by the earlier section.
+set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${OS_NAME}/${_STATIC_OR_SHARED}")
 
 add_custom_command(TARGET KGroundControl POST_BUILD
     COMMAND ${CMAKE_COMMAND}
@@ -464,6 +596,7 @@ add_custom_command(TARGET KGroundControl POST_BUILD
         -DIS_WINDOWS=$<IF:$<PLATFORM_ID:Windows>,1,0>
         -DWINDEPLOYQT_EXECUTABLE=${WINDEPLOYQT_EXECUTABLE}
         -DCONFIG=${_CONFIG_GENEX}
+        -DVERSIONED_BINARY_NAME=${VERSIONED_BINARY_NAME}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageDist.cmake
     COMMENT "Packaging KGroundControl into DistributionKit for Release/MinSizeRel"
 )

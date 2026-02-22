@@ -111,6 +111,7 @@ public:
     */
     bool parse_optitrack_packet_into_messages(int &nBytes, std::vector<optitrack_message_t> &messages);
     bool is_ready_to_parse(void);
+    void get_backlog(int &pending_bytes, int &frames_ready);
 
     /**
     * guess_optitrack_network_interface tries to find the IP address of the interface to use for receiving Optitrack data.

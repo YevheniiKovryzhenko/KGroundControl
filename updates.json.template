@@ -1,0 +1,56 @@
+{
+  "updates": {
+    /*
+      Platform keys are used by QSimpleUpdater to determine which entry
+      applies to the running instance of the application.  the old scheme
+      simply used a top‑level "linux" key for all UNIX builds.  to support
+      multiple distributions/versions we append the distro name and release
+      (the same strings returned by QSysInfo::productType()/productVersion)
+      so the updater can choose the correct file.
+
+      Examples:
+        "linux": { ... }                       // generic fallback used by
+                                               // older clients and when the
+                                               // specific key yields no update
+        "linux-ubuntu-22.04": { ... }         // ubuntu 22.04 build
+        "linux-ubuntu-24.04": { ... }         // ubuntu 24.04 build
+        "linux-debian-12": { ... }
+
+      The code in UpdateManager computes a key such as
+      "linux-ubuntu-24.04" at runtime and prefers that entry.  If the
+      requested key is missing or does not contain a newer version it
+      automatically retries with the generic "linux" key.  Our release
+      workflow ensures the generic entry always points to the *lowest*
+      available variant (currently Ubuntu 22.04) so that generic/linux
+      clients will receive the most widely supported binary.
+    */
+
+    "linux": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Ubuntu_24.04_x64",
+      "changelog": "## What's New in v1.2.3\n\n- Added automatic update checking system\n- Added install-on-exit option for non-disruptive updates\n- Added progress tracking for downloads\n- Improved settings persistence\n- Bug fixes and performance improvements",
+      "mandatory-update": false
+    },
+
+    /* distro‑specific entries can coexist with the generic linux key */
+    "linux-ubuntu-24.04": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Ubuntu_24.04_x64",
+      "changelog": "(same as above or customized)",
+      "mandatory-update": false
+    },
+    "linux-ubuntu-22.04": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Ubuntu_22.04_x64",
+      "changelog": "(again, could be identical)",
+      "mandatory-update": false
+    },
+
+    "windows": {
+      "latest-version": "1.2.3",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.3/KGroundControl_v1.2.3_Windows_x64.exe",
+      "changelog": "## What's New in v1.2.3\n\n- Added automatic update checking system\n- Added install-on-exit option for non-disruptive updates\n- Added progress tracking for downloads\n- Improved settings persistence\n- Bug fixes and performance improvements",
+      "mandatory-update": false
+    }
+  }
+}

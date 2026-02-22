@@ -38,7 +38,8 @@
 #include "settings.h"
 #include "relaydialog.h"
 #include "default_ui_config.h"
-#include "plot_signal_registry.h"
+#include "plot/plot_signal_registry.h"
+#include "collapsible_group.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -48,6 +49,23 @@
 #include <QStringList>
 #include <QDialog>
 #include <QFontDatabase>
+#include <QSettings>
+#include <QMessageBox>
+#include <QStandardPaths>
+#include <QTime>
+#include <QTimer>
+#include <QTextEdit>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QProgressBar>
+
+// Ensure APP_VERSION is available for update checks
+#ifndef APP_VERSION
+#define APP_VERSION "1.0.0"
+#endif
 
 KGroundControl::KGroundControl(QWidget *parent)
     : QMainWindow(parent)
@@ -55,6 +73,12 @@ KGroundControl::KGroundControl(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
+    
+    // Setup collapsible groups in Settings page
+    setupSettingsGroups();
+    
+    // Set window title with version
+    setWindowTitle(QString("KGroundControl v%1").arg(APP_VERSION));
 
     load_settings();
     // Apply plotting buffer duration globally
@@ -78,6 +102,45 @@ KGroundControl::KGroundControl(QWidget *parent)
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
 
+    // Initialize Update Manager (safety-critical, non-blocking).
+
+    // debug: show reinstall button state
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] btn_reinstall exists:" << (ui->btn_reinstall != nullptr)
+             << "visible:" << ui->btn_reinstall->isVisible();
+#endif
+    // The constructor will also ensure the desktop entry exists and matches
+    // the current binary, so launches alone are enough to keep the
+    // launcher icon up‑to‑date.
+    update_manager_ = new UpdateManager(this);
+    connect(update_manager_, &UpdateManager::updateAvailable,
+            this, &KGroundControl::onUpdateAvailable);
+    connect(update_manager_, &UpdateManager::noUpdatesAvailable,
+            this, &KGroundControl::onNoUpdatesAvailable);
+    connect(update_manager_, &UpdateManager::downloadStarted,
+            this, &KGroundControl::onDownloadStarted);
+    connect(update_manager_, &UpdateManager::downloadProgress,
+            this, &KGroundControl::onDownloadProgress);
+    connect(update_manager_, &UpdateManager::downloadFinished,
+            this, &KGroundControl::onDownloadFinished);
+    connect(update_manager_, &UpdateManager::updateError,
+            this, &KGroundControl::onUpdateError);
+    connect(update_manager_, &UpdateManager::updateDeclined,
+            this, [this](const QString &version) {
+                declined_update_version_ = version;
+            });
+    // Disable check button while update dialog is active to prevent reopening issues
+    connect(update_manager_, &UpdateManager::updateAvailable,
+            this, [this]() {
+                ui->btn_check_updates->setEnabled(false);
+                ui->btn_check_updates->setDown(true);  // Make it look pressed
+            });
+    connect(update_manager_, &UpdateManager::dialogClosed,
+            this, [this]() {
+                ui->btn_check_updates->setEnabled(true);
+                ui->btn_check_updates->setDown(false);  // Restore normal state
+            });
+
     connect(this, &KGroundControl::switch_emit_heartbeat, connection_manager_, &connection_manager::switch_emit_heartbeat, Qt::DirectConnection);
     connect(this, &KGroundControl::is_heartbeat_emited, connection_manager_, &connection_manager::is_heartbeat_emited, Qt::DirectConnection);
     connect(this, &KGroundControl::get_port_settings, connection_manager_, &connection_manager::get_port_settings, Qt::DirectConnection);
@@ -90,6 +153,35 @@ KGroundControl::KGroundControl(QWidget *parent)
 
 
     // connect(connection_manager_, &connection_manager::port_added, this, &KGroundControl::port_added_externally);
+
+    // Auto-create MOCAP manager if it was open on last run
+    {
+        QSettings s; s.beginGroup("mocap_manager");
+        const bool reopen = s.value("connection/was_open", false).toBool();
+        s.endGroup();
+        if (reopen) {
+            mocap_manager_ = new mocap_manager();
+            connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
+            connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);
+
+            connect(connection_manager_, &connection_manager::port_names_updated, mocap_manager_, &mocap_manager::update_relay_port_list, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+            connect(mocap_manager_, &mocap_manager::get_port_pointer, connection_manager_, &connection_manager::get_port, Qt::DirectConnection);
+
+            connect(mavlink_manager_, &mavlink_manager::sysid_list_changed, mocap_manager_, &mocap_manager::update_relay_sysid_list, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_sysids, mavlink_manager_, &mavlink_manager::get_sysids, Qt::DirectConnection);
+
+            connect(mavlink_manager_, &mavlink_manager::compid_list_changed, mocap_manager_, &mocap_manager::update_relay_compids, Qt::QueuedConnection);
+            connect(mocap_manager_, &mocap_manager::get_compids, mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
+
+            connect(mocap_manager_, &mocap_manager::closed, this, &KGroundControl::mocap_closed);
+            connect(mocap_manager_, &mocap_manager::windowHidden, this, &KGroundControl::mocap_window_hidden);
+
+            if (mocap_manager_->isVisible()) {
+                ui->btn_mocap->setVisible(false);
+            }
+        }
+    }
 
     // Start of Commns Pannel configuration:
 
@@ -181,7 +273,6 @@ KGroundControl::KGroundControl(QWidget *parent)
     if (ui->gridLayout_4) { ui->gridLayout_4->setColumnStretch(0, 0); ui->gridLayout_4->setColumnStretch(1, 1); ui->gridLayout_4->setColumnStretch(2, 0); }
     if (ui->gridLayout_5) { ui->gridLayout_5->setColumnStretch(0, 0); ui->gridLayout_5->setColumnStretch(1, 1); ui->gridLayout_5->setColumnStretch(2, 0); }
     if (ui->gridLayout_6) { ui->gridLayout_6->setColumnStretch(0, 0); ui->gridLayout_6->setColumnStretch(1, 1); ui->gridLayout_6->setColumnStretch(2, 0); }
-    if (ui->gridLayout_8) { ui->gridLayout_8->setColumnStretch(0, 0); ui->gridLayout_8->setColumnStretch(1, 1); }
 
     // Start of Settings Pannel //
     ui->txt_sysid->setMaxLength(3);
@@ -202,18 +293,6 @@ KGroundControl::KGroundControl(QWidget *parent)
     if (ui->spin_plot_buffer)
         ui->spin_plot_buffer->setValue(settings.plot_buffer_duration_sec);
 
-
-    // // Start of System Thread Configuration //
-    // generic_thread_settings systhread_settings_;
-    // systhread_settings_.priority = QThread::Priority::TimeCriticalPriority;
-    // systhread_settings_.update_rate_hz = 1;
-    // systhread_ = new system_status_thread(&systhread_settings_, &settings);
-    // // connect(systhread_, &system_status_thread::send_parsed_hearbeat, connection_manager_, &connection_manager::relay_parsed_hearbeat, Qt::DirectConnection);
-    // connect(this, &KGroundControl::settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
-    // END of System Thear Configuration //
-
-    // emit settings_updated(&settings);
-
     ui->stackedWidget_c2t->setCurrentIndex(0);
 
 
@@ -225,7 +304,28 @@ KGroundControl::KGroundControl(QWidget *parent)
     {
         connection_manager_->load_routing(qsettings);
         ui->list_connections->addItems(port_names);
-    }    
+    }
+    
+    // Auto-check for updates on startup (silent, non-intrusive)
+    // Only if user has enabled this in settings
+    QTimer::singleShot(2000, this, [this]() {
+        if (!settings.check_updates_on_startup) {
+            qDebug() << "[KGroundControl] Auto-update check disabled in settings";
+            return;
+        }
+        
+        QString updateUrl;
+        
+        // Production URL (GitHub Pages) - default for releases:
+        updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+        
+        // For LOCAL TESTING, uncomment this and comment the line above:
+        // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        // updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+        
+        qDebug() << "[KGroundControl] Auto-checking for updates on startup...";
+        update_manager_->checkForUpdates(updateUrl, true);  // silent=true, no "no updates" message
+    });
 }
 
 KGroundControl::~KGroundControl()
@@ -256,6 +356,15 @@ void KGroundControl::load_settings(void)
     qsettings.endGroup();
 
     settings.load(qsettings);
+    
+    // Restore UI state from settings
+    ui->chk_auto_update->setChecked(settings.check_updates_on_startup);
+#ifdef Q_OS_LINUX
+    ui->chk_auto_install->setChecked(settings.auto_install_on_startup);
+#else
+    // hide on platforms where auto‑install is irrelevant; state is unused.
+    ui->chk_auto_install->setVisible(false);
+#endif
 }
 
 void KGroundControl::save_settings(void)
@@ -284,6 +393,19 @@ void KGroundControl::save_settings(void)
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
     emit about2close();
+    
+    // Check if we should install update on exit
+    if (install_update_on_exit_ && !pending_update_filepath_.isEmpty()) {
+        qDebug() << "[KGroundControl] Installing update on exit...";
+        
+        // Perform the binary swap without restarting
+        if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
+            qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
+        } else {
+            qWarning() << "[KGroundControl] Failed to install update on exit";
+        }
+    }
+    
     // save current state of the app:
     save_settings();
 
@@ -567,6 +689,50 @@ void KGroundControl::get_settings(kgroundcontrol_settings* settings_out)
     settings_mutex_->unlock();
 }
 
+void KGroundControl::on_btn_settings_reset_now_clicked()
+{
+    auto confirm = QMessageBox::question(this, "Reset Settings",
+        "This will immediately clear ALL saved settings and reload defaults. Continue?",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (confirm != QMessageBox::Yes) return;
+
+    // Close sub-windows that may save settings on close BEFORE clearing
+    if (mocap_manager_) {
+        mocap_manager_->close();
+    }
+
+    // Clear persistent store
+    { QSettings s; s.clear(); s.sync(); }
+
+    // Reset in-memory app settings to defaults
+    settings = kgroundcontrol_settings{};
+    emit settings_updated(&settings);
+
+    // Apply font and buffer defaults
+    QFont defFont(settings.font_family, settings.font_point_size);
+    qApp->setFont(defFont);
+    updateAllWidgetsFont(this, defFont);
+    if (ui->spin_plot_buffer)
+        ui->spin_plot_buffer->setValue(settings.plot_buffer_duration_sec);
+    PlotSignalRegistry::instance().setBufferDurationSec(settings.plot_buffer_duration_sec);
+
+    // Reset UI widgets in Settings page
+    ui->txt_sysid->setText(QString::number(settings.sysid));
+    {
+        QString compKey = enum_helpers::value2key(settings.compid);
+        int compIdx = ui->cmbx_compid->findText(compKey);
+        if (compIdx >= 0) ui->cmbx_compid->setCurrentIndex(compIdx);
+    }
+    ui->font_combo->setCurrentFont(QFont(settings.font_family));
+    {
+        int sizeIdx = ui->font_size_combo->findText(QString::number(settings.font_point_size));
+        if (sizeIdx >= 0) ui->font_size_combo->setCurrentIndex(sizeIdx);
+    }
+    if (ui->settings_hard_reset_on_exit) ui->settings_hard_reset_on_exit->setChecked(false);
+
+    QMessageBox::information(this, "Reset Complete", "All settings cleared. Defaults are now active.");
+}
+
 
 void KGroundControl::on_btn_settings_go_back_clicked()
 {
@@ -656,6 +822,78 @@ void KGroundControl::updateAllWidgetsFont(QWidget* parent, const QFont& font)
             updateAllWidgetsFont(childWidget, font);
         }
     }
+}
+
+void KGroundControl::setupSettingsGroups()
+{
+    // Create layout for General group
+    QGridLayout* generalLayout = new QGridLayout();
+    generalLayout->addWidget(ui->chk_auto_update, 0, 0);
+    ui->btn_check_updates->setMinimumWidth(150);  // Ensure button fits text
+    generalLayout->addWidget(ui->btn_check_updates, 0, 1);
+
+    // new auto‑install checkbox sits directly below the auto‑update option
+#ifdef Q_OS_LINUX
+    generalLayout->addWidget(ui->chk_auto_install, 1, 0);
+    ui->btn_reinstall->setMinimumWidth(150);  // same width as update button
+    generalLayout->addWidget(ui->btn_reinstall, 1, 1);
+#endif
+
+    generalLayout->addWidget(ui->settings_hard_reset_on_exit, 2, 0);
+    generalLayout->addWidget(ui->btn_settings_reset_now, 2, 1);
+    generalLayout->setColumnStretch(0, 1);
+    generalLayout->setColumnStretch(1, 0);
+    ui->group_general->setTitle("General");
+    ui->group_general->setContentLayout(generalLayout);
+    
+    // Create layout for User Interface group
+    QGridLayout* uiLayout = new QGridLayout();
+    QLabel* fontLabel = new QLabel("Font:");
+    QLabel* fontSizeLabel = new QLabel("Font Size:");
+    QLabel* plotBufferLabel = new QLabel("Plot Buffer Size:");
+    uiLayout->addWidget(fontLabel, 0, 0);
+    uiLayout->addWidget(ui->font_combo, 0, 1);
+    uiLayout->addWidget(fontSizeLabel, 1, 0);
+    uiLayout->addWidget(ui->font_size_combo, 1, 1);
+    uiLayout->addWidget(plotBufferLabel, 2, 0);
+    uiLayout->addWidget(ui->spin_plot_buffer, 2, 1);
+    uiLayout->setColumnStretch(0, 0);
+    uiLayout->setColumnStretch(1, 1);
+    ui->group_user_interface->setTitle("User Interface");
+    ui->group_user_interface->setContentLayout(uiLayout);
+    ui->group_user_interface->setCollapsed(true);  // Start collapsed
+    
+    // Create layout for Communication group
+    QGridLayout* commLayout = new QGridLayout();
+    QLabel* sysidLabel = new QLabel("System ID:");
+    QLabel* compidLabel = new QLabel("Component ID:");
+    commLayout->addWidget(sysidLabel, 0, 0);
+    commLayout->addWidget(ui->txt_sysid, 0, 1);
+    commLayout->addWidget(compidLabel, 1, 0);
+    commLayout->addWidget(ui->cmbx_compid, 1, 1);
+    commLayout->setColumnStretch(0, 0);
+    commLayout->setColumnStretch(1, 1);
+    ui->group_communication->setTitle("Communication");
+    ui->group_communication->setContentLayout(commLayout);
+    ui->group_communication->setCollapsed(true);  // Start collapsed
+    
+    // Show all widgets now that they're in groups (except progress widget which stays hidden)
+    ui->txt_sysid->setVisible(true);
+    ui->cmbx_compid->setVisible(true);
+    ui->font_combo->setVisible(true);
+    ui->font_size_combo->setVisible(true);
+    ui->spin_plot_buffer->setVisible(true);
+    ui->settings_hard_reset_on_exit->setVisible(true);
+    ui->btn_settings_reset_now->setVisible(true);
+    ui->chk_auto_update->setVisible(true);
+#ifdef Q_OS_LINUX
+    ui->chk_auto_install->setVisible(true);
+    ui->btn_reinstall->setVisible(true);
+#else
+    ui->chk_auto_install->setVisible(false);
+    ui->btn_reinstall->setVisible(false);
+#endif
+    ui->btn_check_updates->setVisible(true);
 }
 
 void KGroundControl::mocap_closed(void)
@@ -748,5 +986,215 @@ void KGroundControl::on_btn_plotting_manager_clicked()
     w->setAttribute(Qt::WA_DeleteOnClose, true);
     connect(this, &KGroundControl::about2close, w, &PlottingManager::close, Qt::DirectConnection);
     w->show();
+}
+
+void KGroundControl::on_btn_check_updates_clicked()
+{
+    qDebug() << "[KGroundControl] User requested update check";
+    
+    // Clear any previously declined version when user manually checks
+    // Manual checks should always show the dialog, even if user declined before
+    declined_update_version_.clear();
+    
+    QString updateUrl;
+    
+    // Production URL (GitHub Pages) - default for releases:
+    updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+    
+    // For LOCAL TESTING, uncomment these lines and comment the line above:
+    // NOTE: To properly test version updates, you need a binary with a DIFFERENT version.
+    // The version is defined in CMakeLists.txt line 8: project(KGroundControl VERSION 1.2.3 ...)
+    // Steps to test proper version update:
+    //   1. Build current version (e.g., 1.2.3)
+    //   2. Edit CMakeLists.txt to version 1.2.4
+    //   3. Rebuild: cmake --build build/Debug
+    //   4. Copy new binary: cp build/Debug/bin/KGroundControl ~/Downloads/KGroundControl_new
+    //   5. Edit CMakeLists.txt back to version 1.2.3
+    //   6. Rebuild: cmake --build build/Debug
+    //   7. Create ~/Downloads/updates.json with version "1.2.4" and file:// URL to KGroundControl_new
+    //   8. Run the app and test update - after install it should show v1.2.4 in title
+    // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    // updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+    
+    qDebug() << "[KGroundControl] Checking for updates from:" << updateUrl;
+    
+    // Non-blocking, safe check (not silent - will show "no updates" message)
+    update_manager_->checkForUpdates(updateUrl, false);
+}
+
+void KGroundControl::on_chk_auto_update_toggled(bool checked)
+{
+    qDebug() << "[KGroundControl] Auto-update checkbox toggled:" << checked;
+    settings.check_updates_on_startup = checked;
+    // Settings will be saved in save_settings() when app closes
+}
+
+void KGroundControl::on_chk_auto_install_toggled(bool checked)
+{
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] Auto-install checkbox toggled:" << checked;
+    settings.auto_install_on_startup = checked;
+    // Behavior for desktop entry and binary location will respect this
+#else
+    Q_UNUSED(checked);
+#endif
+}
+
+void KGroundControl::on_btn_reinstall_clicked()
+{
+#ifdef Q_OS_LINUX
+    qDebug() << "[KGroundControl] Manual reinstall requested";
+    // ignore user setting; allow reinstall even if auto-install is disabled
+    if (UpdateManager::installIfNotInUserBin(false)) {
+        // install helper will have launched the new copy and exited this one
+        return;
+    }
+    QMessageBox::information(this, "Reinstall", "Application is already installed in the correct location.");
+#else
+    // no-op on other platforms
+    QMessageBox::information(this, "Reinstall", "Auto-install is only available on Linux.");
+#endif
+}
+
+void KGroundControl::onUpdateAvailable(const QString &version, const QString &changelog)
+{
+    qDebug() << "[KGroundControl] Update available:" << version;
+    
+    // Check if user already declined this version in this session
+    if (declined_update_version_ == version) {
+        qDebug() << "[KGroundControl] User already declined version" << version << "in this session, skipping prompt";
+        return;
+    }
+    
+    // Show update dialog through UpdateManager
+    update_manager_->showUpdateDialog(APP_VERSION, this);
+}
+
+void KGroundControl::onNoUpdatesAvailable()
+{
+    qDebug() << "[KGroundControl] No updates available";
+    
+    QMessageBox::information(this, "No Updates",
+                            QString("You are running the latest version (%1) of KGroundControl.")
+                                .arg(APP_VERSION),
+                            QMessageBox::Ok);
+}
+
+void KGroundControl::onDownloadStarted()
+{
+    qDebug() << "[KGroundControl] Download started";
+    
+    // Forward to UpdateManager for progress display
+    if (update_manager_) {
+        update_manager_->onDownloadStartedInternal();
+    }
+    
+    // Disable update button during download
+    ui->btn_check_updates->setEnabled(false);
+    
+    // Initialize download tracking
+    download_start_time_ = QTime::currentTime();
+    last_bytes_received_ = 0;
+    last_progress_time_ = QTime::currentTime();
+}
+
+void KGroundControl::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
+{
+    // Forward progress to UpdateManager for display in dialog
+    if (update_manager_) {
+        update_manager_->onDownloadProgressInternal(bytesReceived, bytesTotal);
+    }
+}
+
+void KGroundControl::onDownloadFinished(const QString &filepath)
+{
+    qDebug() << "[KGroundControl] Update downloaded:" << filepath;
+    pending_update_filepath_ = filepath;
+    
+    // Close the update dialog
+    update_manager_->closeUpdateDialog();
+    
+    // Re-enable button
+    ui->btn_check_updates->setEnabled(true);
+    
+    // Ask user how to proceed with update
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Update Ready");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText("The update has been downloaded and is ready to install.");
+    msgBox.setInformativeText("You can install the update now (requires restart) or schedule it to install when you exit the application.");
+    // hide close/min/max buttons, our own buttons handle flow
+    msgBox.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+    // Add buttons in order: Cancel (left), Install on Exit (middle), Install and Restart Now (right)
+    QPushButton *cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
+    QPushButton *installOnExitButton = msgBox.addButton("Install on Exit", QMessageBox::ActionRole);
+    QPushButton *installNowButton = msgBox.addButton("Install and Restart Now", QMessageBox::AcceptRole);
+    
+    msgBox.setDefaultButton(installOnExitButton);  // Safe default
+    msgBox.exec();
+    
+    if (msgBox.clickedButton() == installNowButton) {
+        qDebug() << "[KGroundControl] User chose to install and restart now";
+        
+        // Apply the update (this will restart the app)
+        if (!update_manager_->applyUpdate(filepath)) {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Failed");
+            box.setIcon(QMessageBox::Critical);
+            box.setText("Failed to apply the update. The update file is still available in:\n" +
+                         filepath + "\n\nYou can try manually replacing the executable.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
+    } else if (msgBox.clickedButton() == installOnExitButton) {
+        qDebug() << "[KGroundControl] User chose to install on exit";
+        install_update_on_exit_ = true;
+        
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Scheduled");
+            box.setIcon(QMessageBox::Information);
+            box.setText("The update will be installed when you close KGroundControl.\n\n"
+                        "The updated version will be ready the next time you start the application.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
+    } else {
+        qDebug() << "[KGroundControl] User cancelled installation";
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Postponed");
+            box.setIcon(QMessageBox::Information);
+            box.setText("The update has been saved to:\n" + filepath +
+                        "\n\nYou can install it later by clicking 'Check for Updates' again.");
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
+    }
+}
+
+void KGroundControl::onUpdateError(const QString &error)
+{
+    // Silent error logging - don't bother user unless they manually checked
+    qWarning() << "[KGroundControl] Update error:" << error;
+    
+    // Only show error if it's not a network/offline issue
+    if (!error.contains("network", Qt::CaseInsensitive) &&
+        !error.contains("offline", Qt::CaseInsensitive) &&
+        !error.contains("timeout", Qt::CaseInsensitive)) {
+        
+        {
+            QMessageBox box(this);
+            box.setWindowTitle("Update Check Failed");
+            box.setIcon(QMessageBox::Warning);
+            box.setText("Could not check for updates: " + error);
+            box.setStandardButtons(QMessageBox::Ok);
+            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            box.exec();
+        }
+    }
 }
 
