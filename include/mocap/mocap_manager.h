@@ -123,6 +123,9 @@ public:
     void run();
     void get_backlog(int &pending_bytes, int &frames_ready) { if (optitrack) optitrack->get_backlog(pending_bytes, frames_ready); else { pending_bytes = 0; frames_ready = 0; } }
 
+    // true once at least one frame has ever been processed
+    bool hasReceivedData() const { return has_received_data_; }
+
 signals:
     // void new_data_available(void);
     bool update(QVector<optitrack_message_t> incoming_data, mocap_rotation rotation);
@@ -138,6 +141,8 @@ private:
     // qint64 time_s = QDateTime::currentSecsSinceEpoch();
 
     // std::vector<optitrack_message_t> incomingMessages;
+
+    bool has_received_data_ = false;  // set when first frame arrives
     mocap_optitrack* optitrack = nullptr;
     mocap_settings mocap_settings_;
 };

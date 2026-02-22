@@ -36,6 +36,10 @@
 #include <QErrorMessage>
 #include <QCloseEvent>
 #include <QShowEvent>
+#include <QApplication>
+#include <QClipboard>
+#include <QLabel>
+#include <QTimer>
 
 #include "mocap/mocap_manager.h"
 #include "ui_mocap_manager.h"
@@ -584,6 +588,9 @@ void mocap_thread::run()
             QVector<optitrack_message_t> msgs_;
             if (optitrack->read_message(msgs_))
             {
+                // mark that at least one packet has arrived
+                has_received_data_ = true;
+
                 mutex->lock();
                 mocap_rotation data_rotation = mocap_settings_.data_rotation;
                 mutex->unlock();
@@ -1251,9 +1258,94 @@ bool mocap_manager::startConnectionFromUi(bool silent)
     else
     {
         if (!silent) {
+            // build detailed text including interface info and simple data check
+            QString detail = udp_settings_.get_QString() + thread_settings_.get_QString();
+            // interface name for information
+            // figure out which interface the thread chose; replicate the
+            // same logic used by mocap_thread::start without poking private
+            // members.
+            QNetworkInterface iface;
+            mocap_optitrack tmp;
+            if (!udp_settings_.host_address.isEmpty()) {
+                tmp.get_network_interface(iface, udp_settings_.host_address);
+            }
+            if (iface.name().isEmpty()) {
+                tmp.guess_optitrack_network_interface(iface);
+            }
+            if (!iface.name().isEmpty())
+                detail += QString("\nInterface used: %1").arg(iface.name());
+
+            // give the socket a moment to collect data and then look at backlog
+            int pending=0, frames=0;
+            mocap_thread_->get_backlog(pending, frames);
+            // QThread::msleep(500);
+            // mocap_thread_->get_backlog(pending, frames);
+
+            // build an optional warning string that will be shown prominently
+            QString warningText;
+            if (frames == 0) {
+                warningText = "<b>WARNING:</b><br>";
+                // clearly explain the situation before giving the fix command
+                warningText += "No mocap packets have been received yet. ";
+                warningText += "If you have not yet started streaming data, this is expected. ";
+                warningText += "If you did and all settings are correct (check details), ";
+                warningText += "then this usually means the UDP port is blocked by a local firewall.";
+#if defined(Q_OS_WIN)
+                warningText += "<br>Make sure port " + QString::number(udp_settings_.local_port)
+                               + " is allowed in your firewall.";
+                warningText += "<br>(use Windows Defender &gt; Advanced &gt; Inbound Rules.)";
+#else
+                warningText += "<br>Allow the port with the following command:";
+                warningText += "<br><a href=\"copy\" style=\"font-family:monospace;\">sudo ufw allow proto udp to any port "
+                               + QString::number(udp_settings_.local_port)
+                               + "</a>";
+#endif
+            }
+
             QMessageBox msgBox;
+            msgBox.setTextFormat(Qt::RichText);
             msgBox.setText("Successfully Started MOCAP UDP Communication!");
-            msgBox.setDetailedText(udp_settings_.get_QString() + thread_settings_.get_QString());
+            if (!warningText.isEmpty()) {
+                msgBox.setInformativeText(warningText);
+                msgBox.setIcon(QMessageBox::Warning);
+#ifndef Q_OS_WIN
+                // make all labels in the informative area support links and copy when activated
+                for (QLabel *lbl : msgBox.findChildren<QLabel*>()) {
+                    lbl->setTextInteractionFlags(Qt::TextBrowserInteraction);
+                    lbl->setOpenExternalLinks(false);
+                    QObject::connect(lbl, &QLabel::linkActivated, [=](const QString &link){
+                        if (link == "copy") {
+                            QClipboard *clip = QApplication::clipboard();
+                            clip->setText(QString("sudo ufw allow proto udp to any port %1").arg(udp_settings_.local_port));
+                        }
+                    });
+                }
+#endif
+            }
+            msgBox.setDetailedText(detail);
+            // make dialog a bit wider so inline clipboard icon doesn't wrap
+            msgBox.setMinimumSize(600, msgBox.minimumSizeHint().height());
+            msgBox.resize(600, msgBox.sizeHint().height());
+
+            // if we haven't seen any data yet, update dialog when first frame arrives
+            if (!mocap_thread_->hasReceivedData()) {
+                QMetaObject::Connection conn;
+                conn = QObject::connect(mocap_thread_, &mocap_thread::update,
+                    &msgBox, [&](QVector<optitrack_message_t>, mocap_rotation) mutable {
+                        // got first packet, flip to success state
+                        msgBox.setIcon(QMessageBox::Information);
+                        msgBox.setText("Successfully received frames from mocap.");
+                        msgBox.setInformativeText("");
+                    }, Qt::QueuedConnection);
+                // ensure we disconnect when the dialog goes away
+                QObject::connect(&msgBox, &QDialog::finished, &msgBox, [conn](int){
+                    QObject::disconnect(conn);
+                });
+            }
+
+            // always include an Ok button so user can dismiss explicitly
+            msgBox.setStandardButtons(QMessageBox::Ok);
+
             msgBox.exec();
         }
     ui->groupBox_not_active->setEnabled(false);
