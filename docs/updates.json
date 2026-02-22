@@ -2,7 +2,7 @@
   "updates": {
     "linux": {
       "latest-version": "1.2.8",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.8/KGroundControl_v1.2.8_Ubuntu_22.04_x64",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.2.8/KGroundControl_v1.2.8_Ubuntu_24.04_x64",
       "changelog": "- Added settings for enabling/disabling autoinstall on startup\r\\n- Refined autoinstall logic for linux \r\\n- Updated mocap checks - now actively scans if any data has actually been receved from a new mocap multicast interface and shows debug hints",
       "mandatory-update": false
     },
