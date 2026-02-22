@@ -551,6 +551,21 @@ bool mocap_thread::start(mocap_settings* mocap_new_settings)
     {
         if (!optitrack->guess_optitrack_network_interface(interface)) return false;
     }
+
+    // debug output to help track what interface and addresses are being used
+    // debug output to help track what interface and addresses are being used
+    qDebug() << "[mocap_thread::start] requested host_address=" << mocap_new_settings->host_address
+             << " local_address=" << mocap_new_settings->local_address
+             << " local_port=" << mocap_new_settings->local_port
+             << " multicast=" << mocap_new_settings->multicast_address;
+    qDebug() << "[mocap_thread::start] selected interface name=" << interface.name()
+             << " flags=" << interface.flags()
+             << " hwaddr=" << interface.hardwareAddress();
+    // print all addresses assigned to this iface
+    foreach (const QNetworkAddressEntry &entry, interface.addressEntries()) {
+        qDebug() << "    iface entry:" << entry.ip().toString() << entry.netmask().toString();
+    }
+
     if (!optitrack->create_optitrack_data_socket(interface, mocap_new_settings->local_address, mocap_new_settings->local_port, mocap_new_settings->multicast_address)) return false;
 
     update_settings(mocap_new_settings);

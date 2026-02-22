@@ -132,6 +132,18 @@ if(MSVC)
     add_compile_options(/wd4100 /wd4189 /wd4244 /wd4267)
 endif()
 
+# Define simple debugging macros for every build configuration.  `QT_NO_DEBUG_OUTPUT`
+# causes qDebug()/qInfo()/qWarning() etc to be compiled away and is required on
+# platforms (Linux, non‑MSVC Qt builds) where the Qt libraries themselves
+# don’t automatically set it for Release configurations.  The companion
+# `DEBUG` macro makes any existing `#ifdef DEBUG` guards behave sensibly.
+# These definitions are unconditional; the MSVC runtime logic below is a
+# separate concern.
+add_compile_definitions(
+    $<$<CONFIG:Debug>:DEBUG>
+    $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
+)
+
 # **IMPORTANT**: Configure MSVC runtime BEFORE fetching dependencies
 # This ensures all dependencies (QSimpleUpdater, SDL2) use the same runtime library
 if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
@@ -152,6 +164,16 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "Force Release runtime in Debug config" FORCE)
         # Disable iterator debugging to match release Qt libs
         add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+        # also define a simple DEBUG macro when building in Debug mode so any
+        # legacy #ifdef DEBUG blocks remain active without the user having to
+        # set it manually.  Qt normally defines QT_NO_DEBUG_OUTPUT in non‑debug
+        # builds, but some Qt installations (especially when static or built in
+        # debug mode) do not.  We force the definition ourselves to guarantee
+        # that qDebug()/qWarning() etc. are no‑ops outside of Debug configs.
+        add_compile_definitions(
+            $<$<CONFIG:Debug>:DEBUG>
+            $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
+        )
     endif()
 endif()
 

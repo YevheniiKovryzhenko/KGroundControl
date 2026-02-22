@@ -345,7 +345,7 @@ void UpdateManager::onCheckingFinished(const QString &url)
     QString fetchedVersion = m_updater->getLatestVersion(url);
     qDebug() << "[UpdateManager] Fetched version:" << fetchedVersion;
     if (fetchedVersion.isEmpty()) {
-        qWarning() << "[UpdateManager] fetchedVersion is empty - network lookup failed";
+        qDebug() << "[UpdateManager] fetchedVersion is empty - network lookup failed";
     }
     qDebug() << "[UpdateManager] Current version:" << APP_VERSION;
     
