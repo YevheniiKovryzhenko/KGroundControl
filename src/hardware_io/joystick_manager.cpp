@@ -34,8 +34,98 @@
 
 #include "hardware_io/joystick_manager.h"
 #include "ui_joystick_manager.h"
+#include <QSettings>
+#include <QHeaderView>
 #include "default_ui_config.h"
+
+// persistence helpers implemented as static class methods
+QList<Joystick_manager::RelayEntry> Joystick_manager::load_relay_entries()
+{
+    QList<Joystick_manager::RelayEntry> out;
+    QSettings s;
+    s.beginGroup("joystick_manager");
+    int count = s.value("relay/count", 0).toInt();
+    for (int i = 0; i < count; ++i) {
+        s.beginGroup(QString("relay/%1").arg(i));
+        RelayEntry e;
+        e.name = s.value("name", QString("Relay %1").arg(i + 1)).toString();
+        e.settings.frameid = s.value("frameid", -1).toInt();
+        e.settings.Port_Name = s.value("Port_Name", QString()).toString();
+        e.settings.msg_option = static_cast<JoystickRelaySettings::msg_opt>(s.value("msg_option", 0).toInt());
+        e.settings.sysid = s.value("sysid", 0).toUInt();
+        e.settings.compid = static_cast<mavlink_enums::mavlink_component_id>(s.value("compid", 0).toInt());
+        e.settings.update_rate_hz = s.value("update_rate_hz", 40).toUInt();
+        e.settings.priority = s.value("priority", 0).toInt();
+        e.settings.enabled = s.value("enabled", false).toBool();
+        e.settings.auto_disabled = s.value("auto_disabled", false).toBool();
+        // load field roles array
+        int fieldCount = s.beginReadArray("field_roles");
+        for (int idx=0; idx<fieldCount; ++idx) {
+            s.setArrayIndex(idx);
+            e.field_roles.append(s.value("role", -1).toInt());
+        }
+        s.endArray();
+        // load field values array
+        int valCount = s.beginReadArray("field_values");
+        for (int idx=0; idx<valCount; ++idx) {
+            s.setArrayIndex(idx);
+            e.field_values.append(s.value("value", QString("0")).toString());
+        }
+        s.endArray();
+        s.endGroup();
+        out.append(e);
+    }
+    s.endGroup();
+    return out;
+}
+
+void Joystick_manager::save_relay_entries(const QList<RelayEntry>& entries)
+{
+    QSettings s;
+    s.beginGroup("joystick_manager");
+    s.setValue("relay/count", entries.size());
+    for (int i = 0; i < entries.size(); ++i) {
+        s.beginGroup(QString("relay/%1").arg(i));
+        s.setValue("name", entries[i].name);
+        s.setValue("frameid", entries[i].settings.frameid);
+        s.setValue("Port_Name", entries[i].settings.Port_Name);
+        s.setValue("msg_option", static_cast<int>(entries[i].settings.msg_option));
+        s.setValue("sysid", entries[i].settings.sysid);
+        s.setValue("compid", static_cast<int>(entries[i].settings.compid));
+        s.setValue("update_rate_hz", static_cast<int>(entries[i].settings.update_rate_hz));
+        s.setValue("priority", static_cast<int>(entries[i].settings.priority));
+        s.setValue("enabled", entries[i].settings.enabled);
+        s.setValue("auto_disabled", entries[i].settings.auto_disabled);
+        s.beginWriteArray("field_roles");
+        for (int idx = 0; idx < entries[i].field_roles.size(); ++idx) {
+            s.setArrayIndex(idx);
+            s.setValue("role", entries[i].field_roles[idx]);
+        }
+        s.endArray();
+        s.beginWriteArray("field_values");
+        for (int idx = 0; idx < entries[i].field_values.size(); ++idx) {
+            s.setArrayIndex(idx);
+            s.setValue("value", entries[i].field_values[idx]);
+        }
+        s.endArray();
+        s.endGroup();
+    }
+    s.endGroup();
+}
+
 #include <QPainter>
+#include "collapsible_group.h"
+#include <QLineEdit>
+#include <QGridLayout>
+#include <QComboBox>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QInputDialog>
+#include <QButtonGroup>
+#include <QFormLayout>
+#include <QSpinBox>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 /*
  * Joystick_manager widget and helpers
@@ -173,9 +263,22 @@ Joystick_manager::Joystick_manager(QWidget *parent)
     , ui(new Ui::Joystick_manager)
 {
     ui->setupUi(this);
+    // ensure splitter_main starts with sensible proportions
+    ui->splitter_main->setSizes({600, 200});
+    // Set splitter orientation to vertical (fix for .ui limitation)
     setWindowFlags(Qt::Window);
     setWindowIcon(QIcon(":/resources/Images/Logo/KGC_Logo.png"));
     setWindowTitle("Joystick Manager");
+    // relay button group for exclusive toggling
+    relay_btn_group = new QButtonGroup(this);
+    relay_btn_group->setExclusive(true);
+    // connect pointer-based overload
+    connect(relay_btn_group,
+            QOverload<QAbstractButton *>::of(&QButtonGroup::buttonClicked),
+            this, &Joystick_manager::on_relay_button_clicked);
+
+    // restore relays from previous session (if any)
+    relayEntries = load_relay_entries();
 
     // start joysticks and initial UI population
     joysticks = (QJoysticks::getInstance());
@@ -189,8 +292,20 @@ Joystick_manager::Joystick_manager(QWidget *parent)
             [this](int idx){
                 // forward to existing slot which uses current text and index internally
                 this->on_comboBox_joysticopt_currentTextChanged(ui->comboBox_joysticopt->currentText());
+                update_roles_list();
             });
+    // navigation between stacked pages
+    connect(ui->button_next, &QPushButton::clicked, this, [this]() {
+        ui->stackedWidget_pages->setCurrentIndex(1);
+    });
+    connect(ui->button_back, &QPushButton::clicked, this, [this]() {
+        ui->stackedWidget_pages->setCurrentIndex(0);
+    });
+    // relay panel slots are auto‑connected by Qt (on_button_* naming), so no manual hookup required
 
+    // initially update page2 roles display
+    update_roles_list();
+    update_relays_list();
 }
 
 Joystick_manager::~Joystick_manager()
@@ -202,6 +317,60 @@ Joystick_manager::~Joystick_manager()
         if (dev) joysticks->saveCalibration(dev->hardwareId);
     }
     delete ui;
+}
+
+void Joystick_manager::showEvent(QShowEvent *event)
+{
+    // ensure port list is up to date whenever window is shown
+    update_relay_port_list(emit get_port_names());
+    QWidget::showEvent(event);
+}
+
+
+double Joystick_manager::compute_value_for_role(int role)
+{
+    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(current_joystick_id) : nullptr;
+    if (!dev) return 0.0;
+    // axis roles
+    for (int a = 0; a < dev->axisCalibration.count(); ++a) {
+        if (dev->axisCalibration[a].mapped_role == role) {
+            const CalibrationEntry &c = dev->axisCalibration.at(a);
+            double raw = dev->axes.value(a, 0.0);
+            double d = c.output_deadzone;
+            if (qAbs(raw) <= d) raw = 0.0;
+            else if (raw > d) raw = map2map(raw, d, 1.0, 0.0, 1.0);
+            else if (raw < -d) raw = map2map(raw, -d, -1.0, 0.0, -1.0);
+            QCheckBox *rev = axes_container ? axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(a)) : nullptr;
+            if (rev && rev->isChecked()) raw = -raw;
+            return map2map(raw, -1.0, 1.0, c.output_min, c.output_max);
+        }
+    }
+    // button roles
+    for (int b = 0; b < dev->buttonRole.count(); ++b) {
+        if (dev->buttonRole[b] == role) {
+            bool raw = dev->buttons.value(b, false);
+            return raw ? 1.0 : 0.0;
+        }
+    }
+    return 0.0;
+}
+
+void Joystick_manager::joystick_value_updated(int role, qreal value)
+{
+    double mapped = compute_value_for_role(role);
+    QString str = QString::number(mapped);
+    // update all field widgets that are assigned this role
+    for (int i = 0; i < relayEntries.size() && i < fieldWidgets.size(); ++i) {
+        for (int fi = 0; fi < relayEntries[i].field_roles.size() && fi < fieldWidgets[i].size(); ++fi) {
+            if (relayEntries[i].field_roles[fi] == role && fieldWidgets[i][fi].valueLabel) {
+                if (fieldWidgets[i][fi].valueLabel->text() != str) {
+                    fieldWidgets[i][fi].valueLabel->setText(str);
+                    if (fi < relayEntries[i].field_values.size())
+                        relayEntries[i].field_values[fi] = str;
+                }
+            }
+        }
+    }
 }
 
 
@@ -339,28 +508,24 @@ bool Joystick_manager::add_axis(int axis_id)
 {
     if (axes_layout == NULL) return false;
 
-    QWidget* horisontal_container_ = new QWidget();
-    QHBoxLayout* horisontal_layout_ = new QHBoxLayout(horisontal_container_);
+    // --- Top-level CollapsibleGroup for axis ---
+    CollapsibleGroup* axisGroup = new CollapsibleGroup(axes_container);
+    axisGroup->setTitle(QString("Axis %1").arg(axis_id));
+    axisGroup->setCollapsed(false); // expanded by default
+
+    // Subitem one: previous settings (old view)
+    QWidget* horisontal_container_ = new QWidget(axisGroup);
+    QBoxLayout* horisontal_layout_ = new QHBoxLayout(horisontal_container_);
     horisontal_layout_->setContentsMargins(3,3,3,3);
 
-    QTextBrowser* text_browser_ = new QTextBrowser(horisontal_container_);
-    text_browser_->setText("Axis " + QString::number(axis_id));
-    QFontMetrics font_metrics(text_browser_->font());// Get the height of the font being used
-    // Set the height to the text broswer
-    text_browser_->setMinimumHeight(font_metrics.height());
-    text_browser_->setMaximumHeight(font_metrics.height());
-    text_browser_->setMinimumWidth(font_metrics.horizontalAdvance("Axis " + QString::number(100)));
-    text_browser_->setMaximumWidth(font_metrics.horizontalAdvance("Axis " + QString::number(100)));
-    text_browser_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    text_browser_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    text_browser_->setFrameShape(QFrame::NoFrame);
-    text_browser_->setFocusPolicy(Qt::FocusPolicy::NoFocus);
-    horisontal_layout_->addWidget(text_browser_);
-
     JoystickAxisBar* axis_slider_ = new JoystickAxisBar(horisontal_container_, current_joystick_id, axis_id);
+    connect(axis_slider_, &QProgressBar::valueChanged, this, &Joystick_manager::update_roles_list);
+    connect(&axis_slider_->joystick, &remote_control::channel::axis::joystick::manager::assigned_value_updated,
+            this, &Joystick_manager::joystick_value_updated);
+    QFontMetrics font_metrics(axis_slider_->font());
     axis_slider_->setMinimumHeight(font_metrics.height());
     axis_slider_->setMaximumHeight(font_metrics.height());
-    QSizePolicy size_policy_ = text_browser_->sizePolicy();
+    QSizePolicy size_policy_ = axis_slider_->sizePolicy();
     size_policy_.setHorizontalPolicy(QSizePolicy::Policy::Expanding);
     axis_slider_->setSizePolicy(size_policy_);
     horisontal_layout_->addWidget(axis_slider_);
@@ -375,7 +540,6 @@ bool Joystick_manager::add_axis(int axis_id)
             dev->axisCalibration[axis].raw_min = minVal;
             dev->axisCalibration[axis].raw_max = maxVal;
         }
-        // runtime manager is already in calibration mode; no need to set values here
     });
 
     QCheckBox* button_reverse_ = new QCheckBox(horisontal_container_);
@@ -390,22 +554,25 @@ bool Joystick_manager::add_axis(int axis_id)
     horisontal_layout_->addWidget(button_reverse_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
-    combobox_role_->addItems(enum_helpers::get_all_keys_list<remote_control::channel::enums::role>());
+    QList<QString> roleKeys = enum_helpers::get_all_keys_list<remote_control::channel::enums::role>();
+    QList<remote_control::channel::enums::role> enumVals = enum_helpers::get_all_vals_list<remote_control::channel::enums::role>();
+    QList<int> roleVals;
+    for (const auto& v : enumVals) roleVals.append(static_cast<int>(v));
+    combobox_role_->addItems(roleKeys);
     combobox_role_->setCurrentIndex(0);
     combobox_role_->setEditable(false);
-    connect(this, &Joystick_manager::unset_role, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::unset_role); //first unset role if requested
-    connect(combobox_role_, &QComboBox::currentIndexChanged, this, [this](int index){emit this->unset_role(index);}); //unset all when current index changes
-    connect(combobox_role_, &QComboBox::currentIndexChanged, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::set_role); //set new current role
-    connect(combobox_role_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, axis_id, axis_slider_](int idx){
+    connect(this, &Joystick_manager::unset_role, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::unset_role);
+    connect(combobox_role_, &QComboBox::currentIndexChanged, this, [this](int index){emit this->unset_role(index);});
+    connect(combobox_role_, &QComboBox::currentIndexChanged, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::set_role);
+    connect(combobox_role_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, axis_id, axis_slider_, roleVals](int idx){
         QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
         if (!dev) return;
-        // enforce unique assignment only for real roles (skip UNUSED index0)
-        if (idx > 0)
+        int roleVal = (idx >= 0 && idx < roleVals.size()) ? roleVals[idx] : -1;
+        if (roleVal > 0)
         {
-            // clear same role from other axes
             for (int a = 0; a < dev->axisCalibration.count(); ++a)
             {
-                if (a != axis_id && dev->axisCalibration[a].mapped_role == idx)
+                if (a != axis_id && dev->axisCalibration[a].mapped_role == roleVal)
                 {
                     dev->axisCalibration[a].mapped_role = -1;
                     QComboBox *other = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(a));
@@ -417,10 +584,9 @@ bool Joystick_manager::add_axis(int axis_id)
                     }
                 }
             }
-            // clear same role from buttons
             for (int b = 0; b < dev->buttonRole.count(); ++b)
             {
-                if (dev->buttonRole[b] == idx)
+                if (dev->buttonRole[b] == roleVal)
                 {
                     dev->buttonRole[b] = -1;
                     QComboBox *other = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b));
@@ -432,10 +598,9 @@ bool Joystick_manager::add_axis(int axis_id)
                     }
                 }
             }
-            // also clear from povs
             for (int p = 0; p < dev->povRole.count(); ++p)
             {
-                if (dev->povRole[p] == idx)
+                if (dev->povRole[p] == roleVal)
                 {
                     dev->povRole[p] = -1;
                     QComboBox *other = povs_container->findChild<QComboBox*>(QStringLiteral("pov_role_") + QString::number(p));
@@ -447,24 +612,112 @@ bool Joystick_manager::add_axis(int axis_id)
                     }
                 }
             }
-            // clear across all other joysticks as well
-            clearRoleFromOtherDevices(idx);
+            clearRoleFromOtherDevices(roleVal);
         }
         if (axis_id < dev->axisCalibration.count())
-            dev->axisCalibration[axis_id].mapped_role = idx;
-        axis_slider_->joystick.set_role(idx);
-        // persist change
+            dev->axisCalibration[axis_id].mapped_role = roleVal;
+        axis_slider_->joystick.set_role(roleVal);
         joysticks->saveCalibration(dev->hardwareId);
     });
-    // when user changes combobox we already call set_role; we avoid connecting back from manager
-    // to prevent recursion when programmatically setting roles
     combobox_role_->setObjectName(QStringLiteral("axis_role_") + QString::number(axis_id));
     combobox_role_->installEventFilter(this);
     horisontal_layout_->addWidget(combobox_role_);
 
-    // horisontal_layout_->addStretch();
+    // Subitem two: Output Settings (collapsible)
+    CollapsibleGroup* outputGroup = new CollapsibleGroup(axisGroup);
+    outputGroup->setTitle("Output Settings");
+    outputGroup->setCollapsed(true); // collapsed by default
 
-    axes_layout->addWidget(horisontal_container_);
+    QGridLayout* outputLayout = new QGridLayout();
+    outputLayout->setContentsMargins(10, 2, 10, 2);
+    outputLayout->setHorizontalSpacing(8);
+    outputLayout->setVerticalSpacing(4);
+
+    QLabel* minLabel = new QLabel("Minimum", outputGroup);
+    QLabel* maxLabel = new QLabel("Maximum", outputGroup);
+    QLabel* dzLabel = new QLabel("Deadzone", outputGroup);
+
+    QLineEdit* minEdit = new QLineEdit(outputGroup);
+    QLineEdit* maxEdit = new QLineEdit(outputGroup);
+    QLineEdit* dzEdit = new QLineEdit(outputGroup);
+    minEdit->setPlaceholderText("-1");
+    maxEdit->setPlaceholderText("1");
+    dzEdit->setPlaceholderText("0");
+
+    QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
+    if (dev && axis_id < dev->axisCalibration.size()) {
+        const CalibrationEntry& c = dev->axisCalibration[axis_id];
+        minEdit->setText(QString::number(c.output_min));
+        maxEdit->setText(QString::number(c.output_max));
+        dzEdit->setText(QString::number(c.output_deadzone));
+    } else {
+        minEdit->setText("-1");
+        maxEdit->setText("1");
+        dzEdit->setText("0");
+    }
+
+    outputLayout->addWidget(minLabel, 0, 0);
+    outputLayout->addWidget(minEdit, 0, 1);
+    outputLayout->addWidget(maxLabel, 1, 0);
+    outputLayout->addWidget(maxEdit, 1, 1);
+    outputLayout->addWidget(dzLabel, 2, 0);
+    outputLayout->addWidget(dzEdit, 2, 1);
+
+    outputGroup->setContentLayout(outputLayout);
+
+    // Compose subitems in a QVBoxLayout
+    QVBoxLayout* axisContentLayout = new QVBoxLayout();
+    axisContentLayout->setSpacing(6);
+    axisContentLayout->setContentsMargins(0,0,0,0);
+    axisContentLayout->addWidget(horisontal_container_);
+    axisContentLayout->addWidget(outputGroup);
+    axisGroup->setContentLayout(axisContentLayout);
+
+    // Validation and Save Logic
+    auto validateAndSave = [this, axis_id, minEdit, maxEdit, dzEdit](const QString&) {
+        bool minOk, maxOk, dzOk;
+        double minVal = minEdit->text().toDouble(&minOk);
+        double maxVal = maxEdit->text().toDouble(&maxOk);
+        double dzVal = dzEdit->text().toDouble(&dzOk);
+        bool valid = true;
+        if (!dzOk || dzVal < 0 || dzVal > 2.0 || dzVal > 1.0) {
+            dzEdit->setStyleSheet("background:#ffcccc");
+            valid = false;
+        } else {
+            dzEdit->setStyleSheet("");
+        }
+        if (!minOk || minVal < -1.0 || minVal > 1.0) {
+            minEdit->setStyleSheet("background:#ffcccc");
+            valid = false;
+        } else {
+            minEdit->setStyleSheet("");
+        }
+        if (!maxOk || maxVal < -1.0 || maxVal > 1.0) {
+            maxEdit->setStyleSheet("background:#ffcccc");
+            valid = false;
+        } else {
+            maxEdit->setStyleSheet("");
+        }
+        if (minOk && maxOk && minVal > maxVal) {
+            minEdit->setStyleSheet("background:#ffcccc");
+            maxEdit->setStyleSheet("background:#ffcccc");
+            valid = false;
+        }
+        if (valid) {
+            QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
+            if (dev && axis_id < dev->axisCalibration.size()) {
+                dev->axisCalibration[axis_id].output_min = minVal;
+                dev->axisCalibration[axis_id].output_max = maxVal;
+                dev->axisCalibration[axis_id].output_deadzone = dzVal;
+                joysticks->saveCalibration(dev->hardwareId);
+            }
+        }
+    };
+    connect(minEdit, &QLineEdit::textChanged, this, validateAndSave);
+    connect(maxEdit, &QLineEdit::textChanged, this, validateAndSave);
+    connect(dzEdit, &QLineEdit::textChanged, this, validateAndSave);
+
+    axes_layout->addWidget(axisGroup); // add the top-level axis group
     return true;
 }
 
@@ -493,6 +746,9 @@ bool Joystick_manager::add_button(int button_id)
     horisontal_layout_->addWidget(text_browser_);
 
     JoystickButton* button_state_ = new JoystickButton(horisontal_container_, current_joystick_id, button_id);
+    connect(button_state_, &QAbstractButton::toggled, this, &Joystick_manager::update_roles_list);
+    connect(&button_state_->button, &remote_control::channel::button::joystick::manager::assigned_value_updated,
+            this, &Joystick_manager::joystick_value_updated);
     horisontal_layout_->addWidget(button_state_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
@@ -764,12 +1020,17 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
                 if (c.mapped_role >= 0)
                 {
                     bar->joystick.set_role(c.mapped_role);
-                    // update combobox to match
+                    // update combobox to match enum value, not index
                     QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(axis));
                     if (cb)
                     {
+                        // Recompute roleVals here as well
+                        QList<remote_control::channel::enums::role> enumVals = enum_helpers::get_all_vals_list<remote_control::channel::enums::role>();
+                        QList<int> roleVals;
+                        for (const auto& v : enumVals) roleVals.append(static_cast<int>(v));
+                        int idx = roleVals.indexOf(c.mapped_role);
                         cb->blockSignals(true);
-                        cb->setCurrentIndex(c.mapped_role);
+                        cb->setCurrentIndex(idx >= 0 ? idx : 0);
                         cb->blockSignals(false);
                     }
                 }
@@ -1153,8 +1414,691 @@ void Joystick_manager::on_pushButton_cal_axes_toggled(bool checked)
     }
 }
 
+void Joystick_manager::update_roles_list()
+{
+    if (!ui)
+        return;
+    QLayout *layout = ui->verticalLayout_roles;
+    if (!layout)
+        return;
+
+    // clear previous widgets
+    QLayoutItem *item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (item->widget())
+            delete item->widget();
+        delete item;
+    }
+
+    // create a non-interactive button-like widget showing role and optional value
+    auto addEntry = [&](const QString &role, const QString &val = QString()) {
+        QPushButton *btn = new QPushButton(ui->verticalLayout_roles->parentWidget());
+        btn->setFlat(false);
+        btn->setEnabled(false); // unclickable
+        if (val.isEmpty())
+            btn->setText(role);
+        else
+            btn->setText(QString("%1: %2").arg(role, val));
+        // keep default theme but align text left and add padding
+        btn->setStyleSheet("text-align:left; padding-left:8px; padding-right:8px;");
+        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        layout->addWidget(btn);
+    };
+
+    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(current_joystick_id) : nullptr;
+
+    // axes – show only assigned roles & compute mapped output
+    QList<QComboBox*> axisBoxes;
+    if (axes_container) {
+        for (QComboBox *cb : axes_container->findChildren<QComboBox*>()) {
+            if (cb->objectName().startsWith(QStringLiteral("axis_role_")) && cb->currentIndex() > 0)
+                axisBoxes.append(cb);
+        }
+    }
+    for (QComboBox *cb : axisBoxes) {
+        bool ok;
+        int axis = cb->objectName().mid(QString("axis_role_").length()).toInt(&ok);
+        if (!ok) continue;
+        QString role = cb->currentText();
+        double mappedVal = 0.0;
+        if (dev && axis >= 0 && axis < dev->axisCalibration.count() && axis < dev->axes.count()) {
+            const CalibrationEntry &c = dev->axisCalibration.at(axis);
+            double raw = dev->axes.at(axis);
+            // apply deadzone with smooth transition past threshold
+            double d = c.output_deadzone;
+            if (qAbs(raw) <= d) {
+                // inside deadzone -> zero output
+                raw = 0.0;
+            } else if (raw > d) {
+                // positive side: remap [d,1] -> [0,1]
+                raw = map2map(raw, d, 1.0, 0.0, 1.0);
+            } else if (raw < -d) {
+                // negative side: remap [-d,-1] -> [0,-1]
+                raw = map2map(raw, -d, -1.0, 0.0, -1.0);
+            }
+            // apply reverse checkbox if present
+            QCheckBox *rev = axes_container ? axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(axis)) : nullptr;
+            if (rev && rev->isChecked()) {
+                raw = -raw;
+            }
+            // finally map full [-1,1] range to [min,max]
+            mappedVal = map2map(raw, -1.0, 1.0, c.output_min, c.output_max);
+        }
+        addEntry(role, QString::number(mappedVal, 'f', 3));
+    }
+
+    // buttons – only show assigned
+    QList<QComboBox*> btnBoxes;
+    if (buttons_container) {
+        for (QComboBox *cb : buttons_container->findChildren<QComboBox*>()) {
+            if (cb->objectName().startsWith(QStringLiteral("button_role_")) && cb->currentIndex() > 0)
+                btnBoxes.append(cb);
+        }
+    }
+    for (QComboBox *cb : btnBoxes) {
+        bool ok;
+        int btn = cb->objectName().mid(QString("button_role_").length()).toInt(&ok);
+        if (!ok) continue;
+        QString role = cb->currentText();
+        bool raw = dev && btn >= 0 && btn < dev->buttons.count() ? dev->buttons.at(btn) : false;
+        double mappedVal = raw ? 1.0 : 0.0;
+        addEntry(role, QString::number(mappedVal));
+    }
+
+    // povs – only show assigned
+    QList<QComboBox*> povBoxes;
+    if (povs_container) {
+        for (QComboBox *cb : povs_container->findChildren<QComboBox*>()) {
+            if (cb->objectName().startsWith(QStringLiteral("pov_role_")) && cb->currentIndex() > 0)
+                povBoxes.append(cb);
+        }
+    }
+    for (QComboBox *cb : povBoxes) {
+        QString role = cb->currentText();
+        addEntry(role);
+    }
+
+    // ensure widgets stay at top by adding stretch at bottom
+    if (QVBoxLayout *vbox = qobject_cast<QVBoxLayout*>(layout)) {
+        vbox->addStretch();
+    }
+
+    // also update values in right-hand relay tree for any assigned fields
+    for (int i = 0; i < relayEntries.size() && i < fieldWidgets.size(); ++i) {
+        for (int fi = 0; fi < relayEntries[i].field_roles.size() && fi < fieldWidgets[i].size(); ++fi) {
+            int role = relayEntries[i].field_roles[fi];
+            if (role > 0 && fieldWidgets[i][fi].valueLabel) {
+                double v = compute_value_for_role(role);
+                QString str = QString::number(v);
+                if (fieldWidgets[i][fi].valueLabel->text() != str) {
+                    fieldWidgets[i][fi].valueLabel->setText(str);
+                    if (fi < relayEntries[i].field_values.size())
+                        relayEntries[i].field_values[fi] = str;
+                }
+            }
+        }
+    }
+}
 
 
+// -------------------------------------------------------------------------
+// right panel helpers
+
+
+void Joystick_manager::update_relays_list()
+{
+    if (!ui)
+        return;
+    // if current index out of range reset
+    if (selected_relay_index < 0 || selected_relay_index >= relayEntries.size())
+        selected_relay_index = -1;
+    // do not clear Port_Name when avail_ports empty; keep historic value until ports update
+
+    QLayout *layout = ui->verticalLayout_relays;
+    if (!layout)
+        return;
+
+    // make sure our widget cache mirrors the number of relays
+    fieldWidgets.clear();
+    fieldWidgets.resize(relayEntries.size());
+
+    // clear existing buttons from group so they don't linger
+    if (relay_btn_group) {
+        for (QAbstractButton *b : relay_btn_group->buttons()) {
+            relay_btn_group->removeButton(b);
+        }
+    }
+
+    // clear layout children
+    QLayoutItem *item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (item->widget())
+            delete item->widget();
+        delete item;
+    }
+
+    for (int i = 0; i < relayEntries.size(); ++i) {
+        // top-level button
+        QPushButton *btn = new QPushButton(relayEntries[i].name, ui->verticalLayout_relays->parentWidget());
+        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        btn->setCheckable(true);
+        if (i == selected_relay_index)
+            btn->setChecked(true);
+        relay_btn_group->addButton(btn, i);
+        layout->addWidget(btn);
+
+        // detail subtree: initially hidden unless selected
+        QWidget *detail = new QWidget(ui->verticalLayout_relays->parentWidget());
+        QFormLayout *form = new QFormLayout(detail);
+
+        // Frame ID
+        QComboBox *frameCb = new QComboBox(detail);
+        frameCb->installEventFilter(this);
+        frameCb->addItems(avail_frameids);
+        frameCb->setCurrentText(QString::number(relayEntries[i].settings.frameid));
+        connect(frameCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, frameCb](int){
+            if (i < relayEntries.size())
+                relayEntries[i].settings.frameid = frameCb->currentText().toInt();
+        });
+        form->addRow("Frame ID", frameCb);
+        frameCb->setObjectName("frameCB");
+
+        // System ID
+        QComboBox *sysCb = new QComboBox(detail);
+        sysCb->installEventFilter(this);
+        QStringList syslist;
+        for (uint8_t s : avail_sysids) syslist.append(QString::number(s));
+        sysCb->addItems(syslist);
+        sysCb->setCurrentText(QString::number(relayEntries[i].settings.sysid));
+        connect(sysCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, sysCb](int){
+            if (i < relayEntries.size()) {
+                int val = sysCb->currentText().toInt();
+                relayEntries[i].settings.sysid = val;
+                if (avail_compids.contains(val)) {
+                    QComboBox *comp = sysCb->parentWidget()->findChild<QComboBox *>("compCB");
+                    if (comp) {
+                        QString cur = comp->currentText();
+                        comp->blockSignals(true);
+                        comp->clear();
+                        QStringList lst;
+                        for (auto cid : avail_compids[val]) lst.append(enum_helpers::value2key(cid));
+                        comp->addItems(lst);
+                        int idx = lst.indexOf(cur);
+                        if (idx>=0) comp->setCurrentIndex(idx);
+                        comp->blockSignals(false);
+                    }
+                }
+            }
+        });
+        form->addRow("System ID", sysCb);
+        sysCb->setObjectName("sysCB");
+
+        // Component ID
+        QComboBox *compBox = new QComboBox(detail);
+        compBox->installEventFilter(this);
+        compBox->setObjectName("compCB");
+        if (avail_compids.contains(relayEntries[i].settings.sysid)) {
+            QStringList lst;
+            for (auto cid : avail_compids[relayEntries[i].settings.sysid]) lst.append(enum_helpers::value2key(cid));
+            compBox->addItems(lst);
+            int compidx = lst.indexOf(enum_helpers::value2key(relayEntries[i].settings.compid));
+            if (compidx >= 0) compBox->setCurrentIndex(compidx);
+        }
+        connect(compBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, compBox](int){
+            if (i < relayEntries.size()) {
+                mavlink_enums::mavlink_component_id val;
+                if (enum_helpers::key2value(compBox->currentText(), val))
+                    relayEntries[i].settings.compid = val;
+            }
+        });
+        form->addRow("Component ID", compBox);
+
+        // Message Type
+        QComboBox *msgOpt = new QComboBox(detail);
+        msgOpt->installEventFilter(this);
+        msgOpt->addItems(enum_helpers::get_all_keys_list<JoystickRelaySettings::msg_opt>());
+        msgOpt->setCurrentIndex((int)relayEntries[i].settings.msg_option);
+        form->addRow("Message Type", msgOpt);
+        msgOpt->setObjectName("msgCB");
+
+        // subtree showing fields for selected message type
+        QTreeWidget *fieldTree = new QTreeWidget(detail);
+        fieldTree->setHeaderLabels(QStringList{"Field","Role","Value"});
+        fieldTree->setRootIsDecorated(false);
+        fieldTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        // helper to populate fields when type changes or initial build
+        auto populateFields = [this, i, fieldTree](int optIdx)->void{
+            fieldTree->clear();
+            if (i < fieldWidgets.size())
+                fieldWidgets[i].clear();
+            JoystickRelaySettings::msg_opt opt = (JoystickRelaySettings::msg_opt)optIdx;
+            QVector<QString> fields;
+            switch(opt){
+            case JoystickRelaySettings::mavlink_manual_control:
+                // manual control: 4 axes + 16 button bits
+                fields = {"x","y","z","r"};
+                for (int b=1;b<=16;b++) fields.append(QString("button%1").arg(b));
+                break;
+            case JoystickRelaySettings::mavlink_rc_channels:
+            case JoystickRelaySettings::mavlink_rc_channels_overwrite:
+                fields = {"chan1","chan2","chan3","chan4","chan5","chan6","chan7","chan8"};
+                break;
+            }
+            if (i < relayEntries.size()) {
+                // ensure storage lengths
+                relayEntries[i].field_roles.resize(fields.size());
+                relayEntries[i].field_values.resize(fields.size());
+            }
+            for (int fi = 0; fi < fields.size(); ++fi) {
+                QTreeWidgetItem *item = new QTreeWidgetItem(fieldTree);
+                item->setText(0, fields[fi]);
+                QComboBox *roleCb = new QComboBox(fieldTree);
+                roleCb->addItems(enum_helpers::get_all_keys_list<remote_control::channel::enums::role>());
+                if (i < relayEntries.size() && fi < relayEntries[i].field_roles.size())
+                    roleCb->setCurrentIndex(relayEntries[i].field_roles[fi]);
+                connect(roleCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this,i,fi,roleCb,fieldTree](int idx){
+                    if (i < relayEntries.size() && fi < relayEntries[i].field_roles.size())
+                        relayEntries[i].field_roles[fi] = idx;
+                    // switch widget depending on role
+                    QTreeWidgetItem *it = fieldTree->topLevelItem(fi);
+                    if (!it) return;
+                    QString stored = "0";
+                    if (i < relayEntries.size() && fi < relayEntries[i].field_values.size())
+                        stored = relayEntries[i].field_values[fi];
+                    QWidget *neww = nullptr;
+                    FieldWidget fw;
+                    fw.item = it;
+                    fw.fieldName = it->text(0);
+                    if (idx > 0) {
+                        QLabel *lbl = new QLabel(stored, fieldTree);
+                        // immediately compute current joystick output for this role
+                        double v = compute_value_for_role(idx);
+                        QString live = QString::number(v);
+                        lbl->setText(live);
+                        if (i < relayEntries.size() && fi < relayEntries[i].field_values.size())
+                            relayEntries[i].field_values[fi] = live;
+                        neww = lbl;
+                        fw.valueLabel = lbl;
+                        fw.valueEdit = nullptr;
+                    } else {
+                        QLineEdit *edit = new QLineEdit(stored, fieldTree);
+                        connect(edit, &QLineEdit::textChanged, this, [this,i,fi,edit](const QString &t){
+                            if (i < relayEntries.size()) {
+                                if (fi >= relayEntries[i].field_values.size())
+                                    relayEntries[i].field_values.resize(fi+1);
+                                relayEntries[i].field_values[fi] = t;
+                                save_relay_entries(relayEntries);
+                            }
+                        });
+                        neww = edit;
+                        fw.valueEdit = edit;
+                        fw.valueLabel = nullptr;
+                    }
+                    fieldTree->setItemWidget(it, 2, neww);
+                    if (i < fieldWidgets.size()) {
+                        if (fi < fieldWidgets[i].size())
+                            fieldWidgets[i][fi] = fw;
+                        else
+                            fieldWidgets[i].append(fw);
+                    }
+                    // persist the change immediately
+                    save_relay_entries(relayEntries);
+                    // refresh all values and left‑panel roles immediately
+                    update_roles_list();
+                });
+                fieldTree->setItemWidget(item,1,roleCb);
+                // third column: value or editor
+                QWidget *valWidget = nullptr;
+                FieldWidget fw;
+                fw.item = item;
+                fw.fieldName = fields[fi];
+                bool hasRole = (i < relayEntries.size() && fi < relayEntries[i].field_roles.size() && relayEntries[i].field_roles[fi] > 0);
+                if (hasRole) {
+                    QLabel *lbl = new QLabel(relayEntries[i].field_values.value(fi, QStringLiteral("0")), fieldTree);
+                    valWidget = lbl;
+                    fw.valueLabel = lbl;
+                    fw.valueEdit = nullptr;
+                } else {
+                    QLineEdit *edit = new QLineEdit(fieldTree);
+                    QString init = relayEntries[i].field_values.value(fi, QStringLiteral("0"));
+                    edit->setText(init);
+                    connect(edit, &QLineEdit::textChanged, this, [this,i,fi,edit](const QString &t){
+                        if (i < relayEntries.size()) {
+                            if (fi >= relayEntries[i].field_values.size())
+                                relayEntries[i].field_values.resize(fi+1);
+                            relayEntries[i].field_values[fi] = t;
+                        }
+                    });
+                    valWidget = edit;
+                    fw.valueEdit = edit;
+                    fw.valueLabel = nullptr;
+                }
+                if (valWidget)
+                    fieldTree->setItemWidget(item,2,valWidget);
+                if (i < fieldWidgets.size())
+                    fieldWidgets[i].append(fw);
+            }
+        };
+        populateFields(msgOpt->currentIndex());
+        connect(msgOpt, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, populateFields](int idx){
+            if (i < relayEntries.size())
+                relayEntries[i].settings.msg_option = (JoystickRelaySettings::msg_opt)idx;
+            populateFields(idx);
+        });
+        form->addRow(fieldTree);
+        // after we've built the tree for this relay, ensure widgets for
+        // its fields are part of our cache (populated by populateFields)
+
+        // Port to write
+        QComboBox *portCb = new QComboBox(detail);
+        portCb->installEventFilter(this);
+        const QString savedName = relayEntries[i].settings.Port_Name;
+        bool haveValid = !savedName.isEmpty();
+        // if savedName exists but is not in avail_ports, include it so it's selectable
+        if (haveValid && !avail_ports.contains(savedName))
+            portCb->addItem(savedName);
+        portCb->addItems(avail_ports);
+        if (haveValid) {
+            portCb->setCurrentText(savedName);
+        }
+        connect(portCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, portCb](int){
+            if (i < relayEntries.size()) {
+                QString name = portCb->currentText();
+                relayEntries[i].settings.Port_Name = name;
+                // enable/disable checkbox based on selection
+                QWidget *parent = portCb->parentWidget();
+                if (parent) {
+                    QCheckBox *ecb = parent->findChild<QCheckBox*>();
+                    if (ecb) {
+                        bool ok = !name.isEmpty() && !avail_ports.isEmpty();
+                        ecb->setEnabled(ok);
+                        if (!ok) ecb->setChecked(false);
+                    }
+                }
+            }
+        });
+        form->addRow("Port to write", portCb);
+        portCb->setObjectName("portCB");
+
+        // update rate as line edit
+        QLineEdit *rateEdit = new QLineEdit(QString::number(relayEntries[i].settings.update_rate_hz), detail);
+        connect(rateEdit, &QLineEdit::textChanged, this, [this, i, rateEdit](const QString &s){
+            bool ok; int v = s.toInt(&ok);
+            if (ok && i < relayEntries.size()) relayEntries[i].settings.update_rate_hz = v;
+        });
+        form->addRow("Rate Hz", rateEdit);
+        rateEdit->setObjectName("rateEdit");
+
+        // priority combo
+        QComboBox *prioCb = new QComboBox(detail);
+        prioCb->addItems(default_ui_config::Priority::keys);
+        default_ui_config::Priority::values pv = static_cast<default_ui_config::Priority::values>(relayEntries[i].settings.priority);
+        prioCb->setCurrentIndex(default_ui_config::Priority::index(pv));
+        connect(prioCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i, prioCb](int){
+            if (i < relayEntries.size()) {
+                default_ui_config::Priority::values val;
+                if (default_ui_config::Priority::key2value(prioCb->currentText(), val))
+                    relayEntries[i].settings.priority = static_cast<int>(val);
+            }
+        });
+        form->addRow("Priority", prioCb);
+        prioCb->setObjectName("prioCB");
+        // enabled checkbox
+        QCheckBox *enableCb = new QCheckBox("Enabled", detail);
+        enableCb->setChecked(relayEntries[i].settings.enabled);
+        // disable checkbox if no valid port assigned
+        // (future port updates will recreate widget anyway)
+        bool hasPort = !relayEntries[i].settings.Port_Name.isEmpty();
+        enableCb->setEnabled(hasPort);
+        connect(enableCb, &QCheckBox::toggled, this, [this, i](bool on){
+            if (i < relayEntries.size()) {
+                if (on && relayEntries[i].settings.Port_Name.isEmpty()) {
+                    // cannot enable without port
+                    return;
+                }
+                relayEntries[i].settings.enabled = on;
+                relayEntries[i].settings.auto_disabled = false;
+            }
+        });
+        form->addRow(enableCb);
+
+
+        detail->setVisible(i == selected_relay_index);
+        layout->addWidget(detail);
+    }
+    if (QVBoxLayout *vbox = qobject_cast<QVBoxLayout*>(layout)) {
+        vbox->addStretch();
+    }
+    // after constructing all relay widgets we may have new fieldWidgets
+    // ready; refresh the roles list so right‑hand values get initialised
+    update_roles_list();
+}
+
+
+void Joystick_manager::on_button_add_clicked()
+{
+    RelayEntry e;
+    e.name = QString("Relay %1").arg(relayEntries.size() + 1);
+    // preselect priority to time critical
+    e.settings.priority = static_cast<int>(default_ui_config::Priority::TimeCriticalPriority);
+    // leave port empty so UI will pick first available
+    e.settings.Port_Name.clear();
+    // new relay starts disabled to avoid accidental output
+    e.settings.enabled = false;
+    relayEntries.append(e);
+    update_relays_list();
+    save_relay_entries(relayEntries);
+}
+
+void Joystick_manager::on_button_remove_clicked()
+{
+    if (selected_relay_index < 0 || selected_relay_index >= relayEntries.size())
+        return;
+    relayEntries.removeAt(selected_relay_index);
+    selected_relay_index = -1;
+    update_relays_list();
+    save_relay_entries(relayEntries);
+}
+
+void Joystick_manager::on_button_edit_clicked()
+{
+    if (selected_relay_index < 0 || selected_relay_index >= relayEntries.size())
+        return;
+    bool accepted = false;
+    QString text = QInputDialog::getText(this, "Edit Relay", "Name:",
+                                         QLineEdit::Normal, relayEntries[selected_relay_index].name, &accepted);
+    if (accepted) {
+        relayEntries[selected_relay_index].name = text;
+        update_relays_list();
+        save_relay_entries(relayEntries);
+    }
+}
+
+
+// -------------------------------------------------------------
+// slots for updating available lists (mirror mocap_manager)
+
+void Joystick_manager::update_relay_frame_ids(const QVector<int>& frame_ids)
+{
+    // convert to QStringList and refresh combo in every detail widget
+    avail_frameids.clear();
+    for (int f : frame_ids)
+        avail_frameids.append(QString::number(f));
+
+    // iterate existing details
+    QList<QWidget*> details = ui->verticalLayout_relays->parentWidget()->findChildren<QWidget*>();
+    for (QWidget *w : details) {
+        QComboBox *cb = w->findChild<QComboBox*>("frameCB");
+        if (cb) {
+            QString cur = cb->currentText();
+            cb->blockSignals(true);
+            cb->clear();
+            cb->addItems(avail_frameids);
+            int idx = avail_frameids.indexOf(cur);
+            if (idx>=0) cb->setCurrentIndex(idx);
+            cb->blockSignals(false);
+        }
+    }
+}
+
+void Joystick_manager::update_relay_port_list(const QVector<QString>& new_ports)
+{
+    // update available list to exactly the current ports
+    QStringList freshList = QStringList::fromVector(new_ports.toVector());
+    QSet<QString> freshSet;
+    for (const QString &p : new_ports) freshSet.insert(p);
+    // adjust each entry: clear name if removed, mark auto-disabled
+    for (RelayEntry &e : relayEntries) {
+        if (!e.settings.Port_Name.isEmpty() && !freshSet.contains(e.settings.Port_Name)) {
+            // port disconnected
+            e.settings.Port_Name.clear();
+            if (e.settings.enabled) {
+                e.settings.enabled = false;
+                e.settings.auto_disabled = true;
+            }
+        } else if (freshSet.contains(e.settings.Port_Name)) {
+            // port reappeared
+            if (e.settings.auto_disabled) {
+                e.settings.enabled = true;
+                e.settings.auto_disabled = false;
+            }
+        }
+    }
+    avail_ports = freshList;
+
+    // note: entries are retained even when their port vanishes; user may re-enable later
+
+    // before updating widgets, auto-assign a port if exactly one is available
+    if (avail_ports.size() == 1) {
+        for (RelayEntry &e : relayEntries) {
+            if (e.settings.Port_Name.isEmpty()) {
+                e.settings.Port_Name = avail_ports.first();
+                // clear any auto-disabled state
+                e.settings.auto_disabled = false;
+            }
+        }
+    }
+
+    // update combos in details using object name and refresh checkbox state
+    QList<QWidget*> details = ui->verticalLayout_relays->parentWidget()->findChildren<QWidget*>();
+    for (QWidget *w : details) {
+        QComboBox *cb = w->findChild<QComboBox*>("portCB");
+        if (cb) {
+            QString cur = cb->currentText();
+            cb->blockSignals(true);
+            cb->clear();
+            // keep current selection even if not in new list
+            if (!cur.isEmpty() && !avail_ports.contains(cur))
+                cb->addItem(cur);
+            cb->addItems(avail_ports);
+            int idx = cb->findText(cur);
+            if (idx >= 0) cb->setCurrentIndex(idx);
+            cb->blockSignals(false);
+        }
+        // update the corresponding enabled checkbox
+        QCheckBox *ecb = w->findChild<QCheckBox*>();
+        if (ecb) {
+            QString port = cb ? cb->currentText() : QString();
+            bool ok = !port.isEmpty();
+            ecb->setEnabled(ok);
+            if (!ok) ecb->setChecked(false);
+        }
+    }
+
+    update_relays_list();
+    save_relay_entries(relayEntries);
+}
+
+void Joystick_manager::update_relay_sysid_list(const QVector<uint8_t>& new_sysids)
+{
+    avail_sysids = new_sysids;
+    QStringList list;
+    for (uint8_t s : avail_sysids)
+        list.append(QString::number(s));
+
+    // remove entries whose sysid is no longer available
+    for (int i = relayEntries.size() - 1; i >= 0; --i) {
+        if (!avail_sysids.contains(relayEntries[i].settings.sysid)) {
+            relayEntries.removeAt(i);
+            if (selected_relay_index == i) selected_relay_index = -1;
+        }
+    }
+
+    // update sysid combos by name
+    QList<QWidget*> details = ui->verticalLayout_relays->parentWidget()->findChildren<QWidget*>();
+    for (QWidget *w : details) {
+        QComboBox *cb = w->findChild<QComboBox*>("sysCB");
+        if (cb) {
+            QString cur = cb->currentText();
+            cb->blockSignals(true);
+            cb->clear();
+            cb->addItems(list);
+            int idx = list.indexOf(cur);
+            if (idx>=0) cb->setCurrentIndex(idx);
+            cb->blockSignals(false);
+        }
+    }
+
+    update_relays_list();
+    save_relay_entries(relayEntries);
+}
+
+void Joystick_manager::update_relay_compids(uint8_t sysid, const QVector<mavlink_enums::mavlink_component_id>& compids)
+{
+    // store available compids for this sysid
+    avail_compids[sysid] = compids;
+
+    // update any detail widgets whose sysCB matches this value
+    QList<QWidget*> details = ui->verticalLayout_relays->parentWidget()->findChildren<QWidget*>();
+    for (QWidget *w : details) {
+        QComboBox *sysCb = w->findChild<QComboBox*>("sysCB");
+        QComboBox *compCb = w->findChild<QComboBox*>("compCB");
+        if (sysCb && compCb) {
+            if (sysCb->currentText().toInt() == sysid) {
+                QString cur = compCb->currentText();
+                compCb->blockSignals(true);
+                compCb->clear();
+                QStringList lst;
+                for (auto cid : compids) lst.append(enum_helpers::value2key(cid));
+                compCb->addItems(lst);
+                int idx = lst.indexOf(cur);
+                if (idx >= 0) compCb->setCurrentIndex(idx);
+                compCb->blockSignals(false);
+            }
+        }
+    }
+
+    // persist in case entries were affected
+    update_relays_list();
+    save_relay_entries(relayEntries);
+}
+
+void Joystick_manager::on_relay_button_clicked(QAbstractButton *btn)
+{
+    if (!relay_btn_group) {
+        selected_relay_index = -1;
+        return;
+    }
+    int id = relay_btn_group->id(btn);
+    if (id < 0 || id >= relayEntries.size()) {
+        selected_relay_index = -1;
+        update_relays_list();
+        return;
+    }
+    if (id == selected_relay_index) {
+        // toggle off
+        selected_relay_index = -1;
+        // temporarily disable exclusivity so we can uncheck
+        bool prev = relay_btn_group->exclusive();
+        relay_btn_group->setExclusive(false);
+        QAbstractButton *b = relay_btn_group->button(id);
+        if (b) b->setChecked(false);
+        relay_btn_group->setExclusive(prev);
+    } else {
+        selected_relay_index = id;
+    }
+    update_relays_list();
+}
 
 
 

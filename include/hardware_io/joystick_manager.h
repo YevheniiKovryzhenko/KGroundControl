@@ -39,12 +39,37 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
+#include <QButtonGroup>
+// struct for relay configuration attached to each joystick mapping
 #include <QProgressBar>
 #include <QCheckBox>
 #include <QPointer>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTreeWidgetItem>
 
 #include "hardware_io/joystick.h"
 #include "mavlink_communication/remote_control_manager.h"
+
+// simple widget to display a POV hat direction
+
+// settings used for each joystick relay entry
+struct JoystickRelaySettings {
+    Q_GADGET
+public:
+    enum msg_opt { mavlink_manual_control, mavlink_rc_channels, mavlink_rc_channels_overwrite };
+    Q_ENUM(msg_opt)
+
+    int frameid = -1;
+    QString Port_Name;            // empty by default, not "N/A"
+    msg_opt msg_option = mavlink_manual_control;
+    uint8_t sysid = 0;
+    mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
+    uint32_t update_rate_hz = 40;
+    int priority = 0;
+    bool enabled = true;          // user-visible enabled state
+    bool auto_disabled = false;    // set when port disappears automatically
+};
 
 // simple widget to display a POV hat direction
 class POVIndicator : public QWidget
@@ -120,6 +145,11 @@ signals:
 
     void unset_role(int role);
 
+    // requests to other managers for available items (return results via emit)
+    QVector<QString> get_port_names(void);
+    QVector<uint8_t> get_sysids(void);
+    QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
+
 private slots:
     void update_joystick_list(void);
 
@@ -129,6 +159,9 @@ private slots:
     bool add_button(int button_id);
 
     void clear_all(void);
+
+protected:
+    void showEvent(QShowEvent *event) override;
     void clear_axes(void);
     void clear_buttons(void);
     void clear_povs(void);
@@ -157,6 +190,67 @@ private:
     QGridLayout *buttons_layout = nullptr;
     QVBoxLayout *povs_layout = nullptr;
 
+    // populate page2 left column with current assignments
+    void update_roles_list();
+
+    // track widgets for each field so value labels can be updated live
+    struct FieldWidget {
+        QTreeWidgetItem* item = nullptr;
+        QLabel* valueLabel = nullptr;
+        QLineEdit* valueEdit = nullptr;
+        QString fieldName;
+    };
+    QVector<QVector<FieldWidget>> fieldWidgets; // indexed by relay entry
+
+    // compute joystick output for a given role (used when assigning a role)
+    double compute_value_for_role(int role);
+
+private slots:
+    // notified whenever any axis/button manager reports its mapped value changed
+    void joystick_value_updated(int role, qreal value);
+
+public:
+    // data and helpers for right‑hand relay/message panel
+    struct RelayEntry {
+        QString name;
+        QVector<QString> ports;
+        JoystickRelaySettings settings;
+        QVector<int> field_roles; // index corresponds to field order in message
+        QVector<QString> field_values; // stored/editable value for each field
+    };
+
+private:
+    QList<RelayEntry> relayEntries;
+    int selected_relay_index = -1;
+    QButtonGroup *relay_btn_group = nullptr;
+
+    // lists maintained for combobox population
+    QStringList avail_ports;
+    QVector<uint8_t> avail_sysids;
+    QMap<uint8_t, QVector<mavlink_enums::mavlink_component_id>> avail_compids;
+    QStringList avail_frameids;
+
+    void on_relay_button_clicked(QAbstractButton *btn);
+
+    void update_relays_list();
+
+    // persistence helpers for relay entries
+    static QList<RelayEntry> load_relay_entries();
+    static void save_relay_entries(const QList<RelayEntry>& entries);
+
+public slots:
+    // slots to refresh available choices (to be connected from outside)
+    void update_relay_port_list(const QVector<QString>& new_ports);
+    void update_relay_sysid_list(const QVector<uint8_t>& new_sysids);
+    void update_relay_compids(uint8_t sysid, const QVector<mavlink_enums::mavlink_component_id>& compids);
+    void update_relay_frame_ids(const QVector<int>& frame_ids);
+
+private slots:
+    void on_button_add_clicked();
+    void on_button_remove_clicked();
+    void on_button_edit_clicked();
+    // slot now receives the clicked button pointer
+    // void on_relay_button_clicked(int id);
 };
 
 #endif // JOYSTICK_MANAGER_H

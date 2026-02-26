@@ -55,6 +55,11 @@ struct CalibrationEntry
     int mapped_role = -1; // -1 == unassigned
     QDateTime updated;
     int version = 1;
+
+    // Output mapping settings
+    double output_min = -1.0;
+    double output_max = 1.0;
+    double output_deadzone = 0.0;
 };
 
 /* Represents a physical joystick and its runtime state. */

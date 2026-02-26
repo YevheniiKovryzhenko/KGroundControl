@@ -255,6 +255,10 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
             s.setValue("mapped_role", c.mapped_role);
             s.setValue("updated", c.updated.toMSecsSinceEpoch());
             s.setValue("version", c.version);
+            // Output settings
+            s.setValue("output_min", c.output_min);
+            s.setValue("output_max", c.output_max);
+            s.setValue("output_deadzone", c.output_deadzone);
         }
         s.endGroup();
     }
@@ -313,6 +317,10 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
         qint64 ms = s.value("updated", 0).toLongLong();
         if (ms) c.updated = QDateTime::fromMSecsSinceEpoch(ms);
         c.version = s.value("version", c.version).toInt();
+        // Output settings
+        c.output_min = s.value("output_min", -1.0).toDouble();
+        c.output_max = s.value("output_max", 1.0).toDouble();
+        c.output_deadzone = s.value("output_deadzone", 0.0).toDouble();
         dev->axisCalibration.append(c);
         s.endGroup();
     }

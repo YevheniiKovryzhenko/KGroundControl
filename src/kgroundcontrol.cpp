@@ -95,7 +95,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     qApp->processEvents();
 
     // disable experimental features:
-    ui->btn_joystick->setVisible(false);
+    // ui->btn_joystick->setVisible(false);
     //
 
     settings_mutex_ = new QMutex;
@@ -980,6 +980,27 @@ void KGroundControl::on_btn_joystick_clicked()
     Joystick_manager* joystick_manager_ = new Joystick_manager(); //don't set parent so the window can be below the main one
     joystick_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
     connect(this, &KGroundControl::about2close, joystick_manager_, &Joystick_manager::close, Qt::DirectConnection);
+
+    // mirror mocap wiring: keep relay availability updated
+    connect(connection_manager_, &connection_manager::port_names_updated,
+            joystick_manager_, &Joystick_manager::update_relay_port_list, Qt::QueuedConnection);
+    connect(joystick_manager_, &Joystick_manager::get_port_names,
+            connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
+    // immediately fetch current list and forward it
+    joystick_manager_->update_relay_port_list(joystick_manager_->get_port_names());
+
+    connect(mavlink_manager_, &mavlink_manager::sysid_list_changed,
+            joystick_manager_, &Joystick_manager::update_relay_sysid_list, Qt::QueuedConnection);
+    connect(joystick_manager_, &Joystick_manager::get_sysids,
+            mavlink_manager_, &mavlink_manager::get_sysids, Qt::DirectConnection);
+
+    connect(mavlink_manager_, &mavlink_manager::compid_list_changed,
+            joystick_manager_, &Joystick_manager::update_relay_compids, Qt::QueuedConnection);
+    connect(joystick_manager_, &Joystick_manager::get_compids,
+            mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
+
+    // frame id handling not required here – joystick relay does not use mocap frames
+
     joystick_manager_->show();
 }
 
