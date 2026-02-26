@@ -33,8 +33,97 @@
  ****************************************************************************/
 
 #include "mavlink_communication/remote_control_manager.h"
-
 #include "hardware_io/joystick.h"
+
+
+// JoystickRelayThread implementation and sharedRoleValues
+
+namespace remote_control {
+
+JoystickRelayThread::JoystickRelayThread(QObject* parent,
+                                         generic_thread_settings* thread_settings,
+                                         const JoystickRelaySettings& relay_settings,
+                                         const QVector<int>& field_roles)
+    : generic_thread(parent, thread_settings),
+      relaySettings(relay_settings),
+      fieldRoles(field_roles)
+{
+    stopRequested = false;
+}
+
+JoystickRelayThread::~JoystickRelayThread() {
+    requestStop();
+}
+
+void JoystickRelayThread::requestStop() {
+    QMutexLocker locker(&stopMutex);
+    stopRequested = true;
+}
+
+void JoystickRelayThread::updateSettings(const JoystickRelaySettings& relay_settings, const QVector<int>& field_roles) {
+    QMutexLocker locker(&stopMutex);
+    relaySettings = relay_settings;
+    fieldRoles = field_roles;
+}
+
+QMap<int, qreal> JoystickRelayThread::getLastSentValues() {
+    QMutexLocker locker(&stopMutex);
+    return lastSentValues;
+}
+
+void JoystickRelayThread::run() {
+    // simple loop that periodically copies shared role values and emits them
+    while (true) {
+        {
+            QMutexLocker locker(&stopMutex);
+            if (stopRequested) break;
+        }
+        // collect current values for all configured roles
+        QMap<int, qreal> vals;
+        for (int r : fieldRoles) {
+            vals[r] = sharedRoleValues().getValue(r);
+        }
+        {
+            QMutexLocker locker(&stopMutex);
+            lastSentValues = vals;
+        }
+        emit outputValuesUpdated(vals);
+        // sleep according to configured rate (fallback to 40 Hz)
+        int hz = relaySettings.update_rate_hz > 0 ? relaySettings.update_rate_hz : 40;
+        int ms = 1000 / hz;
+        QThread::msleep(ms);
+    }
+}
+
+// Global accessor for shared role values (singleton)
+SharedRoleValues& sharedRoleValues() {
+    static SharedRoleValues instance;
+    return instance;
+}
+
+} // namespace remote_control
+
+// Implementation of SharedRoleValues
+namespace remote_control {
+SharedRoleValues::SharedRoleValues() {}
+SharedRoleValues::~SharedRoleValues() {}
+void SharedRoleValues::setValue(int role, qreal value) {
+    QMutexLocker locker(&mutex);
+    roleValues[role] = value;
+}
+qreal SharedRoleValues::getValue(int role) {
+    QMutexLocker locker(&mutex);
+    return roleValues.value(role, 0.0);
+}
+QMap<int, qreal> SharedRoleValues::getAllValues() {
+    QMutexLocker locker(&mutex);
+    return roleValues;
+}
+void SharedRoleValues::reset() {
+    QMutexLocker locker(&mutex);
+    roleValues.clear();
+}
+} // namespace remote_control
 
 namespace remote_control {
 namespace channel {
@@ -113,7 +202,11 @@ void manager::update_value(const int joystick_id, const int axis_id, const qreal
         {
             qreal value_ = settings_.apply_calibration(value);
             emit unassigned_value_updated(value_);
-            if (settings_.is_target_configured()) emit assigned_value_updated(settings_.role, value_);
+            if (settings_.is_target_configured()) {
+                emit assigned_value_updated(settings_.role, value_);
+                // Update shared role value
+                sharedRoleValues().setValue(static_cast<int>(settings_.role), value_);
+            }
         }
     }
 }
@@ -229,7 +322,11 @@ void manager::update_value(const int joystick_id, const int button_id, const boo
         else value = -1.0;
 
         emit unassigned_value_updated(value);
-        if (settings_.is_target_configured()) emit assigned_value_updated(settings_.role, value);
+        if (settings_.is_target_configured()) {
+            emit assigned_value_updated(settings_.role, value);
+            // Update shared role value
+            sharedRoleValues().setValue(static_cast<int>(settings_.role), value);
+        }
     }
 }
 void manager::set_role(int role_)
@@ -253,22 +350,21 @@ void manager::unset_role(int role_)
     }
 }
 
+} // namespace joystick
+} // namespace button
+} // namespace channel
+} // namespace remote_control
+
+namespace remote_control {
+
+manager::manager(QObject* parent, generic_thread_settings *new_settings)
+    : generic_thread(parent, new_settings)
+{
 }
+
+void manager::run(void)
+{
 }
 
-
-
-}
-
-    manager::manager(QObject* parent, generic_thread_settings *new_settings)
-        : generic_thread(parent, new_settings)
-    {
-
-    }
-
-    void manager::run(void)
-    {
-
-    }
-}
+} // namespace remote_control
 

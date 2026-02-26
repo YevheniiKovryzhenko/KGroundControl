@@ -40,6 +40,8 @@
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QButtonGroup>
+#include <QPushButton>
+#include <QHash>
 // struct for relay configuration attached to each joystick mapping
 #include <QProgressBar>
 #include <QCheckBox>
@@ -53,23 +55,6 @@
 
 // simple widget to display a POV hat direction
 
-// settings used for each joystick relay entry
-struct JoystickRelaySettings {
-    Q_GADGET
-public:
-    enum msg_opt { mavlink_manual_control, mavlink_rc_channels, mavlink_rc_channels_overwrite };
-    Q_ENUM(msg_opt)
-
-    int frameid = -1;
-    QString Port_Name;            // empty by default, not "N/A"
-    msg_opt msg_option = mavlink_manual_control;
-    uint8_t sysid = 0;
-    mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
-    uint32_t update_rate_hz = 40;
-    int priority = 0;
-    bool enabled = true;          // user-visible enabled state
-    bool auto_disabled = false;    // set when port disappears automatically
-};
 
 // simple widget to display a POV hat direction
 class POVIndicator : public QWidget
@@ -202,8 +187,25 @@ private:
     };
     QVector<QVector<FieldWidget>> fieldWidgets; // indexed by relay entry
 
+    // map from role enum value to button widget in left panel
+    QHash<int, QPushButton*> roleButtons;
+
+    // global update when any joystick input changes
+    void on_any_joystick_changed(int joystick, int index, qreal value);
+
+    // determine which role (if any) corresponds to the given joystick element
+    int findRole(int joystick, int index) const;
+
+    // rebuild the left‑column roles UI from scratch
+    void refresh_roles_ui();
+
+    // update a single role button's displayed value
+    void update_role_value(int role, qreal mappedVal);
+
     // compute joystick output for a given role (used when assigning a role)
     double compute_value_for_role(int role);
+    // variant that specifies device index so we can query all joysticks
+    double compute_value_for_role(int joystick, int role);
 
 private slots:
     // notified whenever any axis/button manager reports its mapped value changed
@@ -224,6 +226,9 @@ private:
     int selected_relay_index = -1;
     QButtonGroup *relay_btn_group = nullptr;
 
+    // background relay threads corresponding to entries (nullptr when inactive)
+    QVector<remote_control::JoystickRelayThread*> relayThreads;
+
     // lists maintained for combobox population
     QStringList avail_ports;
     QVector<uint8_t> avail_sysids;
@@ -233,6 +238,7 @@ private:
     void on_relay_button_clicked(QAbstractButton *btn);
 
     void update_relays_list();
+    void sync_relay_threads();
 
     // persistence helpers for relay entries
     static QList<RelayEntry> load_relay_entries();

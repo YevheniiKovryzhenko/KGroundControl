@@ -1,3 +1,4 @@
+
 /****************************************************************************
  *
  *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
@@ -38,6 +39,88 @@
 #include <QObject>
 
 #include "threads.h"
+
+#include <QMutex>
+#include <QVector>
+#include <QString>
+#include <QMap>
+
+// settings used for each joystick relay entry
+struct JoystickRelaySettings {
+    Q_GADGET
+public:
+    enum msg_opt { mavlink_manual_control, mavlink_rc_channels, mavlink_rc_channels_overwrite };
+    Q_ENUM(msg_opt)
+
+    int frameid = -1;
+    QString Port_Name;            // empty by default, not "N/A"
+    msg_opt msg_option = mavlink_manual_control;
+    uint8_t sysid = 0;
+    mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
+    uint32_t update_rate_hz = 40;
+    int priority = 0;
+    bool enabled = true;          // user-visible enabled state
+    bool auto_disabled = false;    // set when port disappears automatically
+};
+
+// Relay thread for joystick-to-MAVLink relaying
+namespace remote_control {
+class JoystickRelayThread : public generic_thread {
+    Q_OBJECT
+public:
+    JoystickRelayThread(QObject* parent,
+                       generic_thread_settings* thread_settings,
+                       const JoystickRelaySettings& relay_settings,
+                       const QVector<int>& field_roles);
+    ~JoystickRelayThread();
+
+    void run() override;
+    void requestStop();
+    void updateSettings(const JoystickRelaySettings& relay_settings, const QVector<int>& field_roles);
+
+    // For UI: get last sent values
+    QMap<int, qreal> getLastSentValues();
+
+signals:
+    // Emitted when a new message is sent (for UI update)
+    void outputValuesUpdated(QMap<int, qreal> values);
+
+private:
+    JoystickRelaySettings relaySettings;
+    QVector<int> fieldRoles;
+    QMap<int, qreal> lastSentValues;
+    bool stopRequested = false;
+    QMutex stopMutex;
+};
+
+
+} // namespace remote_control
+
+namespace remote_control {
+// Thread-safe storage for latest role values (axis/button/pov) for all roles
+class SharedRoleValues {
+public:
+    SharedRoleValues();
+    ~SharedRoleValues();
+
+    // Set value for a role (thread-safe)
+    void setValue(int role, qreal value);
+    // Get value for a role (thread-safe, returns 0 if not set)
+    qreal getValue(int role);
+    // Get all current values (thread-safe)
+    QMap<int, qreal> getAllValues();
+    // Reset all values (thread-safe)
+    void reset();
+
+private:
+    QMap<int, qreal> roleValues;
+    QMutex mutex;
+};
+
+
+    // Global accessor for shared role values (singleton pattern)
+    SharedRoleValues& sharedRoleValues();
+}
 
 //this function applies linear maping for transforming anything in [in_min, in_max] into [out_min, out, max] range
 template <typename T>
@@ -141,11 +224,12 @@ private:
     bool in_calibration = false;
 };
 
-}
-}
+} // namespace joystick
+} // namespace axis
 
 namespace button {
 namespace joystick {
+
 class settings
 {
 public:
@@ -187,10 +271,10 @@ protected:
     settings settings_;
 };
 
-}
-}
+} // namespace joystick
+} // namespace button
 
-}
+} // namespace channel
 
 
 class manager :  public generic_thread
@@ -203,8 +287,8 @@ public:
 
 signals:
 };
-}
 
+} // namespace remote_control
 
 
 

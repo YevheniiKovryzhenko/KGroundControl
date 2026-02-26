@@ -37,6 +37,30 @@
 #include <QSettings>
 #include <QHeaderView>
 #include "default_ui_config.h"
+#include <QPainter>
+#include "collapsible_group.h"
+#include <QLineEdit>
+#include <QGridLayout>
+#include <QComboBox>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QInputDialog>
+#include <QButtonGroup>
+#include <QFormLayout>
+#include <QSpinBox>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTextBrowser>
+#include <QLabel>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonParseError>
+#include <QDateTime>
 
 // persistence helpers implemented as static class methods
 QList<Joystick_manager::RelayEntry> Joystick_manager::load_relay_entries()
@@ -113,19 +137,6 @@ void Joystick_manager::save_relay_entries(const QList<RelayEntry>& entries)
     s.endGroup();
 }
 
-#include <QPainter>
-#include "collapsible_group.h"
-#include <QLineEdit>
-#include <QGridLayout>
-#include <QComboBox>
-#include <QPushButton>
-#include <QScrollArea>
-#include <QInputDialog>
-#include <QButtonGroup>
-#include <QFormLayout>
-#include <QSpinBox>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
 
 /*
  * Joystick_manager widget and helpers
@@ -142,18 +153,6 @@ void Joystick_manager::save_relay_entries(const QList<RelayEntry>& entries)
  * calibration data.
  */
 
-#include <QTextBrowser>
-
-#include <QLabel>
-#include <QMessageBox>
-#include <QFileDialog>
-#include <QDir>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QJsonParseError>
-#include <QDateTime>
 
 JoystickAxisBar::JoystickAxisBar(QWidget* parent, int joystick_, int axis_)
     : QProgressBar(parent), joystick(parent, joystick_, axis_), joystickId(joystick_), axisId(axis_)
@@ -284,6 +283,10 @@ Joystick_manager::Joystick_manager(QWidget *parent)
     joysticks = (QJoysticks::getInstance());
     update_joystick_list();
     connect(joysticks, &QJoysticks::countChanged, this, &Joystick_manager::update_joystick_list);
+    // listen for any activity on any joystick so page‑2 remains live
+    connect(joysticks, &QJoysticks::axisChanged, this, &Joystick_manager::on_any_joystick_changed);
+    connect(joysticks, &QJoysticks::buttonChanged, this, &Joystick_manager::on_any_joystick_changed);
+    connect(joysticks, &QJoysticks::povChanged, this, &Joystick_manager::on_any_joystick_changed);
 
     // we auto‑save every change; old save button removed
 
@@ -308,6 +311,41 @@ Joystick_manager::Joystick_manager(QWidget *parent)
     update_relays_list();
 }
 
+
+// helper used by the joystick-change callbacks
+int Joystick_manager::findRole(int joystick, int index) const
+{
+    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(joystick) : nullptr;
+    if (!dev) return -1;
+    // axis first (axisChanged signal passes axis index)
+    if (index >= 0 && index < dev->axisCalibration.count()) {
+        int r = dev->axisCalibration.at(index).mapped_role;
+        if (r > 0) return r;
+    }
+    // buttons
+    if (index >= 0 && index < dev->buttonRole.count()) {
+        int r = dev->buttonRole.at(index);
+        if (r > 0) return r;
+    }
+    // povs
+    if (index >= 0 && index < dev->povRole.count()) {
+        int r = dev->povRole.at(index);
+        if (r > 0) return r;
+    }
+    return -1;
+}
+
+// slot invoked whenever any joystick element changes
+void Joystick_manager::on_any_joystick_changed(int joystick, int index, qreal value)
+{
+    int role = findRole(joystick, index);
+    if (role > 0) {
+        qreal mapped = compute_value_for_role(joystick, role);
+        update_role_value(role, mapped);
+        joystick_value_updated(role, mapped); // updates relay panel
+    }
+}
+
 Joystick_manager::~Joystick_manager()
 {
     // persist current joystick settings on exit
@@ -316,6 +354,15 @@ Joystick_manager::~Joystick_manager()
         QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
         if (dev) joysticks->saveCalibration(dev->hardwareId);
     }
+    // make sure any relay threads are stopped
+    for (auto th : relayThreads) {
+        if (th) {
+            th->requestStop();
+            th->wait();
+            delete th;
+        }
+    }
+    relayThreads.clear();
     delete ui;
 }
 
@@ -329,7 +376,13 @@ void Joystick_manager::showEvent(QShowEvent *event)
 
 double Joystick_manager::compute_value_for_role(int role)
 {
-    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(current_joystick_id) : nullptr;
+    return compute_value_for_role(current_joystick_id, role);
+}
+
+// compute mapped output for specified joystick device
+double Joystick_manager::compute_value_for_role(int joystick, int role)
+{
+    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(joystick) : nullptr;
     if (!dev) return 0.0;
     // axis roles
     for (int a = 0; a < dev->axisCalibration.count(); ++a) {
@@ -340,6 +393,7 @@ double Joystick_manager::compute_value_for_role(int role)
             if (qAbs(raw) <= d) raw = 0.0;
             else if (raw > d) raw = map2map(raw, d, 1.0, 0.0, 1.0);
             else if (raw < -d) raw = map2map(raw, -d, -1.0, 0.0, -1.0);
+            // reverse only if this axis widget exists (no per-device reverse stored here)
             QCheckBox *rev = axes_container ? axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(a)) : nullptr;
             if (rev && rev->isChecked()) raw = -raw;
             return map2map(raw, -1.0, 1.0, c.output_min, c.output_max);
@@ -357,8 +411,7 @@ double Joystick_manager::compute_value_for_role(int role)
 
 void Joystick_manager::joystick_value_updated(int role, qreal value)
 {
-    double mapped = compute_value_for_role(role);
-    QString str = QString::number(mapped);
+    QString str = QString::number(value);
     // update all field widgets that are assigned this role
     for (int i = 0; i < relayEntries.size() && i < fieldWidgets.size(); ++i) {
         for (int fi = 0; fi < relayEntries[i].field_roles.size() && fi < fieldWidgets[i].size(); ++fi) {
@@ -1416,127 +1469,86 @@ void Joystick_manager::on_pushButton_cal_axes_toggled(bool checked)
 
 void Joystick_manager::update_roles_list()
 {
+    // rebuild UI when necessary (called on mapping changes, joystick count changes)
+    refresh_roles_ui();
+}
+
+// rebuild the left‑column roles UI
+void Joystick_manager::refresh_roles_ui()
+{
     if (!ui)
         return;
     QLayout *layout = ui->verticalLayout_roles;
     if (!layout)
         return;
 
-    // clear previous widgets
+    // clear previous widgets and map
     QLayoutItem *item;
     while ((item = layout->takeAt(0)) != nullptr) {
         if (item->widget())
             delete item->widget();
         delete item;
     }
+    roleButtons.clear();
 
-    // create a non-interactive button-like widget showing role and optional value
-    auto addEntry = [&](const QString &role, const QString &val = QString()) {
-        QPushButton *btn = new QPushButton(ui->verticalLayout_roles->parentWidget());
+    // create non-interactive entries for all roles from all joysticks
+    auto addEntry = [&](int roleIdx, const QString &key, qreal val) {
+        QString txt = QString("%1: %2").arg(key, QString::number(val, 'f', 3));
+        QPushButton *btn = new QPushButton(txt, ui->verticalLayout_roles->parentWidget());
         btn->setFlat(false);
-        btn->setEnabled(false); // unclickable
-        if (val.isEmpty())
-            btn->setText(role);
-        else
-            btn->setText(QString("%1: %2").arg(role, val));
-        // keep default theme but align text left and add padding
+        btn->setEnabled(false);
         btn->setStyleSheet("text-align:left; padding-left:8px; padding-right:8px;");
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         layout->addWidget(btn);
+        roleButtons.insert(roleIdx, btn);
     };
 
-    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(current_joystick_id) : nullptr;
-
-    // axes – show only assigned roles & compute mapped output
-    QList<QComboBox*> axisBoxes;
-    if (axes_container) {
-        for (QComboBox *cb : axes_container->findChildren<QComboBox*>()) {
-            if (cb->objectName().startsWith(QStringLiteral("axis_role_")) && cb->currentIndex() > 0)
-                axisBoxes.append(cb);
-        }
-    }
-    for (QComboBox *cb : axisBoxes) {
-        bool ok;
-        int axis = cb->objectName().mid(QString("axis_role_").length()).toInt(&ok);
-        if (!ok) continue;
-        QString role = cb->currentText();
-        double mappedVal = 0.0;
-        if (dev && axis >= 0 && axis < dev->axisCalibration.count() && axis < dev->axes.count()) {
-            const CalibrationEntry &c = dev->axisCalibration.at(axis);
-            double raw = dev->axes.at(axis);
-            // apply deadzone with smooth transition past threshold
-            double d = c.output_deadzone;
-            if (qAbs(raw) <= d) {
-                // inside deadzone -> zero output
-                raw = 0.0;
-            } else if (raw > d) {
-                // positive side: remap [d,1] -> [0,1]
-                raw = map2map(raw, d, 1.0, 0.0, 1.0);
-            } else if (raw < -d) {
-                // negative side: remap [-d,-1] -> [0,-1]
-                raw = map2map(raw, -d, -1.0, 0.0, -1.0);
+    QSet<int> seenRoles;
+    int count = joysticks ? joysticks->count() : 0;
+    for (int j = 0; j < count; ++j) {
+        QJoystickDevice *dev = joysticks->getInputDevice(j);
+        if (!dev) continue;
+        for (const CalibrationEntry &c : dev->axisCalibration) {
+            int r = c.mapped_role;
+            if (r > 0 && !seenRoles.contains(r)) {
+                seenRoles.insert(r);
+                QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
+                qreal val = compute_value_for_role(j, r);
+                addEntry(r, key, val);
             }
-            // apply reverse checkbox if present
-            QCheckBox *rev = axes_container ? axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(axis)) : nullptr;
-            if (rev && rev->isChecked()) {
-                raw = -raw;
+        }
+        for (int idx = 0; idx < dev->buttonRole.count(); ++idx) {
+            int r = dev->buttonRole.at(idx);
+            if (r > 0 && !seenRoles.contains(r)) {
+                seenRoles.insert(r);
+                QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
+                qreal val = compute_value_for_role(j, r);
+                addEntry(r, key, val);
             }
-            // finally map full [-1,1] range to [min,max]
-            mappedVal = map2map(raw, -1.0, 1.0, c.output_min, c.output_max);
         }
-        addEntry(role, QString::number(mappedVal, 'f', 3));
-    }
-
-    // buttons – only show assigned
-    QList<QComboBox*> btnBoxes;
-    if (buttons_container) {
-        for (QComboBox *cb : buttons_container->findChildren<QComboBox*>()) {
-            if (cb->objectName().startsWith(QStringLiteral("button_role_")) && cb->currentIndex() > 0)
-                btnBoxes.append(cb);
+        for (int idx = 0; idx < dev->povRole.count(); ++idx) {
+            int r = dev->povRole.at(idx);
+            if (r > 0 && !seenRoles.contains(r)) {
+                seenRoles.insert(r);
+                QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
+                qreal val = compute_value_for_role(j, r);
+                addEntry(r, key, val);
+            }
         }
     }
-    for (QComboBox *cb : btnBoxes) {
-        bool ok;
-        int btn = cb->objectName().mid(QString("button_role_").length()).toInt(&ok);
-        if (!ok) continue;
-        QString role = cb->currentText();
-        bool raw = dev && btn >= 0 && btn < dev->buttons.count() ? dev->buttons.at(btn) : false;
-        double mappedVal = raw ? 1.0 : 0.0;
-        addEntry(role, QString::number(mappedVal));
-    }
 
-    // povs – only show assigned
-    QList<QComboBox*> povBoxes;
-    if (povs_container) {
-        for (QComboBox *cb : povs_container->findChildren<QComboBox*>()) {
-            if (cb->objectName().startsWith(QStringLiteral("pov_role_")) && cb->currentIndex() > 0)
-                povBoxes.append(cb);
-        }
-    }
-    for (QComboBox *cb : povBoxes) {
-        QString role = cb->currentText();
-        addEntry(role);
-    }
-
-    // ensure widgets stay at top by adding stretch at bottom
     if (QVBoxLayout *vbox = qobject_cast<QVBoxLayout*>(layout)) {
         vbox->addStretch();
     }
+}
 
-    // also update values in right-hand relay tree for any assigned fields
-    for (int i = 0; i < relayEntries.size() && i < fieldWidgets.size(); ++i) {
-        for (int fi = 0; fi < relayEntries[i].field_roles.size() && fi < fieldWidgets[i].size(); ++fi) {
-            int role = relayEntries[i].field_roles[fi];
-            if (role > 0 && fieldWidgets[i][fi].valueLabel) {
-                double v = compute_value_for_role(role);
-                QString str = QString::number(v);
-                if (fieldWidgets[i][fi].valueLabel->text() != str) {
-                    fieldWidgets[i][fi].valueLabel->setText(str);
-                    if (fi < relayEntries[i].field_values.size())
-                        relayEntries[i].field_values[fi] = str;
-                }
-            }
-        }
+// update existing button value
+void Joystick_manager::update_role_value(int role, qreal mappedVal)
+{
+    if (roleButtons.contains(role)) {
+        QPushButton *btn = roleButtons.value(role);
+        QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(role));
+        btn->setText(QString("%1: %2").arg(key, QString::number(mappedVal, 'f', 3)));
     }
 }
 
@@ -1586,6 +1598,11 @@ void Joystick_manager::update_relays_list()
             btn->setChecked(true);
         relay_btn_group->addButton(btn, i);
         layout->addWidget(btn);
+
+        // status label for the background thread
+        QLabel *statusLbl = new QLabel(ui->verticalLayout_relays->parentWidget());
+        statusLbl->setObjectName(QStringLiteral("statusLbl_%1").arg(i));
+        layout->addWidget(statusLbl);
 
         // detail subtree: initially hidden unless selected
         QWidget *detail = new QWidget(ui->verticalLayout_relays->parentWidget());
@@ -1743,7 +1760,7 @@ void Joystick_manager::update_relays_list()
                     }
                     // persist the change immediately
                     save_relay_entries(relayEntries);
-                    // refresh all values and left‑panel roles immediately
+                    // refresh left‑panel roles (right panel will update on form changes via other hooks)
                     update_roles_list();
                 });
                 fieldTree->setItemWidget(item,1,roleCb);
@@ -1858,6 +1875,10 @@ void Joystick_manager::update_relays_list()
                 }
                 relayEntries[i].settings.enabled = on;
                 relayEntries[i].settings.auto_disabled = false;
+                // update threads and UI immediately
+                sync_relay_threads();
+                update_relays_list();
+                save_relay_entries(relayEntries);
             }
         });
         form->addRow(enableCb);
@@ -1915,6 +1936,54 @@ void Joystick_manager::on_button_edit_clicked()
 }
 
 
+// helper to synchronize relayThreads with relayEntries
+void Joystick_manager::sync_relay_threads()
+{
+    // resize vector to match entries
+    while (relayThreads.size() < relayEntries.size())
+        relayThreads.append(nullptr);
+    while (relayThreads.size() > relayEntries.size()) {
+        auto th = relayThreads.takeLast();
+        if (th) {
+            th->requestStop();
+            th->wait();
+            delete th;
+        }
+    }
+
+    for (int i = 0; i < relayEntries.size(); ++i) {
+        bool want = relayEntries[i].settings.enabled && !relayEntries[i].settings.Port_Name.isEmpty();
+        if (want) {
+            if (!relayThreads[i]) {
+                generic_thread_settings *ts = new generic_thread_settings();
+                ts->priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
+                relayThreads[i] = new remote_control::JoystickRelayThread(this, ts,
+                                            relayEntries[i].settings,
+                                            QVector<int>::fromList(relayEntries[i].field_roles.toList()));
+                connect(relayThreads[i], &remote_control::JoystickRelayThread::outputValuesUpdated,
+                        this, [this](QMap<int, qreal>){
+                            update_roles_list();
+                            update_relays_list();
+                        });
+                relayThreads[i]->start();
+            } else {
+                relayThreads[i]->updateSettings(relayEntries[i].settings,
+                                                QVector<int>::fromList(relayEntries[i].field_roles.toList()));
+                generic_thread_settings ts;
+                ts.priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
+                relayThreads[i]->update_settings(&ts);
+            }
+        } else {
+            if (relayThreads[i]) {
+                relayThreads[i]->requestStop();
+                relayThreads[i]->wait();
+                delete relayThreads[i];
+                relayThreads[i] = nullptr;
+            }
+        }
+    }
+}
+
 // -------------------------------------------------------------
 // slots for updating available lists (mirror mocap_manager)
 
@@ -1969,6 +2038,9 @@ void Joystick_manager::update_relay_port_list(const QVector<QString>& new_ports)
     // note: entries are retained even when their port vanishes; user may re-enable later
 
     // before updating widgets, auto-assign a port if exactly one is available
+
+    // update UI and thread state now that availability changed
+    update_relays_list();
     if (avail_ports.size() == 1) {
         for (RelayEntry &e : relayEntries) {
             if (e.settings.Port_Name.isEmpty()) {
