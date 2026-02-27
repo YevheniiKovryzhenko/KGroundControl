@@ -36,6 +36,8 @@
 #include "ui_joystick_manager.h"
 #include <QSettings>
 #include <QHeaderView>
+#include <QTimer>
+#include <QScopedValueRollback>
 #include "default_ui_config.h"
 #include <QPainter>
 #include "collapsible_group.h"
@@ -164,40 +166,23 @@ JoystickAxisBar::JoystickAxisBar(QWidget* parent, int joystick_, int axis_)
 
     setFocusPolicy(Qt::FocusPolicy::NoFocus);
 
-    connect(&joystick, &remote_control::channel::axis::joystick::manager::unassigned_value_updated, this, &JoystickAxisBar::map_value);
+    // use a lambda rather than a separate slot; mapping is trivial
+    connect(&joystick, &remote_control::channel::axis::joystick::manager::unassigned_value_updated,
+            this, [this](qreal value){
+                qreal tmp = map2map(value, -1.0, 1.0, 1000.0, 2000.0);
+                setValue(static_cast<int>(tmp));
+            });
     joystick.fetch_update();
 }
-void JoystickAxisBar::map_value(qreal value)
-{
-    qreal tmp = map2map(value, -1.0, 1.0, 1000.0, 2000.0);
-    setValue(static_cast<int>(tmp));
-    if (inCalibration)
-    {
-        if (value < cal_min) cal_min = value;
-        if (value > cal_max) cal_max = value;
-        emit calibrationCaptured(axisId, cal_min, cal_max);
-    }
-}
 
-void JoystickAxisBar::setCalibrationMode(bool enabled)
-{
-    inCalibration = enabled;
-    if (enabled)
-    {
-        cal_min = 10.0;
-        cal_max = -10.0;
-    }
-    else
-    {
-        // emit current captured values once calibration ends
-        emit calibrationCaptured(axisId, cal_min, cal_max);
-    }
-}
 
 JoystickButton::JoystickButton(QWidget* parent, int joystick_, int button_)
     : QCheckBox(parent), button(parent, joystick_, button_), joystickId(joystick_), buttonId(button_)
 {
-    connect(&button, &remote_control::channel::button::joystick::manager::unassigned_value_updated, this, &JoystickButton::map_value);
+    connect(&button, &remote_control::channel::button::joystick::manager::unassigned_value_updated,
+            this, [this](qreal value){
+                setChecked(value > 0.0);
+            });
     button.fetch_update();
     setFocusPolicy(Qt::FocusPolicy::NoFocus);
 }
@@ -250,10 +235,6 @@ void POVIndicator::paintEvent(QPaintEvent *event)
         p.setPen(QPen(Qt::red,2));
         p.drawLine(center, tip);
     }
-}
-void JoystickButton::map_value(qreal value)
-{
-    setChecked(value > 0.0);
 }
 
 
@@ -309,6 +290,10 @@ Joystick_manager::Joystick_manager(QWidget *parent)
     // initially update page2 roles display
     update_roles_list();
     update_relays_list();
+
+    // ensure calibrate button toggles our slot (auto-connect sometimes fails)
+    connect(ui->pushButton_cal_axes, &QPushButton::toggled,
+            this, &Joystick_manager::on_pushButton_cal_axes_toggled);
 }
 
 
@@ -340,7 +325,8 @@ void Joystick_manager::on_any_joystick_changed(int joystick, int index, qreal va
 {
     int role = findRole(joystick, index);
     if (role > 0) {
-        qreal mapped = compute_value_for_role(joystick, role);
+        // rely on sharedRoleValues which is maintained by managers
+        qreal mapped = remote_control::sharedRoleValues().getValue(role);
         update_role_value(role, mapped);
         joystick_value_updated(role, mapped); // updates relay panel
     }
@@ -374,40 +360,6 @@ void Joystick_manager::showEvent(QShowEvent *event)
 }
 
 
-double Joystick_manager::compute_value_for_role(int role)
-{
-    return compute_value_for_role(current_joystick_id, role);
-}
-
-// compute mapped output for specified joystick device
-double Joystick_manager::compute_value_for_role(int joystick, int role)
-{
-    QJoystickDevice *dev = joysticks ? joysticks->getInputDevice(joystick) : nullptr;
-    if (!dev) return 0.0;
-    // axis roles
-    for (int a = 0; a < dev->axisCalibration.count(); ++a) {
-        if (dev->axisCalibration[a].mapped_role == role) {
-            const CalibrationEntry &c = dev->axisCalibration.at(a);
-            double raw = dev->axes.value(a, 0.0);
-            double d = c.output_deadzone;
-            if (qAbs(raw) <= d) raw = 0.0;
-            else if (raw > d) raw = map2map(raw, d, 1.0, 0.0, 1.0);
-            else if (raw < -d) raw = map2map(raw, -d, -1.0, 0.0, -1.0);
-            // reverse only if this axis widget exists (no per-device reverse stored here)
-            QCheckBox *rev = axes_container ? axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(a)) : nullptr;
-            if (rev && rev->isChecked()) raw = -raw;
-            return map2map(raw, -1.0, 1.0, c.output_min, c.output_max);
-        }
-    }
-    // button roles
-    for (int b = 0; b < dev->buttonRole.count(); ++b) {
-        if (dev->buttonRole[b] == role) {
-            bool raw = dev->buttons.value(b, false);
-            return raw ? 1.0 : 0.0;
-        }
-    }
-    return 0.0;
-}
 
 void Joystick_manager::joystick_value_updated(int role, qreal value)
 {
@@ -551,11 +503,6 @@ void Joystick_manager::clearRoleFromOtherDevices(int role)
     }
 }
 
-void Joystick_manager::clear_all(void)
-{
-    clear_axes();
-    clear_buttons();
-}
 
 bool Joystick_manager::add_axis(int axis_id)
 {
@@ -575,6 +522,9 @@ bool Joystick_manager::add_axis(int axis_id)
     connect(axis_slider_, &QProgressBar::valueChanged, this, &Joystick_manager::update_roles_list);
     connect(&axis_slider_->joystick, &remote_control::channel::axis::joystick::manager::assigned_value_updated,
             this, &Joystick_manager::joystick_value_updated);
+    // also update role-button display whenever manager emits a new mapped value
+    connect(&axis_slider_->joystick, &remote_control::channel::axis::joystick::manager::assigned_value_updated,
+            this, &Joystick_manager::update_role_value);
     QFontMetrics font_metrics(axis_slider_->font());
     axis_slider_->setMinimumHeight(font_metrics.height());
     axis_slider_->setMaximumHeight(font_metrics.height());
@@ -584,26 +534,17 @@ bool Joystick_manager::add_axis(int axis_id)
     horisontal_layout_->addWidget(axis_slider_);
     connect(this, &Joystick_manager::calibration_mode_toggled, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::set_calibration_mode);
     connect(this, &Joystick_manager::reset_calibration, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::reset_calibration);
-    connect(this, &Joystick_manager::calibration_mode_toggled, axis_slider_, &JoystickAxisBar::setCalibrationMode);
-    connect(axis_slider_, &JoystickAxisBar::calibrationCaptured, this, [this](int axis, qreal minVal, qreal maxVal){
-        if (axis < 0) return;
-        QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-        if (dev && axis < dev->axisCalibration.count())
-        {
-            dev->axisCalibration[axis].raw_min = minVal;
-            dev->axisCalibration[axis].raw_max = maxVal;
-        }
-    });
+    // inform axis manager of current calibration state; slider has no role
+    if (ui && ui->pushButton_cal_axes->isChecked()) {
+        axis_slider_->joystick.set_calibration_mode(true);
+    }
+    // calibrationCaptured signal removed; remote_control manager stores ranges directly
 
     QCheckBox* button_reverse_ = new QCheckBox(horisontal_container_);
     button_reverse_->setText("Reverse");
     button_reverse_->setObjectName(QStringLiteral("axis_reverse_") + QString::number(axis_id));
     connect(button_reverse_, &QCheckBox::clicked, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::reverse);
-    connect(button_reverse_, &QCheckBox::clicked, this, [this, axis_id](bool checked){
-        QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-        if (dev && axis_id < dev->axisCalibration.count())
-            dev->axisCalibration[axis_id].invert = checked;
-    });
+    // invert state will be stored in remote_control manager and committed to device later
     horisontal_layout_->addWidget(button_reverse_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
@@ -618,59 +559,58 @@ bool Joystick_manager::add_axis(int axis_id)
     connect(combobox_role_, &QComboBox::currentIndexChanged, this, [this](int index){emit this->unset_role(index);});
     connect(combobox_role_, &QComboBox::currentIndexChanged, &(axis_slider_->joystick), &remote_control::channel::axis::joystick::manager::set_role);
     connect(combobox_role_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, axis_id, axis_slider_, roleVals](int idx){
-        QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-        if (!dev) return;
         int roleVal = (idx >= 0 && idx < roleVals.size()) ? roleVals[idx] : -1;
         if (roleVal > 0)
         {
-            for (int a = 0; a < dev->axisCalibration.count(); ++a)
+            // ensure unique within this device: clear any other axis/button/pov with same role
+            QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
+            for (JoystickAxisBar* other : axisBars)
             {
-                if (a != axis_id && dev->axisCalibration[a].mapped_role == roleVal)
+                if (other->axisId != axis_id && other->joystick.role() == roleVal)
                 {
-                    dev->axisCalibration[a].mapped_role = -1;
-                    QComboBox *other = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(a));
-                    if (other)
+                    other->joystick.unset_role(roleVal);
+                    QComboBox *otherCb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(other->axisId));
+                    if (otherCb)
                     {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
+                        otherCb->blockSignals(true);
+                        otherCb->setCurrentIndex(0);
+                        otherCb->blockSignals(false);
                     }
                 }
             }
-            for (int b = 0; b < dev->buttonRole.count(); ++b)
+            QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
+            for (JoystickButton *btn : buttons)
             {
-                if (dev->buttonRole[b] == roleVal)
+                if (btn->button.role() == roleVal)
                 {
-                    dev->buttonRole[b] = -1;
-                    QComboBox *other = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b));
-                    if (other)
+                    btn->button.unset_role(roleVal);
+                    QComboBox *otherCb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(btn->buttonId));
+                    if (otherCb)
                     {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
+                        otherCb->blockSignals(true);
+                        otherCb->setCurrentIndex(0);
+                        otherCb->blockSignals(false);
                     }
                 }
             }
-            for (int p = 0; p < dev->povRole.count(); ++p)
+            // clear any POV selector showing this role
+            QList<QComboBox*> povBoxes = povs_container->findChildren<QComboBox*>();
+            for (QComboBox *cb : povBoxes)
             {
-                if (dev->povRole[p] == roleVal)
+                QString name = cb->objectName();
+                if (name.startsWith("pov_role_"))
                 {
-                    dev->povRole[p] = -1;
-                    QComboBox *other = povs_container->findChild<QComboBox*>(QStringLiteral("pov_role_") + QString::number(p));
-                    if (other)
-                    {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
-                    }
+                    cb->blockSignals(true);
+                    cb->setCurrentIndex(0);
+                    cb->blockSignals(false);
                 }
             }
+            // clear from other devices too
             clearRoleFromOtherDevices(roleVal);
         }
-        if (axis_id < dev->axisCalibration.count())
-            dev->axisCalibration[axis_id].mapped_role = roleVal;
         axis_slider_->joystick.set_role(roleVal);
-        joysticks->saveCalibration(dev->hardwareId);
+        // commit latest settings (role/min/max/invert) to persistent store
+        commitRolesToDevice();
     });
     combobox_role_->setObjectName(QStringLiteral("axis_role_") + QString::number(axis_id));
     combobox_role_->installEventFilter(this);
@@ -700,6 +640,8 @@ bool Joystick_manager::add_axis(int axis_id)
     QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
     if (dev && axis_id < dev->axisCalibration.size()) {
         const CalibrationEntry& c = dev->axisCalibration[axis_id];
+        // initialize manager with saved output values as well
+        axis_slider_->joystick.set_output_values(c.output_min, c.output_max, c.output_deadzone);
         minEdit->setText(QString::number(c.output_min));
         maxEdit->setText(QString::number(c.output_max));
         dzEdit->setText(QString::number(c.output_deadzone));
@@ -727,7 +669,7 @@ bool Joystick_manager::add_axis(int axis_id)
     axisGroup->setContentLayout(axisContentLayout);
 
     // Validation and Save Logic
-    auto validateAndSave = [this, axis_id, minEdit, maxEdit, dzEdit](const QString&) {
+    auto validateAndSave = [this, axis_id, minEdit, maxEdit, dzEdit, axis_slider_](const QString&) {
         bool minOk, maxOk, dzOk;
         double minVal = minEdit->text().toDouble(&minOk);
         double maxVal = maxEdit->text().toDouble(&maxOk);
@@ -757,13 +699,9 @@ bool Joystick_manager::add_axis(int axis_id)
             valid = false;
         }
         if (valid) {
-            QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-            if (dev && axis_id < dev->axisCalibration.size()) {
-                dev->axisCalibration[axis_id].output_min = minVal;
-                dev->axisCalibration[axis_id].output_max = maxVal;
-                dev->axisCalibration[axis_id].output_deadzone = dzVal;
-                joysticks->saveCalibration(dev->hardwareId);
-            }
+            // update axis manager and persist later via commitRolesToDevice
+            axis_slider_->joystick.set_output_values(minVal, maxVal, dzVal);
+            commitRolesToDevice();
         }
     };
     connect(minEdit, &QLineEdit::textChanged, this, validateAndSave);
@@ -802,6 +740,8 @@ bool Joystick_manager::add_button(int button_id)
     connect(button_state_, &QAbstractButton::toggled, this, &Joystick_manager::update_roles_list);
     connect(&button_state_->button, &remote_control::channel::button::joystick::manager::assigned_value_updated,
             this, &Joystick_manager::joystick_value_updated);
+    connect(&button_state_->button, &remote_control::channel::button::joystick::manager::assigned_value_updated,
+            this, &Joystick_manager::update_role_value);
     horisontal_layout_->addWidget(button_state_);
 
     QComboBox* combobox_role_ = new QComboBox(horisontal_container_);
@@ -813,64 +753,57 @@ bool Joystick_manager::add_button(int button_id)
     connect(combobox_role_, &QComboBox::currentIndexChanged, &(button_state_->button), &remote_control::channel::button::joystick::manager::set_role); //set new current role
     // no feedback connection from manager to combobox to avoid recursive loops
     connect(combobox_role_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, button_id](int idx){
-        QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-        if (!dev) return;
-        // uniqueness for buttons too if desired (only one axis per role --- the same idea)
-        if (idx > 0)
+        int roleVal = idx;
+        if (roleVal > 0)
         {
-            // clear same role from axes
-            for (int a = 0; a < dev->axisCalibration.count(); ++a)
+            // clear the role from any other axis
+            QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
+            for (JoystickAxisBar *bar : axisBars)
             {
-                if (dev->axisCalibration[a].mapped_role == idx)
+                if (bar->joystick.role() == roleVal)
                 {
-                    dev->axisCalibration[a].mapped_role = -1;
-                    QComboBox *other = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(a));
-                    if (other)
+                    bar->joystick.unset_role(roleVal);
+                    QComboBox *otherCb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(bar->axisId));
+                    if (otherCb)
                     {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
+                        otherCb->blockSignals(true);
+                        otherCb->setCurrentIndex(0);
+                        otherCb->blockSignals(false);
                     }
                 }
             }
-            // clear same role from other buttons
-            for (int b = 0; b < dev->buttonRole.count(); ++b)
+            // clear the role from other buttons
+            QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
+            for (JoystickButton *b : buttons)
             {
-                if (b != button_id && dev->buttonRole[b] == idx)
+                if (b->buttonId != button_id && b->button.role() == roleVal)
                 {
-                    dev->buttonRole[b] = -1;
-                    QComboBox *other = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b));
-                    if (other)
+                    b->button.unset_role(roleVal);
+                    QComboBox *otherCb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b->buttonId));
+                    if (otherCb)
                     {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
+                        otherCb->blockSignals(true);
+                        otherCb->setCurrentIndex(0);
+                        otherCb->blockSignals(false);
                     }
                 }
             }
-            // clear same role from povs as well
-            for (int p = 0; p < dev->povRole.count(); ++p)
+            // clear same role from POV selectors
+            QList<QComboBox*> povBoxes = povs_container->findChildren<QComboBox*>();
+            for (QComboBox *cb : povBoxes)
             {
-                if (dev->povRole[p] == idx)
-                {
-                    dev->povRole[p] = -1;
-                    QComboBox *other = povs_container->findChild<QComboBox*>(QStringLiteral("pov_role_") + QString::number(p));
-                    if (other)
-                    {
-                        other->blockSignals(true);
-                        other->setCurrentIndex(0);
-                        other->blockSignals(false);
-                    }
-                }
+                cb->blockSignals(true);
+                cb->setCurrentIndex(0);
+                cb->blockSignals(false);
             }
             // clear from other joysticks too
-            clearRoleFromOtherDevices(idx);
+            clearRoleFromOtherDevices(roleVal);
         }
-        if (button_id < dev->buttonRole.count())
-            dev->buttonRole[button_id] = idx;
-        joysticks->saveCalibration(dev->hardwareId);
-        if (button_id < dev->buttonRole.count())
-            dev->buttonRole[button_id] = idx;
+        // set role on this button manager
+        // we already connected combobox to manager earlier, so the role is set automatically
+
+        // persist changes
+        commitRolesToDevice();
     });
     combobox_role_->setObjectName(QStringLiteral("button_role_") + QString::number(button_id));
     combobox_role_->installEventFilter(this);
@@ -903,7 +836,9 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
     ui->pushButton_cal_axes->blockSignals(false);
     ui->pushButton_cal_axes->setEnabled(false);
 
-    clear_all();
+    // rebuild axes and buttons containers directly (clear_all was redundant)
+    clear_axes();
+    clear_buttons();
     clear_povs();
     ui->scrollArea_axes->setVisible(false);
     ui->scrollArea_buttons->setVisible(false);
@@ -955,36 +890,57 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
             cb->setObjectName(QStringLiteral("pov_role_") + QString::number(i));
             // map to device even though not used yet
             connect(cb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i](int idx){
-                QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-                if (!dev) return;
-                if (idx > 0) {
-                    // clear from axes/buttons/POVs same as earlier
-                    for (int a = 0; a < dev->axisCalibration.count(); ++a)
-                        if (dev->axisCalibration[a].mapped_role == idx) {
-                            dev->axisCalibration[a].mapped_role = -1;
-                            QComboBox *other = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(a));
-                            if (other) { other->blockSignals(true); other->setCurrentIndex(0); other->blockSignals(false); }
+                int roleVal = idx;
+                if (roleVal > 0)
+                {
+                    // clear from axes
+                    QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
+                    for (JoystickAxisBar *bar : axisBars)
+                    {
+                        if (bar->joystick.role() == roleVal)
+                        {
+                            bar->joystick.unset_role(roleVal);
+                            QComboBox *otherCb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(bar->axisId));
+                            if (otherCb)
+                            {
+                                otherCb->blockSignals(true);
+                                otherCb->setCurrentIndex(0);
+                                otherCb->blockSignals(false);
+                            }
                         }
-                    for (int b = 0; b < dev->buttonRole.count(); ++b)
-                        if (dev->buttonRole[b] == idx) {
-                            dev->buttonRole[b] = -1;
-                            QComboBox *other = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b));
-                            if (other) { other->blockSignals(true); other->setCurrentIndex(0); other->blockSignals(false); }
+                    }
+                    // clear from buttons
+                    QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
+                    for (JoystickButton *b : buttons)
+                    {
+                        if (b->button.role() == roleVal)
+                        {
+                            b->button.unset_role(roleVal);
+                            QComboBox *otherCb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b->buttonId));
+                            if (otherCb)
+                            {
+                                otherCb->blockSignals(true);
+                                otherCb->setCurrentIndex(0);
+                                otherCb->blockSignals(false);
+                            }
                         }
-                    for (int p = 0; p < dev->povRole.count(); ++p)
-                        if (p != i && dev->povRole[p] == idx) {
-                            dev->povRole[p] = -1;
-                            QComboBox *other = povs_container->findChild<QComboBox*>(QStringLiteral("pov_role_") + QString::number(p));
-                            if (other) { other->blockSignals(true); other->setCurrentIndex(0); other->blockSignals(false); }
+                    }
+                    // clear from other POVs UI
+                    QList<QComboBox*> povBoxes2 = povs_container->findChildren<QComboBox*>();
+                    for (QComboBox *cb2 : povBoxes2)
+                    {
+                        QString name2 = cb2->objectName();
+                        if (name2.startsWith("pov_role_"))
+                        {
+                            cb2->blockSignals(true);
+                            cb2->setCurrentIndex(0);
+                            cb2->blockSignals(false);
                         }
-                    // remove from other joysticks too
-                    clearRoleFromOtherDevices(idx);
+                    }
+                    clearRoleFromOtherDevices(roleVal);
                 }
-                // store new value for this POV
-                if (i < dev->povRole.count())
-                    dev->povRole[i] = idx;
-                // persist changes
-                joysticks->saveCalibration(dev->hardwareId);
+                // remote manager not needed; POVs don't have managers
+                commitRolesToDevice();
             });
             lay->addWidget(cb);
             POVIndicator *ind = new POVIndicator(row, current_joystick_id, i);
@@ -1062,6 +1018,7 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
             {
                 const CalibrationEntry &c = dev->axisCalibration.at(axis);
                 bar->joystick.set_calibration_values(c.raw_min, c.raw_max, c.invert);
+                bar->joystick.set_output_values(c.output_min, c.output_max, c.output_deadzone);
                 // update reverse checkbox
                 QCheckBox *rev = axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(axis));
                 if (rev)
@@ -1102,6 +1059,7 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
             {
                 // default
                 bar->joystick.set_calibration_values(-1,1,false);
+                bar->joystick.set_output_values(-1,1,0);
             }
         }
         QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
@@ -1128,64 +1086,84 @@ void Joystick_manager::on_comboBox_joysticopt_currentTextChanged(const QString &
 }
 
 
+void Joystick_manager::commitRolesToDevice()
+{
+    if (!joysticks || joysticks->count() == 0) return;
+    QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
+    if (!dev) return;
+
+    int numAxes = joysticks->getNumAxes(current_joystick_id);
+    if (dev->axisCalibration.size() < numAxes)
+        dev->axisCalibration.resize(numAxes);
+    QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
+    for (JoystickAxisBar *bar : axisBars)
+    {
+        int axis = bar->axisId;
+        if (axis >= 0 && axis < dev->axisCalibration.count())
+        {
+            CalibrationEntry &c = dev->axisCalibration[axis];
+            // sync all settings that live in the axis manager
+            c.mapped_role = bar->joystick.role();
+            c.invert = bar->joystick.reversed();
+            c.raw_min = bar->joystick.min_val();
+            c.raw_max = bar->joystick.max_val();
+            c.output_min = bar->joystick.output_min();
+            c.output_max = bar->joystick.output_max();
+            c.output_deadzone = bar->joystick.output_deadzone();
+        }
+    }
+    int numButtons = joysticks->getNumButtons(current_joystick_id);
+    dev->buttonRole.clear();
+    dev->buttonRole.resize(numButtons);
+    QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
+    for (JoystickButton *b : buttons)
+    {
+        int btn = b->buttonId;
+        if (btn >= 0 && btn < dev->buttonRole.count())
+            dev->buttonRole[btn] = b->button.role();
+    }
+    QList<QComboBox*> povBoxes = povs_container->findChildren<QComboBox*>();
+    dev->povRole.clear();
+    dev->povRole.resize(povBoxes.size());
+    for (QComboBox *cb : povBoxes)
+    {
+        QString name = cb->objectName();
+        if (name.startsWith("pov_role_"))
+        {
+            bool ok=false;
+            int idx = name.mid(QString("pov_role_").length()).toInt(&ok);
+            if (ok && idx >= 0 && idx < dev->povRole.size())
+                dev->povRole[idx] = cb->currentIndex();
+        }
+    }
+    joysticks->saveCalibration(dev->hardwareId);
+}
+
+
 void Joystick_manager::on_pushButton_reset_clicked()
 {
-    // Reset view and runtime calibration for the currently selected joystick.
     if (joysticks->count() == 0) return;
-    // turn off calibration mode
+    // disable calibration UI
     ui->pushButton_cal_axes->blockSignals(true);
     ui->pushButton_cal_axes->setChecked(false);
     ui->pushButton_cal_axes->blockSignals(false);
-    QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-    int numAxes = joysticks->getNumAxes(current_joystick_id);
-    int numButtons = joysticks->getNumButtons(current_joystick_id);
 
-    if (dev)
-    {
-        dev->axisCalibration.clear();
-        dev->axisCalibration.resize(numAxes);
-        for (int i = 0; i < numAxes; ++i)
-        {
-            CalibrationEntry c;
-            c.raw_min = 0.0;
-            c.raw_center = 0.0;
-            c.raw_max = 0.0;
-            c.deadzone = 0.0;
-            c.scale = 1.0;
-            c.invert = false;
-            c.mapped_role = -1;
-            c.updated = QDateTime();
-            c.version = 1;
-            dev->axisCalibration[i] = c;
-        }
-        dev->buttonRole.clear();
-        dev->buttonRole.resize(numButtons);
-        for (int i = 0; i < numButtons; ++i) dev->buttonRole[i] = -1;
-    }
+    // notify managers to reset their calibration ranges
+    emit reset_calibration();
 
-    // Update the UI widgets to reflect local (unsaved) reset state but avoid triggering
-    // runtime updates: block signals while updating comboboxes/checkboxes.
-    for (int i = 0; i < numAxes; ++i)
+    // clear all assigned roles in the UI and managers
+    QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
+    for (JoystickAxisBar *bar : axisBars)
     {
-        QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(i));
-        if (cb)
-        {
-            cb->blockSignals(true);
-            cb->setCurrentIndex(0); // set to first/unassigned
-            cb->blockSignals(false);
-        }
-        QCheckBox *rev = axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(i));
+        bar->joystick.unset_role(bar->joystick.role());
+        QCheckBox *rev = axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(bar->axisId));
         if (rev)
         {
             rev->blockSignals(true);
             rev->setChecked(false);
             rev->blockSignals(false);
         }
-    }
-
-    for (int i = 0; i < numButtons; ++i)
-    {
-        QComboBox *cb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(i));
+        QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(bar->axisId));
         if (cb)
         {
             cb->blockSignals(true);
@@ -1194,9 +1172,29 @@ void Joystick_manager::on_pushButton_reset_clicked()
         }
     }
 
-    // save reset state immediately
-    if (dev)
-        joysticks->saveCalibration(dev->hardwareId);
+    QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
+    for (JoystickButton *b : buttons)
+    {
+        b->button.unset_role(b->button.role());
+        QComboBox *cb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(b->buttonId));
+        if (cb)
+        {
+            cb->blockSignals(true);
+            cb->setCurrentIndex(0);
+            cb->blockSignals(false);
+        }
+    }
+
+    QList<QComboBox*> povBoxes = povs_container->findChildren<QComboBox*>();
+    for (QComboBox *cb : povBoxes)
+    {
+        cb->blockSignals(true);
+        cb->setCurrentIndex(0);
+        cb->blockSignals(false);
+    }
+
+    // persist the cleared state to device
+    commitRolesToDevice();
 }
 
 
@@ -1458,21 +1456,25 @@ bool Joystick_manager::eventFilter(QObject *obj, QEvent *ev)
 
 void Joystick_manager::on_pushButton_cal_axes_toggled(bool checked)
 {
+    qDebug() << "Joystick_manager::on_pushButton_cal_axes_toggled(" << checked << ")";
     emit calibration_mode_toggled(checked);
     if (!checked && joysticks && joysticks->count() > 0)
     {
-        QJoystickDevice *dev = joysticks->getInputDevice(current_joystick_id);
-        if (dev)
-            joysticks->saveCalibration(dev->hardwareId);
+        // calibration finished; copy ranges/roles/invert state from the remote
+        // managers into the persistent QJoystickDevice structure and save.
+        commitRolesToDevice();
     }
 }
 
+// update_roles_list is a lightweight wrapper around refresh_roles_ui.
+// The full implementation is placed immediately below to satisfy the moc
+// generated slot call.  Keeping it separate avoids mixing it with the
+// much longer relay/UI code.
+
 void Joystick_manager::update_roles_list()
 {
-    // rebuild UI when necessary (called on mapping changes, joystick count changes)
     refresh_roles_ui();
 }
-
 // rebuild the left‑column roles UI
 void Joystick_manager::refresh_roles_ui()
 {
@@ -1513,7 +1515,7 @@ void Joystick_manager::refresh_roles_ui()
             if (r > 0 && !seenRoles.contains(r)) {
                 seenRoles.insert(r);
                 QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
-                qreal val = compute_value_for_role(j, r);
+                qreal val = remote_control::sharedRoleValues().getValue(r);
                 addEntry(r, key, val);
             }
         }
@@ -1522,7 +1524,7 @@ void Joystick_manager::refresh_roles_ui()
             if (r > 0 && !seenRoles.contains(r)) {
                 seenRoles.insert(r);
                 QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
-                qreal val = compute_value_for_role(j, r);
+                qreal val = remote_control::sharedRoleValues().getValue(r);
                 addEntry(r, key, val);
             }
         }
@@ -1531,7 +1533,7 @@ void Joystick_manager::refresh_roles_ui()
             if (r > 0 && !seenRoles.contains(r)) {
                 seenRoles.insert(r);
                 QString key = enum_helpers::value2key<remote_control::channel::enums::role>(static_cast<remote_control::channel::enums::role>(r));
-                qreal val = compute_value_for_role(j, r);
+                qreal val = remote_control::sharedRoleValues().getValue(r);
                 addEntry(r, key, val);
             }
         }
@@ -1559,6 +1561,10 @@ void Joystick_manager::update_role_value(int role, qreal mappedVal)
 
 void Joystick_manager::update_relays_list()
 {
+    if (updating_relays)
+        return;
+    QScopedValueRollback<bool> guard(updating_relays, true);
+
     if (!ui)
         return;
     // if current index out of range reset
@@ -1729,7 +1735,7 @@ void Joystick_manager::update_relays_list()
                     if (idx > 0) {
                         QLabel *lbl = new QLabel(stored, fieldTree);
                         // immediately compute current joystick output for this role
-                        double v = compute_value_for_role(idx);
+                        double v = remote_control::sharedRoleValues().getValue(idx);
                         QString live = QString::number(v);
                         lbl->setText(live);
                         if (i < relayEntries.size() && fi < relayEntries[i].field_values.size())
@@ -1875,9 +1881,8 @@ void Joystick_manager::update_relays_list()
                 }
                 relayEntries[i].settings.enabled = on;
                 relayEntries[i].settings.auto_disabled = false;
-                // update threads and UI immediately
+                // update thread settings; thread will respect enabled flag itself
                 sync_relay_threads();
-                update_relays_list();
                 save_relay_entries(relayEntries);
             }
         });
@@ -1952,34 +1957,29 @@ void Joystick_manager::sync_relay_threads()
     }
 
     for (int i = 0; i < relayEntries.size(); ++i) {
-        bool want = relayEntries[i].settings.enabled && !relayEntries[i].settings.Port_Name.isEmpty();
-        if (want) {
-            if (!relayThreads[i]) {
-                generic_thread_settings *ts = new generic_thread_settings();
-                ts->priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
-                relayThreads[i] = new remote_control::JoystickRelayThread(this, ts,
-                                            relayEntries[i].settings,
-                                            QVector<int>::fromList(relayEntries[i].field_roles.toList()));
-                connect(relayThreads[i], &remote_control::JoystickRelayThread::outputValuesUpdated,
-                        this, [this](QMap<int, qreal>){
-                            update_roles_list();
-                            update_relays_list();
-                        });
-                relayThreads[i]->start();
-            } else {
-                relayThreads[i]->updateSettings(relayEntries[i].settings,
-                                                QVector<int>::fromList(relayEntries[i].field_roles.toList()));
-                generic_thread_settings ts;
-                ts.priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
-                relayThreads[i]->update_settings(&ts);
-            }
+        // ensure a thread object exists for every entry; we do not destroy it
+        // when disabling because the thread itself will honour the enabled flag.
+        if (!relayThreads[i]) {
+            generic_thread_settings *ts = new generic_thread_settings();
+            ts->priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
+            relayThreads[i] = new remote_control::JoystickRelayThread(this, ts,
+                                        relayEntries[i].settings,
+                                        QVector<int>::fromList(relayEntries[i].field_roles.toList()));
+            connect(relayThreads[i], &remote_control::JoystickRelayThread::outputValuesUpdated,
+                    this, [this](QMap<int, qreal>){
+                        // only update the left-hand role values; the right-hand panel
+                        // reflects relay configuration (not output) and should not be
+                        // rebuilt on every value change.
+                        update_roles_list();
+                    }, Qt::QueuedConnection);
+            relayThreads[i]->start();
         } else {
-            if (relayThreads[i]) {
-                relayThreads[i]->requestStop();
-                relayThreads[i]->wait();
-                delete relayThreads[i];
-                relayThreads[i] = nullptr;
-            }
+            // thread already exists; always update its settings
+            relayThreads[i]->updateSettings(relayEntries[i].settings,
+                                            QVector<int>::fromList(relayEntries[i].field_roles.toList()));
+            generic_thread_settings ts;
+            ts.priority = static_cast<QThread::Priority>(relayEntries[i].settings.priority);
+            relayThreads[i]->update_settings(&ts);
         }
     }
 }

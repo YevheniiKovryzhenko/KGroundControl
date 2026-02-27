@@ -78,18 +78,6 @@ public:
     remote_control::channel::axis::joystick::manager joystick;
     int joystickId;
     int axisId;
-
-    void setCalibrationMode(bool enabled);
-
-signals:
-    void calibrationCaptured(int axis, qreal minVal, qreal maxVal);
-
-private slots:
-    void map_value(qreal value);
-private:
-    bool inCalibration = false;
-    qreal cal_min = 0.0;
-    qreal cal_max = 0.0;
 };
 
 class JoystickButton : public QCheckBox
@@ -100,9 +88,6 @@ public:
     remote_control::channel::button::joystick::manager button;
     int joystickId;
     int buttonId;
-
-private slots:
-    void map_value(qreal value);
 };
 
 namespace Ui {
@@ -124,6 +109,9 @@ public:
     explicit Joystick_manager(QWidget *parent = nullptr);
     ~Joystick_manager();
 
+public slots:
+    void update_roles_list();
+
 signals:
     void calibration_mode_toggled(bool enabled);
     void reset_calibration(void);
@@ -142,8 +130,6 @@ private slots:
 
     bool add_axis(int axis_id);
     bool add_button(int button_id);
-
-    void clear_all(void);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -175,8 +161,12 @@ private:
     QGridLayout *buttons_layout = nullptr;
     QVBoxLayout *povs_layout = nullptr;
 
-    // populate page2 left column with current assignments
-    void update_roles_list();
+
+    // write current manager settings (calibration ranges, output scaling, roles,
+    // inversion) back to the QJoystickDevice struct so that it will be saved by
+    // QJoysticks.  This centralises persistence logic and avoids scattered
+    // device writes from the UI layer.
+    void commitRolesToDevice();
 
     // track widgets for each field so value labels can be updated live
     struct FieldWidget {
@@ -202,10 +192,7 @@ private:
     // update a single role button's displayed value
     void update_role_value(int role, qreal mappedVal);
 
-    // compute joystick output for a given role (used when assigning a role)
-    double compute_value_for_role(int role);
-    // variant that specifies device index so we can query all joysticks
-    double compute_value_for_role(int joystick, int role);
+    // role values are obtained from sharedRoleValues (mapping lives in managers)
 
 private slots:
     // notified whenever any axis/button manager reports its mapped value changed
@@ -239,6 +226,9 @@ private:
 
     void update_relays_list();
     void sync_relay_threads();
+
+    // guard against recursive UI rebuilds triggered by thread signals
+    bool updating_relays = false;
 
     // persistence helpers for relay entries
     static QList<RelayEntry> load_relay_entries();

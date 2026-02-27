@@ -78,16 +78,25 @@ void JoystickRelayThread::run() {
             QMutexLocker locker(&stopMutex);
             if (stopRequested) break;
         }
-        // collect current values for all configured roles
         QMap<int, qreal> vals;
-        for (int r : fieldRoles) {
-            vals[r] = sharedRoleValues().getValue(r);
+        bool enabled;
+        {
+            QMutexLocker locker(&stopMutex);
+            enabled = relaySettings.enabled;
+        }
+        if (enabled) {
+            // collect current values for all configured roles
+            for (int r : fieldRoles) {
+                vals[r] = sharedRoleValues().getValue(r);
+            }
         }
         {
             QMutexLocker locker(&stopMutex);
             lastSentValues = vals;
         }
-        emit outputValuesUpdated(vals);
+        if (enabled) {
+            emit outputValuesUpdated(vals);
+        }
         // sleep according to configured rate (fallback to 40 Hz)
         int hz = relaySettings.update_rate_hz > 0 ? relaySettings.update_rate_hz : 40;
         int ms = 1000 / hz;
@@ -159,8 +168,12 @@ void settings::reset(void)
     max_val = 1.0;
 
     reverse = false;
+
+    output_min = -1.0;
+    output_max = 1.0;
+    output_deadzone = 0.0;
 }
-qreal settings::apply_calibration(qreal value)
+qreal settings::apply_calibration(qreal value) const
 {
     if (reverse) return -map2map(qMax(qMin(value, max_val),min_val), min_val, max_val, -1.0, 1.0);
     else return map2map(qMax(qMin(value, max_val),min_val), min_val, max_val, -1.0, 1.0);
@@ -189,25 +202,21 @@ void manager::fetch_update(void)
 }
 void manager::update_value(const int joystick_id, const int axis_id, const qreal value)
 {
-    if (settings_.is_source_configured() && settings_.joystick_id == joystick_id && settings_.axis_id == axis_id)
+    if (!(settings_.is_source_configured() && settings_.joystick_id == joystick_id && settings_.axis_id == axis_id)) return;
+    if (in_calibration)
     {
-        if (in_calibration)
-        {
-            if (value > settings_.max_val) settings_.max_val = value;
-            if (value < settings_.min_val) settings_.min_val = value;
-            qreal value_ = settings_.apply_calibration(value);
-            emit unassigned_value_updated(value_);
-        }
-        else
-        {
-            qreal value_ = settings_.apply_calibration(value);
-            emit unassigned_value_updated(value_);
-            if (settings_.is_target_configured()) {
-                emit assigned_value_updated(settings_.role, value_);
-                // Update shared role value
-                sharedRoleValues().setValue(static_cast<int>(settings_.role), value_);
-            }
-        }
+        if (value > settings_.max_val) settings_.max_val = value;
+        if (value < settings_.min_val) settings_.min_val = value;
+    }
+    qreal calibrated = settings_.apply_calibration(value);
+    emit unassigned_value_updated(calibrated);
+
+    if (!in_calibration && settings_.is_target_configured())
+    {
+        qreal mapped = map_value(value);
+        emit assigned_value_updated(settings_.role, mapped);
+        // Update shared role value
+        sharedRoleValues().setValue(static_cast<int>(settings_.role), mapped);
     }
 }
 void manager::set_calibration_mode(bool enable)
@@ -243,6 +252,47 @@ void manager::set_calibration_values(qreal min, qreal max, bool reverse)
     settings_.reverse = reverse;
     fetch_update();
 }
+
+void manager::set_output_values(qreal min, qreal max, qreal deadzone)
+{
+    settings_.output_min = min;
+    settings_.output_max = max;
+    settings_.output_deadzone = deadzone;
+    fetch_update();
+}
+
+qreal manager::output_min(void) const
+{
+    return settings_.output_min;
+}
+
+qreal manager::output_max(void) const
+{
+    return settings_.output_max;
+}
+
+qreal manager::output_deadzone(void) const
+{
+    return settings_.output_deadzone;
+}
+
+// helper that applies calibration then output scaling/deadzone
+qreal manager::map_value(qreal raw) const
+{
+    // first apply calibration (min/max/reverse)
+    qreal v = settings_.apply_calibration(raw);
+    // apply deadzone
+    qreal d = settings_.output_deadzone;
+    if (qAbs(v) <= d) {
+        v = 0.0;
+    } else if (v > d) {
+        v = map2map(v, d, 1.0, 0.0, 1.0);
+    } else if (v < -d) {
+        v = map2map(v, -d, -1.0, 0.0, -1.0);
+    }
+    // finally scale to output range
+    return map2map(v, -1.0, 1.0, settings_.output_min, settings_.output_max);
+}
 void manager::set_role(int role_)
 {
     if (role_ > remote_control::channel::enums::role::AUX_20 || role_ < remote_control::channel::enums::UNUSED) return; //invalid role
@@ -262,6 +312,24 @@ void manager::unset_role(int role_)
         emit role_updated(settings_.role);
         fetch_update();
     }
+}
+
+// accessors
+int manager::role(void) const
+{
+    return static_cast<int>(settings_.role);
+}
+qreal manager::min_val(void) const
+{
+    return settings_.min_val;
+}
+qreal manager::max_val(void) const
+{
+    return settings_.max_val;
+}
+bool manager::reversed(void) const
+{
+    return settings_.reverse;
 }
 
 }
@@ -348,6 +416,11 @@ void manager::unset_role(int role_)
         emit role_updated(settings_.role);
         fetch_update();
     }
+}
+
+int manager::role(void) const
+{
+    return static_cast<int>(settings_.role);
 }
 
 } // namespace joystick

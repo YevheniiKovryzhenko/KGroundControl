@@ -184,11 +184,16 @@ public:
 
     bool reverse;
 
+    // output scaling that GUI allows user to adjust (min,max,deadzone)
+    qreal output_min;
+    qreal output_max;
+    qreal output_deadzone;
+
     bool is_source_configured(void);
     bool is_target_configured(void);
     bool is_fully_configured(void);
     void reset(void);
-    qreal apply_calibration(qreal value);
+    qreal apply_calibration(qreal value) const;
 };
 
 class manager : public QObject
@@ -206,11 +211,25 @@ public slots:
     void reverse(bool reversed);
 
     void set_calibration_values(qreal min, qreal max, bool reverse);
+    void set_output_values(qreal min, qreal max, qreal deadzone);
+
+    qreal output_min(void) const;
+    qreal output_max(void) const;
+    qreal output_deadzone(void) const;
 
     void set_role(int role);
     void unset_role(int role);
 
     void fetch_update(void);
+
+    // compute mapped output for an arbitrary raw input using current settings
+    qreal map_value(qreal raw) const;
+
+    // accessors for current configuration (used by UI layer)
+    int role(void) const;
+    qreal min_val(void) const;
+    qreal max_val(void) const;
+    bool reversed(void) const;
 
 signals:
     void role_updated(int role);
@@ -261,6 +280,9 @@ public slots:
     void unset_role(int role);
 
     void fetch_update(void);
+
+    // accessor for current role
+    int role(void) const;
 
 signals:
     void role_updated(int role);
