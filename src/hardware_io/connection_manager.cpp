@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -91,7 +91,11 @@ void system_status_thread::run()
     {
         mavlink_message_t message;
         mavlink_msg_heartbeat_pack(kground_control_settings_.sysid, kground_control_settings_.compid, &message, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, MAV_MODE_GUIDED_ARMED, 0, MAV_STATE_ACTIVE);
-        emit send_parsed_hearbeat(static_cast<void*>(&message));
+        // Serialise to bytes here (background thread) so the QueuedConnection
+        // carries a deep-copied QByteArray instead of a raw stack pointer.
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        uint16_t len = mavlink_msg_to_send_buffer(buf, &message);
+        emit send_heartbeat_bytes(QByteArray(reinterpret_cast<const char*>(buf), len));
         sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(generic_thread_settings_.update_rate_hz))});
     }
 }
@@ -99,7 +103,7 @@ void system_status_thread::run()
 void system_status_thread::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
 {
     mutex->lock();
-    memcpy(&kground_control_settings_, kground_control_settings_in_, sizeof(kgroundcontrol_settings));
+    kground_control_settings_ = *kground_control_settings_in_;
     mutex->unlock();
 }
 
@@ -118,7 +122,9 @@ connection_manager::connection_manager(QObject* parent)
     systhread_settings_.update_rate_hz = 1;
     kgroundcontrol_settings settings__;
     systhread_ = new system_status_thread(this, &systhread_settings_, &settings__);
-    setParent(systhread_);
+    // systhread_ is parented to this (connection_manager) — no setParent() needed.
+    // Calling setParent(systhread_) would create a circular parent chain and prevent
+    // both objects from ever being deleted by Qt's parent-child mechanism.
     connect(this, &connection_manager::kgroundcontrol_settings_updated, systhread_, &system_status_thread::update_kgroundcontrol_settings, Qt::DirectConnection);
 }
 
@@ -306,7 +312,7 @@ bool connection_manager::add(QString new_port_name, \
     n_connections++;
     mutex->unlock();
 
-    if (emit_heartbeat_) connect(systhread_, &system_status_thread::send_parsed_hearbeat, port_, &Generic_Port::write_message);
+    if (emit_heartbeat_) connect(systhread_, &system_status_thread::send_heartbeat_bytes, port_, &Generic_Port::write_to_port);
 
     QSettings qsettings;
     qsettings.beginGroup("connection_manager");
@@ -347,7 +353,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
                 qsettings.endGroup();
             }
 
-            if (heartbeat_emited[i]) disconnect(systhread_, &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);
+            if (heartbeat_emited[i]) disconnect(systhread_, &system_status_thread::send_heartbeat_bytes, Ports[i], &Generic_Port::write_to_port);
             disconnect(PortThreads[i], &port_read_thread::read_message, Ports[i], &Generic_Port::read_message);
 
             //update routing table:
@@ -402,8 +408,8 @@ bool connection_manager::switch_emit_heartbeat(QString port_name_, bool on_off_v
                 Ports[i]->load_settings(qsettings);
 
 
-                if (on_off_val) connect(systhread_, &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);//, Qt::DirectConnection);
-                else disconnect(systhread_, &system_status_thread::send_parsed_hearbeat, Ports[i], &Generic_Port::write_message);
+                if (on_off_val) connect(systhread_, &system_status_thread::send_heartbeat_bytes, Ports[i], &Generic_Port::write_to_port);
+                else disconnect(systhread_, &system_status_thread::send_heartbeat_bytes, Ports[i], &Generic_Port::write_to_port);
                 heartbeat_emited[i] = on_off_val;
 
                 connect(this, &connection_manager::heartbeat_swiched, Ports[i], &Generic_Port::toggle_heartbeat_emited, static_cast<Qt::ConnectionType>(Qt::DirectConnection | Qt::SingleShotConnection));

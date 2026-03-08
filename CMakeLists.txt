@@ -144,6 +144,21 @@ add_compile_definitions(
     $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
 )
 
+# AddressSanitizer for Debug builds on Linux — finds heap corruption precisely.
+# Set ASAN=OFF on the cmake configure line to disable: cmake -DASAN=OFF ...
+if(NOT DEFINED ASAN)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND UNIX AND NOT APPLE AND NOT MSVC)
+        set(ASAN ON)
+    else()
+        set(ASAN OFF)
+    endif()
+endif()
+if(ASAN)
+    message(STATUS "AddressSanitizer enabled for Debug build")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+
 # **IMPORTANT**: Configure MSVC runtime BEFORE fetching dependencies
 # This ensures all dependencies (QSimpleUpdater, SDL2) use the same runtime library
 if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
@@ -223,7 +238,6 @@ set(PROJECT_HEADERS
     include/signal_filters.h
     # include/cartography.h
     include/default_ui_config.h
-    include/collapsible_group.h
     include/update_manager.h
     
     # Hardware I/O group
@@ -260,7 +274,6 @@ set(PROJECT_SOURCES
     src/relaydialog.cpp
     src/signal_filters.cpp
     src/default_ui_config.cpp
-    src/collapsible_group.cpp
     src/update_manager.cpp
     
     # Hardware I/O group

@@ -390,7 +390,7 @@ mocap_thread::~mocap_thread()
 void mocap_thread::update_settings(mocap_settings* mocap_new_settings)
 {
     mutex->lock();
-    memcpy(&mocap_settings_, mocap_new_settings, sizeof(*mocap_new_settings));
+    mocap_settings_ = *mocap_new_settings;
     mutex->unlock();
 }
 
@@ -536,7 +536,7 @@ void fake_mocap_thread::run()
 void mocap_thread::get_settings(mocap_settings* settings_out_)
 {
     mutex->lock();
-    memcpy(settings_out_, &mocap_settings_, sizeof(mocap_settings_));
+    *settings_out_ = mocap_settings_;
     mutex->unlock();
 }
 
@@ -826,7 +826,7 @@ mocap_manager::mocap_manager(QWidget *parent)
 
     ui->cmbx_multicast_address->addItems(QStringList({MULTICAST_ADDRESS, "224.0.0.1"}));
 
-    ui->cmbx_local_port->setValidator(new QIntValidator(0, 65535));
+    ui->cmbx_local_port->setValidator(new QIntValidator(0, 65535, this));
     ui->cmbx_local_port->addItems(QStringList(\
         {QString::number(PORT_DATA),\
         QString::number(PORT_COMMAND)}));
@@ -1415,6 +1415,7 @@ void mocap_manager::terminate_visuals_thread(void)
                 QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
             }
         }
+        delete mocap_data_inspector_thread_;
         mocap_data_inspector_thread_ = nullptr;
     }
 }
@@ -1440,7 +1441,8 @@ void mocap_manager::terminate_mocap_processing_thread(void)
                 QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
             }
         }
-        (mocap_thread_) = nullptr;
+        delete mocap_thread_;
+        mocap_thread_ = nullptr;
     }
 }
 

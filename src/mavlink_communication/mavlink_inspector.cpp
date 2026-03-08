@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -120,6 +120,8 @@ mavlink_data_aggregator::mavlink_data_aggregator(QObject* parent, uint8_t sysid_
 }
 mavlink_data_aggregator::~mavlink_data_aggregator()
 {
+    while (msgs.count()) delete msgs.takeLast();
+    while (timestamps.count()) delete timestamps.takeLast();
     delete mutex;
 }
 
@@ -697,7 +699,7 @@ bool mavlink_manager::get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_
 void mavlink_manager::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
 {
     mutex->lock();
-    memcpy(&kground_control_settings_, kground_control_settings_in_, sizeof(kgroundcontrol_settings));
+    kground_control_settings_ = *kground_control_settings_in_;
     mutex->unlock();
 }
 

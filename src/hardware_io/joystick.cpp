@@ -66,19 +66,21 @@ SDL_Joysticks::SDL_Joysticks(QObject *parent)
 
 SDL_Joysticks::~SDL_Joysticks()
 {
-    /* Close any opened SDL_Joysticks and free allocated devices */
-    for (auto it = m_joysticks.begin(); it != m_joysticks.end(); ++it)
-    {
-        if (it.value())
-        {
-            SDL_Joystick *js = SDL_JoystickFromInstanceID(it.key());
-            if (js)
-                SDL_JoystickClose(js);
-            delete it.value();
-        }
+    freeDevices(); // no-op if already called from QJoysticks::~QJoysticks()
+    SDL_Quit();
+}
+
+void SDL_Joysticks::freeDevices()
+{
+    // Close any open SDL joystick handles first.
+    for (auto it = m_joysticks.constBegin(); it != m_joysticks.constEnd(); ++it) {
+        SDL_Joystick *js = SDL_JoystickFromInstanceID(it.key());
+        if (js)
+            SDL_JoystickClose(js);
     }
+    // Free C++ wrapper objects and clear the map (idempotent).
+    qDeleteAll(m_joysticks);
     m_joysticks.clear();
-    SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_AUDIO);
 }
 
 QMap<int, QJoystickDevice *> SDL_Joysticks::joysticks()
@@ -151,15 +153,30 @@ void SDL_Joysticks::configureJoystick(const SDL_Event *event)
  */
 QJoystickDevice *SDL_Joysticks::getJoystick(int id)
 {
-    QJoystickDevice *joystick = new QJoystickDevice;
     SDL_Joystick *sdl_joystick = SDL_JoystickOpen(id);
-
-    if (sdl_joystick)
+    if (!sdl_joystick)
     {
-        joystick->id = id;
-        joystick->instanceID = SDL_JoystickInstanceID(sdl_joystick);
-        joystick->blacklisted = false;
-        joystick->name = SDL_JoystickName(sdl_joystick);
+        qWarning() << Q_FUNC_INFO << "Cannot find joystick with id:" << id;
+        return Q_NULLPTR;
+    }
+
+    // Deduplicate: SDL_Init queues SDL_JOYDEVICEADDED for every already-connected
+    // device, which causes configureJoystick() → getJoystick() to be called again
+    // for devices the constructor already registered manually. Without this check
+    // the old QJoystickDevice is silently overwritten in m_joysticks and leaked.
+    SDL_JoystickID instanceID = SDL_JoystickInstanceID(sdl_joystick);
+    if (m_joysticks.contains(instanceID))
+    {
+        // Release the redundant handle SDL reference-counted for this second open.
+        SDL_JoystickClose(sdl_joystick);
+        return m_joysticks[instanceID];
+    }
+
+    QJoystickDevice *joystick = new QJoystickDevice;
+    joystick->id = id;
+    joystick->instanceID = instanceID;
+    joystick->blacklisted = false;
+    joystick->name = SDL_JoystickName(sdl_joystick);
 
         /* Build a stable hardware identifier using SDL GUID and optional vendor/product */
         char guid_str[64] = {0};
@@ -206,13 +223,6 @@ QJoystickDevice *SDL_Joysticks::getJoystick(int id)
 
         // Register by instance ID so events match the device
         m_joysticks[joystick->instanceID] = joystick;
-    }
-    else
-    {
-        qWarning() << Q_FUNC_INFO << "Cannot find joystick with id:" << id;
-        delete joystick;
-        return Q_NULLPTR;
-    }
 
     return joystick;
 }
@@ -269,6 +279,15 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
     {
         s.beginGroup(QString::number(i));
         if (i < dev->buttonRole.count()) s.setValue("role", dev->buttonRole.at(i));
+        if (i < dev->buttonCalibration.count())
+        {
+            const ButtonCalibrationEntry &bc = dev->buttonCalibration.at(i);
+            s.setValue("output_min",      bc.output_min);
+            s.setValue("output_max",      bc.output_max);
+            s.setValue("mode",            bc.mode);
+            s.setValue("cyclic_step",     bc.cyclic_step);
+            s.setValue("cyclic_initial",  bc.cyclic_initial);
+        }
         s.endGroup();
     }
     s.endGroup();
@@ -318,8 +337,8 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
         if (ms) c.updated = QDateTime::fromMSecsSinceEpoch(ms);
         c.version = s.value("version", c.version).toInt();
         // Output settings
-        c.output_min = s.value("output_min", -1.0).toDouble();
-        c.output_max = s.value("output_max", 1.0).toDouble();
+        c.output_min = s.value("output_min", 1000.0).toDouble();
+        c.output_max = s.value("output_max", 2000.0).toDouble();
         c.output_deadzone = s.value("output_deadzone", 0.0).toDouble();
         dev->axisCalibration.append(c);
         s.endGroup();
@@ -328,11 +347,19 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
 
     s.beginGroup("buttons");
     dev->buttonRole.clear();
+    dev->buttonCalibration.clear();
     for (int i = 0; i < dev->buttons.count(); ++i)
     {
         s.beginGroup(QString::number(i));
         int role = s.value("role", -1).toInt();
         dev->buttonRole.append(role);
+        ButtonCalibrationEntry bc;
+        bc.output_min     = s.value("output_min",     bc.output_min).toDouble();
+        bc.output_max     = s.value("output_max",     bc.output_max).toDouble();
+        bc.mode           = s.value("mode",           bc.mode).toInt();
+        bc.cyclic_step    = s.value("cyclic_step",    bc.cyclic_step).toDouble();
+        bc.cyclic_initial = s.value("cyclic_initial", bc.cyclic_initial).toDouble();
+        dev->buttonCalibration.append(bc);
         s.endGroup();
     }
     s.endGroup();
@@ -412,6 +439,15 @@ bool QJoysticks::exportCalibration(const QString &hardwareId, const QString &pat
     {
         QJsonObject o;
         o["role"] = dev->buttonRole.at(i);
+        if (i < dev->buttonCalibration.count())
+        {
+            const auto &bc = dev->buttonCalibration.at(i);
+            o["output_min"]     = bc.output_min;
+            o["output_max"]     = bc.output_max;
+            o["mode"]           = bc.mode;
+            o["cyclic_step"]    = bc.cyclic_step;
+            o["cyclic_initial"] = bc.cyclic_initial;
+        }
         btnArr.append(o);
     }
     root["buttons"] = btnArr;
@@ -468,7 +504,12 @@ bool QJoysticks::importCalibrationToHardware(const QString &path, const QString 
     {
         s.beginGroup(QString::number(i));
         QJsonObject o = btnArr.at(i).toObject();
-        s.setValue("role", o.value("role").toInt());
+        s.setValue("role",           o.value("role").toInt());
+        s.setValue("output_min",     o.value("output_min").toDouble(0.0));
+        s.setValue("output_max",     o.value("output_max").toDouble(1.0));
+        s.setValue("mode",           o.value("mode").toInt(0));
+        s.setValue("cyclic_step",    o.value("cyclic_step").toDouble(1.0));
+        s.setValue("cyclic_initial", o.value("cyclic_initial").toDouble(0.0));
         s.endGroup();
     }
     s.endGroup();
@@ -606,18 +647,38 @@ QJoysticks::QJoysticks()
 
 QJoysticks::~QJoysticks()
 {
+    // Eagerly free all QJoystickDevice objects before Qt's parent-child
+    // cleanup machinery runs. m_devices holds non-owning pointers to the
+    // same objects — clear it first so nothing holds dangling pointers.
+    m_devices.clear();
+    if (m_sdlJoysticks)
+        m_sdlJoysticks->freeDevices();
     delete m_settings;
     delete m_sdlJoysticks;
-    // delete m_virtualJoystick;
 }
 
+// File-scope pointer shared by getInstance() and destroyInstance().
+static QJoysticks *s_qjoysticks_instance = nullptr;
+
 /**
- * Returns the one and only instance of this class
+ * Returns the one and only instance of this class.
  */
 QJoysticks *QJoysticks::getInstance()
 {
-    static QJoysticks joysticks;
-    return &joysticks;
+    if (!s_qjoysticks_instance)
+        s_qjoysticks_instance = new QJoysticks();
+    return s_qjoysticks_instance;
+}
+
+/**
+ * Explicitly destroys the singleton and releases all SDL and Qt resources.
+ * Must only be called once the background thread that uses QJoysticks has
+ * finished (i.e. after remote_control::manager::wait() returns).
+ */
+void QJoysticks::destroyInstance()
+{
+    delete s_qjoysticks_instance;
+    s_qjoysticks_instance = nullptr;
 }
 
 /**
@@ -971,6 +1032,9 @@ void QJoysticks::onAxisEvent(const QJoystickAxisEvent &e)
     if (e.joystick == nullptr)
         return;
 
+    // diagnostics: report every raw axis event
+    // qDebug() << "[QJoysticks] axisEvent" << e.joystick->id << "axis" << e.axis << "value" << e.value;
+
     if (!isBlacklisted(e.joystick->id))
     {
         if (e.axis < getInputDevice(e.joystick->id)->axes.count())
@@ -989,6 +1053,9 @@ void QJoysticks::onButtonEvent(const QJoystickButtonEvent &e)
 {
     if (e.joystick == nullptr)
         return;
+
+    // diagnostics: report every raw button event
+    // qDebug() << "[QJoysticks] buttonEvent" << e.joystick->id << "button" << e.button << "pressed" << e.pressed;
 
     if (!isBlacklisted(e.joystick->id))
     {

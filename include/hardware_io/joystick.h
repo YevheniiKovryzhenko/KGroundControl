@@ -57,9 +57,19 @@ struct CalibrationEntry
     int version = 1;
 
     // Output mapping settings
-    double output_min = -1.0;
-    double output_max = 1.0;
+    double output_min = 1000.0;
+    double output_max = 2000.0;
     double output_deadzone = 0.0;
+};
+
+/* Per-button output settings (mode, range, cyclic params). */
+struct ButtonCalibrationEntry
+{
+    double output_min = 0.0;
+    double output_max = 1.0;
+    int    mode = 0;           // 0=Default, 1=Toggle, 2=Cyclic
+    double cyclic_step = 1.0;
+    double cyclic_initial = 0.0;
 };
 
 /* Represents a physical joystick and its runtime state. */
@@ -76,6 +86,7 @@ struct QJoystickDevice
     bool blacklisted;
     QList<CalibrationEntry> axisCalibration;
     QList<int> buttonRole;
+    QList<ButtonCalibrationEntry> buttonCalibration; // output settings per button
 };
 
 /* Represents a request to rumble/force-feedback a joystick. */
@@ -132,6 +143,10 @@ public:
     SDL_Joysticks(QObject *parent = Q_NULLPTR);
     ~SDL_Joysticks();
 
+    /* Explicitly close all SDL joystick handles and free QJoystickDevice
+     * wrapper objects. Idempotent — safe to call multiple times. */
+    void freeDevices();
+
     QMap<int, QJoystickDevice *> joysticks();
 
 public slots:
@@ -175,6 +190,7 @@ signals:
 
 public:
     static QJoysticks *getInstance();
+    static void destroyInstance();
 
     int count() const;
     int nonBlacklistedCount();

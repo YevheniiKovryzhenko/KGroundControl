@@ -306,7 +306,16 @@
                <property name="widgetResizable">
                 <bool>true</bool>
                </property>
+               <property name="alignment">
+                <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+               </property>
                <widget class="QWidget" name="scrollAreaWidgetContents_relays">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <layout class="QVBoxLayout" name="verticalLayout_relays">
                  <!-- Dynamic: List of relay/message trees -->
                 </layout>

@@ -92,7 +92,9 @@ public slots:
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
 
 signals:
-    int send_parsed_hearbeat(void* parsed_heartbeat_msg_);
+    // Heartbeat as a pre-serialised byte array — safe to pass over QueuedConnection
+    // (deep-copied by Qt's event system so the background thread can reuse its stack).
+    void send_heartbeat_bytes(QByteArray);
 
 private:
     kgroundcontrol_settings kground_control_settings_;

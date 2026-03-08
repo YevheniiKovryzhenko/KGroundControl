@@ -39,7 +39,6 @@
 #include "relaydialog.h"
 #include "default_ui_config.h"
 #include "plot/plot_signal_registry.h"
-#include "collapsible_group.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -101,6 +100,55 @@ KGroundControl::KGroundControl(QWidget *parent)
     settings_mutex_ = new QMutex;
     mavlink_manager_ = new mavlink_manager(this);
     connection_manager_ = new connection_manager(this);
+
+    // Create the QJoysticks singleton on the MAIN thread so that:
+    //  • SDL_Init is called from the UI thread (required on some platforms)
+    //  • direct method calls like joysticks->count() / joystickExists() from
+    //    the UI thread always see valid, main-thread data
+    //  • the background remote_control::manager reuses this singleton
+    QJoysticks::getInstance()->updateInterfaces();
+
+    // Start background remote-control manager which initializes joystick mappings
+    remote_control_manager_ = new remote_control::manager(this);
+
+    // Provide the connection manager so the backend can wire relay thread
+    // write_to_port signals directly to Generic_Port objects as ports appear.
+    remote_control_manager_->setConnectionManager(connection_manager_);
+
+    // Seed KGC system ID into relay manager (and update it whenever settings change).
+    remote_control_manager_->setKgcSysid(settings.sysid);
+    connect(this, &KGroundControl::settings_updated, this, [this](kgroundcontrol_settings*){
+        if (remote_control_manager_)
+            remote_control_manager_->setKgcSysid(settings.sysid);
+    });
+
+    // When relay threads are ready, seed them with the current port/sysid/compid
+    // availability so they immediately evaluate connectivity and wire up.
+    connect(remote_control_manager_, &remote_control::manager::relaysReady,
+            this, [this]() {
+                QVector<QString> ports = connection_manager_->get_names();
+                remote_control_manager_->onPortsUpdated(
+                    QStringList(ports.begin(), ports.end()));
+            }, Qt::QueuedConnection);
+
+    // Keep the backend informed of availability changes going forward.
+    connect(connection_manager_, &connection_manager::port_names_updated,
+            this, [this](const QVector<QString>& ports){
+                if (remote_control_manager_)
+                    remote_control_manager_->onPortsUpdated(
+                        QStringList(ports.begin(), ports.end()));
+            });
+    connect(mavlink_manager_, &mavlink_manager::sysid_list_changed,
+            this, [this](const QVector<uint8_t>& sysids){
+                if (remote_control_manager_)
+                    remote_control_manager_->onSysidsUpdated(sysids);
+            });
+    connect(mavlink_manager_, &mavlink_manager::compid_list_changed,
+            this, [this](uint8_t sysid,
+                         const QVector<mavlink_enums::mavlink_component_id>& compids){
+                if (remote_control_manager_)
+                    remote_control_manager_->onCompidsUpdated(sysid, compids);
+            });
 
     // Initialize Update Manager (safety-critical, non-blocking).
 
@@ -213,7 +261,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->cmbx_baudrate->clear();
     ui->cmbx_baudrate->addItems(def_baudrates);
     ui->cmbx_baudrate->setEditable(true);
-    ui->cmbx_baudrate->setValidator(new QIntValidator(900, 4000000));
+    ui->cmbx_baudrate->setValidator(new QIntValidator(900, 4000000, this));
     ui->cmbx_baudrate->setCurrentIndex(9);
 
     QStringList def_databits = {\
@@ -256,10 +304,10 @@ KGroundControl::KGroundControl(QWidget *parent)
     ui->cmbx_host_address->setValidator(new QRegularExpressionValidator(regExp,this));
     ui->cmbx_local_address->setValidator(new QRegularExpressionValidator(regExp,this));
 
-    ui->txt_host_port->setValidator(new QIntValidator(0, 65535));
+    ui->txt_host_port->setValidator(new QIntValidator(0, 65535, this));
     ui->txt_host_port->setText(QString::number(14550));
 
-    ui->txt_local_port->setValidator(new QIntValidator(0, 65535));
+    ui->txt_local_port->setValidator(new QIntValidator(0, 65535, this));
     ui->txt_local_port->setText(QString::number(14551));
     // End of UDP submenu configuration //
 
@@ -276,7 +324,7 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     // Start of Settings Pannel //
     ui->txt_sysid->setMaxLength(3);
-    ui->txt_sysid->setValidator(new QIntValidator(0, 255));
+    ui->txt_sysid->setValidator(new QIntValidator(0, 255, this));
     ui->txt_sysid->setText(QString::number(settings.sysid));
 
     QVector<QString> tmp = enum_helpers::get_all_keys_vec<mavlink_enums::mavlink_component_id>();//mavlink_enums::get_QString_all_mavlink_component_id();
@@ -330,8 +378,17 @@ KGroundControl::KGroundControl(QWidget *parent)
 
 KGroundControl::~KGroundControl()
 {
+    // Clean up remote_control_manager_ (shutdown handled internally)
+    if (remote_control_manager_) {
+        delete remote_control_manager_;
+        remote_control_manager_ = nullptr;
+    }
+    // QJoysticks singleton was created on the main thread; destroy it here
+    // after the background manager has fully stopped (wait() returned above)
+    // so no background thread can reference it after this point.
+    QJoysticks::destroyInstance();
     delete ui;
-    delete settings_mutex_;
+    if (settings_mutex_) delete settings_mutex_;
 }
 
 // void KGroundControl::port_added_externally(QString port_name)
@@ -384,10 +441,6 @@ void KGroundControl::save_settings(void)
         qsettings.setValue("geometry", saveGeometry());
         qsettings.endGroup();
 
-        qsettings.beginGroup("MainWindow");
-        qsettings.setValue("geometry", saveGeometry());
-        qsettings.endGroup();
-
         settings.save(qsettings);
         qsettings.sync();
     }
@@ -396,11 +449,10 @@ void KGroundControl::save_settings(void)
 void KGroundControl::closeEvent(QCloseEvent *event)
 {
     emit about2close();
-    
+
     // Check if we should install update on exit
     if (install_update_on_exit_ && !pending_update_filepath_.isEmpty()) {
         qDebug() << "[KGroundControl] Installing update on exit...";
-        
         // Perform the binary swap without restarting
         if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
             qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
@@ -408,9 +460,63 @@ void KGroundControl::closeEvent(QCloseEvent *event)
             qWarning() << "[KGroundControl] Failed to install update on exit";
         }
     }
-    
+
     // save current state of the app:
     save_settings();
+
+    // Stop relay threads BEFORE closing ports so they cannot emit write_to_port
+    // into already-closed sockets (avoids "QIODevice::write: device not open").
+    //
+    // The write_to_port signal uses Qt::QueuedConnection: the relay thread posts
+    // a QMetaCallEvent to the main-thread queue.  Qt does NOT remove already-
+    // posted events when disconnect() is called, so simply disconnecting first
+    // is not sufficient — stale events already in the queue would still fire
+    // after the ports are closed.
+    //
+    // Correct order:
+    //  1. requestStop()+wait() every relay thread — no new events will be queued.
+    //  2. processEvents() — deliver (to still-open ports) any events that were
+    //     queued before the threads stopped.
+    //  3. Disconnect the signals (belt-and-suspenders).
+    //  4. Delete the manager (threads already joined, very fast).
+    //  5. Close ports.
+    if (remote_control_manager_) {
+        // Step 1: stop all relay threads
+        for (int i = 0; i < remote_control_manager_->relayCount(); ++i) {
+            auto *th = remote_control_manager_->relayThread(i);
+            if (th) {
+                th->requestStop();
+                th->wait();
+            }
+        }
+        // Step 2: flush write_to_port events already in the queue (ports open)
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        // Step 3: disconnect signals
+        for (int i = 0; i < remote_control_manager_->relayCount(); ++i) {
+            auto *th = remote_control_manager_->relayThread(i);
+            if (!th) continue;
+            Generic_Port *port = nullptr;
+            if (connection_manager_->get_port(th->portName(), &port) && port)
+                disconnect(th, &remote_control::JoystickRelayThread::write_to_port,
+                           port, &Generic_Port::write_to_port);
+        }
+        // Step 4: delete manager (relay threads already joined)
+        delete remote_control_manager_;
+        remote_control_manager_ = nullptr;
+    }
+
+    // Destroy mocap manager now, while all Qt infrastructure is still intact.
+    // mocap_manager_ has no parent and would otherwise survive until ~QApplication(),
+    // by which time KGroundControl's children (mavlink_manager_, connection_manager_)
+    // are already gone.  Their destructors can emit queued signals into mocap_manager_'s
+    // event queue; flushing those events after Qt's type system has partially torn down
+    // produces "Trying to construct an instance of an invalid type" warnings.
+    // Deleting it here also stops its relay/inspector threads and disconnects their
+    // write_to_port signals before the ports are closed below.
+    if (mocap_manager_) {
+        delete mocap_manager_;
+        mocap_manager_ = nullptr;
+    }
 
     //close all other active ports:
     connection_manager_->remove_all(false);
@@ -688,7 +794,7 @@ void KGroundControl::on_btn_settings_confirm_clicked()
 void KGroundControl::get_settings(kgroundcontrol_settings* settings_out)
 {
     settings_mutex_->lock();
-    memcpy(settings_out, &settings, sizeof(settings));
+    *settings_out = settings;
     settings_mutex_->unlock();
 }
 
@@ -979,6 +1085,7 @@ void KGroundControl::on_btn_joystick_clicked()
 {
     Joystick_manager* joystick_manager_ = new Joystick_manager(); //don't set parent so the window can be below the main one
     joystick_manager_->setAttribute(Qt::WidgetAttribute::WA_DeleteOnClose, true); //this will do cleanup automatically on closure of its window
+    connect(this, &KGroundControl::about2close, joystick_manager_, &Joystick_manager::prepareForShutdown, Qt::DirectConnection);
     connect(this, &KGroundControl::about2close, joystick_manager_, &Joystick_manager::close, Qt::DirectConnection);
 
     // mirror mocap wiring: keep relay availability updated
@@ -998,6 +1105,14 @@ void KGroundControl::on_btn_joystick_clicked()
             joystick_manager_, &Joystick_manager::update_relay_compids, Qt::QueuedConnection);
     connect(joystick_manager_, &Joystick_manager::get_compids,
             mavlink_manager_, &mavlink_manager::get_compids, Qt::DirectConnection);
+
+    // immediately pre-fill sysid and compid selectors (ports already fetched above)
+    {
+        QVector<uint8_t> sysids = joystick_manager_->get_sysids();
+        joystick_manager_->update_relay_sysid_list(sysids);
+        for (uint8_t sid : sysids)
+            joystick_manager_->update_relay_compids(sid, joystick_manager_->get_compids(sid));
+    }
 
     // frame id handling not required here – joystick relay does not use mocap frames
 

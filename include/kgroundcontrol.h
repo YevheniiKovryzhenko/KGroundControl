@@ -43,6 +43,7 @@
 #include "hardware_io/joystick_manager.h"
 #include "plot/plotting_manager.h"
 #include "update_manager.h"
+#include "mavlink_communication/remote_control_manager.h"
 
 // Forward declarations
 class QDialog;
@@ -172,6 +173,7 @@ private:
 
     mocap_manager* mocap_manager_ = nullptr;
     connection_manager* connection_manager_ = nullptr;
+    remote_control::manager* remote_control_manager_ = nullptr;
 
     mavlink_manager* mavlink_manager_ = nullptr;
     // no persistent plotting manager; each click spawns a new window

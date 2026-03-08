@@ -1598,7 +1598,7 @@
   <customwidget>
    <class>CollapsibleGroup</class>
    <extends>QWidget</extends>
-   <header>collapsible_group.h</header>
+   <header>hardware_io/joystick_manager.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

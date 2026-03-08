@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *    Copyright (C) 2025  Yevhenii Kovryzhenko. All rights reserved.
+ *    Copyright (C) 2026  Yevhenii Kovryzhenko. All rights reserved.
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU Affero General Public License as published by
@@ -274,7 +274,7 @@ QString Serial_Port::get_settings_QString(void)
 void Serial_Port::get_settings(void* input_settings)
 {
     // Copy the actual settings struct, not the pointer address
-    memcpy(static_cast<serial_settings*>(input_settings), settings, sizeof(serial_settings));
+    *static_cast<serial_settings*>(input_settings) = *settings;
 }
 connection_type Serial_Port::get_type(void)
 {

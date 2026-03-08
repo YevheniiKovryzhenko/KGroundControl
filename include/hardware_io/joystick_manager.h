@@ -45,37 +45,87 @@
 // struct for relay configuration attached to each joystick mapping
 #include <QProgressBar>
 #include <QCheckBox>
+#include <QPainter>
 #include <QPointer>
+#include <QSplitter>
 #include <QLabel>
 #include <QLineEdit>
 #include <QTreeWidgetItem>
+#include <QString>
 
 #include "hardware_io/joystick.h"
 #include "mavlink_communication/remote_control_manager.h"
 
-// simple widget to display a POV hat direction
+
+class CollapsibleGroup : public QWidget {
+    Q_OBJECT
+public:
+    explicit CollapsibleGroup(QWidget* parent = nullptr);
+
+    void setTitle(const QString& title);
+    // Place a widget inside the header band to the right of the title.
+    // Ownership transfers to this group. Mouse events are made transparent
+    // so clicks anywhere in the band still toggle the group.
+    void setHeaderSuffix(QWidget* suffixWidget);
+    void setContentLayout(QLayout* layout);
+    void setCollapsed(bool collapsed);
+    bool isCollapsed() const { return collapsed_; }
+
+signals:
+    void collapsedChanged(bool collapsed);
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+    void paintEvent(QPaintEvent* ev) override;
+    void changeEvent(QEvent* ev) override;
+
+private slots:
+    void toggle();
+
+private:
+    QFrame*       headerFrame_   = nullptr;  // entire header band (styled container)
+    QHBoxLayout*  headerLayout_  = nullptr;
+    QToolButton*  arrowButton_   = nullptr;  // arrow indicator, mouse-transparent
+    QLabel*       titleLabel_    = nullptr;
+    QWidget*      contentWidget_ = nullptr;
+    bool          collapsed_     = true;
+    void updateArrow();
+    void applyContentPalette();
+};
 
 
 // simple widget to display a POV hat direction
 class POVIndicator : public QWidget
 {
+    Q_OBJECT
 public:
     explicit POVIndicator(QWidget *parent, int joystick, int pov);
     void setAngle(int deg);
+
+    remote_control::channel::pov::joystick::manager* pov = nullptr;
+    int joystickId;
+    int povIndex;
+
 protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     int angle = -1; // degrees; -1 means undefined
-    int js;
-    int povIndex;
 };
 
 class JoystickAxisBar : public QProgressBar
 {
     Q_OBJECT
 public:
+    JoystickAxisBar(QWidget* parent, remote_control::channel::axis::joystick::manager* mgr, int joystick, int axis)
+        : QProgressBar(parent), joystick(mgr), joystickId(joystick), axisId(axis)
+    {
+        setRange(1000, 2000);
+        setTextVisible(true);
+        setFormat("%v");
+        setFocusPolicy(Qt::FocusPolicy::NoFocus);
+    }
     explicit JoystickAxisBar(QWidget* parent, int joystick, int axis);
-    remote_control::channel::axis::joystick::manager joystick;
+    remote_control::channel::axis::joystick::manager* joystick;
     int joystickId;
     int axisId;
 };
@@ -84,10 +134,41 @@ class JoystickButton : public QCheckBox
 {
     Q_OBJECT
 public:
+    JoystickButton(QWidget* parent, remote_control::channel::button::joystick::manager* mgr, int joystick, int button)
+        : QCheckBox(parent), button(mgr), joystickId(joystick), buttonId(button) {}
     explicit JoystickButton(QWidget* parent, int joystick, int button);
-    remote_control::channel::button::joystick::manager button;
+    remote_control::channel::button::joystick::manager* button;
     int joystickId;
     int buttonId;
+};
+
+// Small green/red LED indicator for the button header band.
+class ButtonLED : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit ButtonLED(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setFixedSize(16, 16);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
+public slots:
+    void setActive(bool active)
+    {
+        if (active_ != active) { active_ = active; update(); }
+    }
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(active_ ? QColor(0, 200, 0) : QColor(200, 0, 0));
+        p.drawEllipse(rect().adjusted(1, 1, -1, -1));
+    }
+private:
+    bool active_ = false;
 };
 
 namespace Ui {
@@ -130,9 +211,11 @@ private slots:
 
     bool add_axis(int axis_id);
     bool add_button(int button_id);
+    void onRemoteControlReady();
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     void clear_axes(void);
     void clear_buttons(void);
     void clear_povs(void);
@@ -158,7 +241,11 @@ private:
     QPointer<QWidget> buttons_container;
     QPointer<QWidget> povs_container;
     QVBoxLayout *axes_layout = nullptr;
-    QGridLayout *buttons_layout = nullptr;
+    QGridLayout *buttons_grid_layout_ = nullptr;
+    QList<QWidget*> button_items_;   // ordered list of button CollapsibleGroups
+    void relayoutButtons();          // reflow grid based on current container width
+    QSplitter *splitter_axes_buttons_ = nullptr; // dynamic vertical space sharing
+    void adjustScrollAreaSizes();    // size each scroll area to its content
     QVBoxLayout *povs_layout = nullptr;
 
 
@@ -174,14 +261,18 @@ private:
         QLabel* valueLabel = nullptr;
         QLineEdit* valueEdit = nullptr;
         QString fieldName;
+        int role = 0;  // cached role index for joystick_value_updated
     };
     QVector<QVector<FieldWidget>> fieldWidgets; // indexed by relay entry
 
     // map from role enum value to button widget in left panel
     QHash<int, QPushButton*> roleButtons;
 
+    // pre-built hidden rows for EVERY non-UNUSED role; shown when assigned
+    QHash<int, QWidget*> roleRows;
+    QHash<int, QLabel*> roleValueLabels;
+
     // global update when any joystick input changes
-    void on_any_joystick_changed(int joystick, int index, qreal value);
 
     // determine which role (if any) corresponds to the given joystick element
     int findRole(int joystick, int index) const;
@@ -189,64 +280,62 @@ private:
     // rebuild the left‑column roles UI from scratch
     void refresh_roles_ui();
 
+    // build (once) the full set of hidden role rows for every non-UNUSED enum
+    void build_all_role_rows();
+
     // update a single role button's displayed value
     void update_role_value(int role, qreal mappedVal);
 
+    // show/hide pre-built rows based on assignment list from background manager
+    void on_role_assignments_changed(const QList<int>& assigned);
+
+    // helper used during widget creation and when the background manager becomes available
+    void attachManagerToBar(JoystickAxisBar *bar);
+    void attachManagerToButton(JoystickButton *btn);
+    void attachManagerToPov(POVIndicator *ind);
     // role values are obtained from sharedRoleValues (mapping lives in managers)
 
 private slots:
     // notified whenever any axis/button manager reports its mapped value changed
     void joystick_value_updated(int role, qreal value);
 
-public:
-    // data and helpers for right‑hand relay/message panel
-    struct RelayEntry {
-        QString name;
-        QVector<QString> ports;
-        JoystickRelaySettings settings;
-        QVector<int> field_roles; // index corresponds to field order in message
-        QVector<QString> field_values; // stored/editable value for each field
-    };
-
 private:
-    QList<RelayEntry> relayEntries;
     int selected_relay_index = -1;
     QButtonGroup *relay_btn_group = nullptr;
-
-    // background relay threads corresponding to entries (nullptr when inactive)
-    QVector<remote_control::JoystickRelayThread*> relayThreads;
 
     // lists maintained for combobox population
     QStringList avail_ports;
     QVector<uint8_t> avail_sysids;
     QMap<uint8_t, QVector<mavlink_enums::mavlink_component_id>> avail_compids;
-    QStringList avail_frameids;
 
     void on_relay_button_clicked(QAbstractButton *btn);
 
     void update_relays_list();
-    void sync_relay_threads();
+
+    // Refreshes the Enabled checkbox widget state for entry i in-place
+    // (no full rebuild).  Also sets settings.enabled = false if connectable
+    // just became false.  Caller is responsible for sync_relay_threads/save.
+    void refresh_relay_checkbox(int i);
 
     // guard against recursive UI rebuilds triggered by thread signals
     bool updating_relays = false;
 
-    // persistence helpers for relay entries
-    static QList<RelayEntry> load_relay_entries();
-    static void save_relay_entries(const QList<RelayEntry>& entries);
-
 public slots:
+    // Must be connected to the about2close signal (DirectConnection) so that
+    // commitRolesToDevice() runs while remote_control::manager is still alive.
+    // After this call all raw manager pointers held by axis/button/pov widgets
+    // are nulled out so the destructor's commit call becomes a safe no-op.
+    void prepareForShutdown();
+
     // slots to refresh available choices (to be connected from outside)
     void update_relay_port_list(const QVector<QString>& new_ports);
     void update_relay_sysid_list(const QVector<uint8_t>& new_sysids);
     void update_relay_compids(uint8_t sysid, const QVector<mavlink_enums::mavlink_component_id>& compids);
-    void update_relay_frame_ids(const QVector<int>& frame_ids);
 
 private slots:
     void on_button_add_clicked();
     void on_button_remove_clicked();
     void on_button_edit_clicked();
-    // slot now receives the clicked button pointer
-    // void on_relay_button_clicked(int id);
 };
 
 #endif // JOYSTICK_MANAGER_H
