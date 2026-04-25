@@ -60,6 +60,8 @@ public:
     enum msg_opt { mavlink_manual_control, mavlink_rc_channels, mavlink_rc_channels_overwrite };
     Q_ENUM(msg_opt)
 
+    // Immutable relay identifier used as a stable plot topic root.
+    QString uid;
     QString Port_Name;            // empty by default, not "N/A"
     msg_opt msg_option = mavlink_manual_control;
     uint8_t sysid = 0;
@@ -70,6 +72,17 @@ public:
     bool auto_disabled = false;    // set when port disappears automatically
     bool enable_extensions = false; // manual_control only: send extension fields (buttons2, s/t, aux1-6)
 };
+
+namespace remote_control {
+// Return the relay field order used by both UI and backend processing.
+QVector<QString> relayFieldNames(const JoystickRelaySettings& settings);
+
+// Build a stable plot signal id for a relay field.
+QString relayPlotSignalId(const JoystickRelaySettings& settings, const QString& fieldName);
+
+// Build a user-facing label for a relay field signal.
+QString relayPlotSignalLabel(const QString& relayName, const QString& fieldName);
+}
 
 // Relay thread for joystick-to-MAVLink relaying
 namespace remote_control {

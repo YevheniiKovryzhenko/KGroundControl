@@ -60,6 +60,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include "plot/plot_signal_registry.h"
+#include "plot/plot_signal_ui_helpers.h"
 // no extra includes needed; timer declared in header
 #include <QSettings>
 #include <QWindow>
@@ -1678,24 +1679,12 @@ void mocap_manager::update_mocap_tree()
             if (!path.startsWith("common/") || path.startsWith("common/queue/") || path == QStringLiteral("common/frame_age_ms")) {
                 QCheckBox* cb = mocapCheckMap_.value(key, nullptr);
                 if (!cb) {
-                    cb = new QCheckBox(mocapTree_);
+                    cb = plot_signal_ui_helpers::createPlotCheckBox(mocapTree_, QString(), QString());
                     mocapCheckMap_[key] = cb;
-                    const QString plotId = QString("mocap/%1/%2").arg(frameId).arg(path);
-                    cb->setProperty("plotId", plotId);
-                    cb->setProperty("plotLabel", QString("Mocap | %1 %2").arg(frameId).arg(name));
-                    bool checked = false;
-                    const auto defs = PlotSignalRegistry::instance().listSignals();
-                    for (const auto& d : defs) { if (d.id == plotId) { checked = true; break; } }
-                    cb->blockSignals(true);
-                    cb->setChecked(checked);
-                    cb->blockSignals(false);
-                    QObject::connect(cb, &QCheckBox::toggled, mocapTree_, [cb](bool on){
-                        const QString id = cb->property("plotId").toString();
-                        const QString label = cb->property("plotLabel").toString();
-                        if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
-                        else    PlotSignalRegistry::instance().untagSignal(id);
-                    });
                 }
+                const QString plotId = QString("mocap/%1/%2").arg(frameId).arg(path);
+                const QString plotLabel = QString("Mocap | %1 %2").arg(frameId).arg(name);
+                plot_signal_ui_helpers::bindPlotCheckBox(cb, plotId, plotLabel);
                 mocapTree_->setItemWidget(item, 2, cb);
             }
         }
@@ -1755,36 +1744,21 @@ void mocap_manager::update_mocap_tree()
 }
 
 void mocap_manager::onRegistrySignalsChanged() {
-    // Sync checkboxes with current registry: uncheck any that were removed
-    const auto defs = PlotSignalRegistry::instance().listSignals();
-    QSet<QString> keep; for (const auto& d : defs) keep.insert(d.id);
-    // Update existing checkboxes
-    for (auto it = mocapCheckMap_.begin(); it != mocapCheckMap_.end(); ++it) {
-        QCheckBox* cb = it.value();
-        if (!cb) continue;
-        const QString id = cb->property("plotId").toString();
-        const bool shouldBeChecked = keep.contains(id);
-        if (cb->isChecked() != shouldBeChecked) {
-            cb->blockSignals(true);
-            cb->setChecked(shouldBeChecked);
-            cb->blockSignals(false);
-        }
-    }
+    if (!mocapTree_) return;
+    plot_signal_ui_helpers::syncPlotCheckBoxes(mocapTree_);
 }
 
 void mocap_manager::onFramesUpdatedBackground(QVector<mocap_data_t> frames)
 {
-    // Append samples for tagged mocap signals independent of UI visibility
-    const auto defs = PlotSignalRegistry::instance().listSignals();
-    if (defs.isEmpty()) return;
-
+    // Append samples for tagged mocap signals independent of UI visibility.
     for (const auto& buff : frames) {
         const QString base = QString("mocap/%1/").arg(buff.id);
+        const auto taggedIds = PlotSignalRegistry::instance().taggedIdsByPrefix(base);
+        if (taggedIds.isEmpty()) continue;
         const qint64 t_ns = static_cast<qint64>(buff.time_ms) * 1000000LL;
-        for (const auto& d : defs) {
-            if (!d.id.startsWith(base)) continue;
+        for (const auto& id : taggedIds) {
             double value = 0.0;
-            const QString path = d.id.mid(base.size());
+            const QString path = id.mid(base.size());
             if      (path == "time_ms")       value = static_cast<double>(buff.time_ms);
             else if (path == "freq_hz")       value = buff.freq_hz;
             else if (path == "trackingValid") value = buff.trackingValid ? 1.0 : 0.0;
@@ -1800,7 +1774,7 @@ void mocap_manager::onFramesUpdatedBackground(QVector<mocap_data_t> frames)
             else if (path == "euler/yaw")     value = buff.yaw;
             // Skip queue metrics and frame_age here; handled by periodic updater
             else continue;
-            PlotSignalRegistry::instance().appendSample(d.id, t_ns, value);
+            PlotSignalRegistry::instance().appendSample(id, t_ns, value);
         }
     }
 }
@@ -1808,8 +1782,8 @@ void mocap_manager::onFramesUpdatedBackground(QVector<mocap_data_t> frames)
 void mocap_manager::handleQueueMetricsTick()
 {
     // Periodically update queue metrics (bytes/frames) and frame age for any tagged signals
-    const auto defs = PlotSignalRegistry::instance().listSignals();
-    if (defs.isEmpty()) return;
+    const auto taggedIds = PlotSignalRegistry::instance().taggedIdsByPrefix("mocap/");
+    if (taggedIds.isEmpty()) return;
 
     int backlogBytes = 0;
     int backlogFrames = 0;
@@ -1827,22 +1801,21 @@ void mocap_manager::handleQueueMetricsTick()
         mocap_data_t f; if (mocap_data->get_frame(id, f)) latestById.insert(id, f);
     }
 
-    for (const auto& d : defs) {
+    for (const auto& idPath : taggedIds) {
         // Expect ids like mocap/<id>/common/queue/(bytes|frames) or common/frame_age_ms
-        if (!d.id.startsWith("mocap/")) continue;
-        const int firstSlash = d.id.indexOf('/', 6);
+        const int firstSlash = idPath.indexOf('/', 6);
         if (firstSlash <= 0) continue;
-        bool okId = false; int id = d.id.mid(6, firstSlash-6).toInt(&okId);
+        bool okId = false; int id = idPath.mid(6, firstSlash-6).toInt(&okId);
         if (!okId) continue;
-        const QString path = d.id.mid(firstSlash+1);
+        const QString path = idPath.mid(firstSlash+1);
         if (path == "common/queue/bytes") {
-            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(backlogBytes));
+            PlotSignalRegistry::instance().appendSample(idPath, now_ns, static_cast<double>(backlogBytes));
         } else if (path == "common/queue/frames") {
-            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(backlogFrames));
+            PlotSignalRegistry::instance().appendSample(idPath, now_ns, static_cast<double>(backlogFrames));
         } else if (path == "common/frame_age_ms") {
             const qint64 t_ms = latestById.contains(id) ? static_cast<qint64>(latestById[id].time_ms) : 0;
             const qint64 age_ms = (t_ms > 0) ? (now_ms - t_ms) : 0;
-            PlotSignalRegistry::instance().appendSample(d.id, now_ns, static_cast<double>(age_ms));
+            PlotSignalRegistry::instance().appendSample(idPath, now_ns, static_cast<double>(age_ms));
         }
     }
 }

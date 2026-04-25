@@ -32,6 +32,37 @@ void PlotSignalRegistry::untagSignal(const QString& id) {
     }
 }
 
+void PlotSignalRegistry::setTagged(const PlotSignalDef& def, bool enabled) {
+    if (enabled) tagSignal(def);
+    else untagSignal(def.id);
+}
+
+bool PlotSignalRegistry::isTagged(const QString& id) const {
+    QReadLocker guard(&lock_);
+    return defs_.contains(id);
+}
+
+QSet<QString> PlotSignalRegistry::taggedIds() const {
+    QReadLocker guard(&lock_);
+    QSet<QString> out;
+    out.reserve(defs_.size());
+    for (auto it = defs_.begin(); it != defs_.end(); ++it) {
+        out.insert(it.key());
+    }
+    return out;
+}
+
+QSet<QString> PlotSignalRegistry::taggedIdsByPrefix(const QString& prefix) const {
+    QReadLocker guard(&lock_);
+    QSet<QString> out;
+    for (auto it = defs_.begin(); it != defs_.end(); ++it) {
+        if (prefix.isEmpty() || it.key().startsWith(prefix)) {
+            out.insert(it.key());
+        }
+    }
+    return out;
+}
+
 void PlotSignalRegistry::appendSample(const QString& id, qint64 t_ns, double value) {
     QWriteLocker guard(&lock_);
     auto it = data_.find(id);

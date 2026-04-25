@@ -55,6 +55,7 @@
 #include "default_ui_config.h"
 // Plotting registry for globally tagged signals
 #include "plot/plot_signal_registry.h"
+#include "plot/plot_signal_ui_helpers.h"
 
 template <typename mav_type_in>
 mavlink_processor<mav_type_in>::mavlink_processor()
@@ -458,13 +459,12 @@ static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 
             .arg(msg->compid)
             .arg(msg->msgid);
 
-    const auto defs = PlotSignalRegistry::instance().listSignals();
-    if (defs.isEmpty()) return;
+    const auto taggedIds = PlotSignalRegistry::instance().taggedIdsByPrefix(base);
+    if (taggedIds.isEmpty()) return;
 
-    for (const auto& def : defs)
+    for (const auto& id : taggedIds)
     {
-        if (!def.id.startsWith(base)) continue;
-        const QString fieldPath = def.id.mid(base.size()); // e.g., "x" or "x[2]"
+        const QString fieldPath = id.mid(base.size()); // e.g., "x" or "x[2]"
 
         // Parse name and optional index
         QString fieldName = fieldPath;
@@ -501,7 +501,7 @@ static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 
         if (!mav_extract_numeric_field(msg, fMatch, idx, value)) continue;
 
         const qint64 t_ns = msg_time_ms * 1000000LL;
-        PlotSignalRegistry::instance().appendSample(def.id, t_ns, value);
+        PlotSignalRegistry::instance().appendSample(id, t_ns, value);
     }
 }
 
@@ -964,20 +964,7 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                         .arg(m.compid)
                         .arg(QString::fromLatin1(mi->name))
                         .arg(fieldPath);
-                    QCheckBox* cb = new QCheckBox(tree);
-                    cb->setText(QString());
-                    cb->setProperty("plotId", id);
-                    cb->setProperty("plotLabel", label);
-                    bool checked = false;
-                    const auto defs = PlotSignalRegistry::instance().listSignals();
-                    for (const auto& d : defs) { if (d.id == id) { checked = true; break; } }
-                    cb->setChecked(checked);
-                    QObject::connect(cb, &QCheckBox::toggled, tree, [cb](bool on){
-                        const QString id = cb->property("plotId").toString();
-                        const QString label = cb->property("plotLabel").toString();
-                        if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
-                        else    PlotSignalRegistry::instance().untagSignal(id);
-                    });
+                    QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, id, label);
                     tree->setItemWidget(item, 2, cb);
                 }
             }
@@ -1002,20 +989,7 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                             .arg(m.compid)
                             .arg(QString::fromLatin1(mi->name))
                             .arg(fieldPath);
-                        QCheckBox* cb = new QCheckBox(tree);
-                        cb->setText(QString());
-                        cb->setProperty("plotId", id);
-                        cb->setProperty("plotLabel", label);
-                        bool checked = false;
-                        const auto defs = PlotSignalRegistry::instance().listSignals();
-                        for (const auto& d : defs) { if (d.id == id) { checked = true; break; } }
-                        cb->setChecked(checked);
-                        QObject::connect(cb, &QCheckBox::toggled, tree, [cb](bool on){
-                            const QString id = cb->property("plotId").toString();
-                            const QString label = cb->property("plotLabel").toString();
-                            if (on) PlotSignalRegistry::instance().tagSignal(PlotSignalDef{ id, label });
-                            else    PlotSignalRegistry::instance().untagSignal(id);
-                        });
+                        QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, id, label);
                         tree->setItemWidget(child, 2, cb);
                     }
                 }
@@ -1112,26 +1086,7 @@ MavlinkInspector::MavlinkInspector(QWidget *parent)
     // Sync Plot checkboxes with Plotting Manager actions (e.g., when a tag is removed there)
     connect(&PlotSignalRegistry::instance(), &PlotSignalRegistry::signalsChanged, this, [this]{
         if (!ui->tree_msg_browser) return;
-        // Build a fast lookup set of currently tagged ids
-        QSet<QString> tagged;
-        const auto defs = PlotSignalRegistry::instance().listSignals();
-        for (const auto& d : defs) tagged.insert(d.id);
-        // Walk all checkbox widgets in column 2 and set their checked state
-        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item){
-            if (!item) return;
-            if (QWidget* w = ui->tree_msg_browser->itemWidget(item, 2)) {
-                if (auto* cb = qobject_cast<QCheckBox*>(w)) {
-                    const QString id = cb->property("plotId").toString();
-                    const bool shouldBeChecked = tagged.contains(id);
-                    if (cb->isChecked() != shouldBeChecked) {
-                        QSignalBlocker b(cb);
-                        cb->setChecked(shouldBeChecked);
-                    }
-                }
-            }
-            for (int i = 0; i < item->childCount(); ++i) visit(item->child(i));
-        };
-        for (int i = 0; i < ui->tree_msg_browser->topLevelItemCount(); ++i) visit(ui->tree_msg_browser->topLevelItem(i));
+        plot_signal_ui_helpers::syncPlotCheckBoxes(ui->tree_msg_browser);
     });
 
     // Prefer left pane over right pane in the top splitter

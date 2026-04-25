@@ -3,6 +3,7 @@
 #include <QReadWriteLock>
 #include <QVector>
 #include <QHash>
+#include <QSet>
 #include <QColor>
 #include <QString>
 #include <QDateTime>
@@ -28,6 +29,10 @@ public:
     // Add/remove a signal definition (thread-safe)
     void tagSignal(const PlotSignalDef& def);
     void untagSignal(const QString& id);
+    void setTagged(const PlotSignalDef& def, bool enabled);
+    bool isTagged(const QString& id) const;
+    QSet<QString> taggedIds() const;
+    QSet<QString> taggedIdsByPrefix(const QString& prefix) const;
 
     // Append a sample (thread-safe). If id unknown, ignored.
     void appendSample(const QString& id, qint64 t_ns, double value);

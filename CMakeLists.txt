@@ -261,6 +261,7 @@ set(PROJECT_HEADERS
     # Plot group
     include/plot/plotting_manager.h
     include/plot/plot_signal_registry.h
+    include/plot/plot_signal_ui_helpers.h
     include/plot/plot_canvas.h
     include/plot/create_3d_group_dialog.h
     include/plot/sci_doublespinbox.h
@@ -295,6 +296,7 @@ set(PROJECT_SOURCES
     # Plot group
     src/plot/plotting_manager.cpp
     src/plot/plot_signal_registry.cpp
+    src/plot/plot_signal_ui_helpers.cpp
     src/plot/plot_canvas.cpp
     src/plot/create_3d_group_dialog.cpp
 )

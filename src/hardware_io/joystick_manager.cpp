@@ -35,11 +35,15 @@
 #include "hardware_io/joystick_manager.h"
 #include "ui_joystick_manager.h"
 #include "default_ui_config.h"
+#include "plot/plot_signal_registry.h"
+#include "plot/plot_signal_ui_helpers.h"
 
 #include <QSettings>
 #include <QHeaderView>
 #include <QTimer>
 #include <QScopedValueRollback>
+#include <QSet>
+#include <QSignalBlocker>
 #include <QPainter>
 #include <QLineEdit>
 #include <QGridLayout>
@@ -363,6 +367,8 @@ Joystick_manager::Joystick_manager(QWidget *parent)
         connect(remote_control::global_manager(), &remote_control::manager::relaysReady,
                 this, &Joystick_manager::update_relays_list, Qt::QueuedConnection);
     }
+    connect(&PlotSignalRegistry::instance(), &PlotSignalRegistry::signalsChanged,
+            this, &Joystick_manager::syncRelayPlotCheckboxes, Qt::QueuedConnection);
     // connect pointer-based overload
     connect(relay_btn_group,
             QOverload<QAbstractButton *>::of(&QButtonGroup::buttonClicked),
@@ -2244,8 +2250,6 @@ void Joystick_manager::update_relays_list()
 
     for (int i = 0; i < count; ++i) {
         JoystickRelaySettings rs  = gm->relaySettings(i);
-        QVector<int>          fro = gm->relayFieldRoles(i);
-        QVector<QString>      fva = gm->relayFieldValues(i);
 
         // Top-level selector button
         QPushButton *btn = new QPushButton(gm->relayName(i), ui->verticalLayout_relays->parentWidget());
@@ -2336,9 +2340,10 @@ void Joystick_manager::update_relays_list()
 
         // --- Field tree ---
         QTreeWidget *fieldTree = new QTreeWidget(detail);
-        fieldTree->setHeaderLabels(QStringList{"Field","Role","Value"});
+        fieldTree->setHeaderLabels(QStringList{"Field","Role","Value","Plot"});
         fieldTree->setRootIsDecorated(false);
         fieldTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        fieldTree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
 
         // Helper: (re)populate the field tree for a given message type option.
         // Reads current roles/values from the backend and writes back after resize.
@@ -2349,22 +2354,9 @@ void Joystick_manager::update_relays_list()
             auto *gm = remote_control::global_manager();
             if (!gm || i >= gm->relayCount()) return;
 
-            JoystickRelaySettings::msg_opt opt = (JoystickRelaySettings::msg_opt)optIdx;
-            QVector<QString> fields;
-            switch (opt) {
-            case JoystickRelaySettings::mavlink_manual_control:
-                fields = {"x","y","z","r"};
-                for (int b = 1; b <= 16; b++) fields.append(QString("button%1").arg(b));
-                if (gm->relaySettings(i).enable_extensions) {
-                    for (int b = 1; b <= 16; b++) fields.append(QString("button2_%1").arg(b));
-                    fields << "s" << "t" << "aux1" << "aux2" << "aux3" << "aux4" << "aux5" << "aux6";
-                }
-                break;
-            case JoystickRelaySettings::mavlink_rc_channels:
-            case JoystickRelaySettings::mavlink_rc_channels_overwrite:
-                for (int ch = 1; ch <= 18; ch++) fields.append(QString("chan%1").arg(ch));
-                break;
-            }
+            JoystickRelaySettings fieldSettings = gm->relaySettings(i);
+            fieldSettings.msg_option = static_cast<JoystickRelaySettings::msg_opt>(optIdx);
+            QVector<QString> fields = remote_control::relayFieldNames(fieldSettings);
 
             // Resize backend arrays to match the new field count and snapshot them
             QVector<int> roles = gm->relayFieldRoles(i);
@@ -2475,6 +2467,11 @@ void Joystick_manager::update_relays_list()
                 }
                 if (valWidget) fieldTree->setItemWidget(twItem, 2, valWidget);
                 if (i < fieldWidgets.size()) fieldWidgets[i].append(fw);
+
+                const QString plotId = remote_control::relayPlotSignalId(fieldSettings, fields[fi]);
+                const QString plotLabel = remote_control::relayPlotSignalLabel(gm->relayName(i), fields[fi]);
+                QCheckBox *plotCb = plot_signal_ui_helpers::createPlotCheckBox(fieldTree, plotId, plotLabel);
+                fieldTree->setItemWidget(twItem, 3, plotCb);
             }
         };
 
@@ -2599,6 +2596,17 @@ void Joystick_manager::update_relays_list()
 
     if (QVBoxLayout *vbox = qobject_cast<QVBoxLayout*>(layout))
         vbox->addStretch();
+
+    syncRelayPlotCheckboxes();
+}
+
+void Joystick_manager::syncRelayPlotCheckboxes()
+{
+    if (!ui || !ui->verticalLayout_relays) return;
+
+    QWidget* root = ui->verticalLayout_relays->parentWidget();
+    if (!root) return;
+    plot_signal_ui_helpers::syncPlotCheckBoxes(root);
 }
 
 void Joystick_manager::on_button_add_clicked()

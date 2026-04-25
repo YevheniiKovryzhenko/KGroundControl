@@ -311,6 +311,7 @@ private:
     void on_relay_button_clicked(QAbstractButton *btn);
 
     void update_relays_list();
+    void syncRelayPlotCheckboxes();
 
     // Refreshes the Enabled checkbox widget state for entry i in-place
     // (no full rebuild).  Also sets settings.enabled = false if connectable

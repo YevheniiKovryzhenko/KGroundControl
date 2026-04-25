@@ -36,14 +36,69 @@
 #include "hardware_io/joystick.h"
 #include "hardware_io/connection_manager.h"
 #include "hardware_io/generic_port.h"
+#include "plot/plot_signal_registry.h"
 #include <QSettings>
 #include <QDebug>
+#include <QDateTime>
+#include <QSet>
+#include <QUuid>
 #include "all/mavlink.h"
 
 
 // JoystickRelayThread implementation and sharedRoleValues
 
 namespace remote_control {
+
+QVector<QString> relayFieldNames(const JoystickRelaySettings& settings)
+{
+    QVector<QString> fields;
+    switch (settings.msg_option) {
+    case JoystickRelaySettings::mavlink_manual_control:
+        fields = {"x", "y", "z", "r"};
+        for (int b = 1; b <= 16; ++b) fields.append(QString("button%1").arg(b));
+        if (settings.enable_extensions) {
+            for (int b = 1; b <= 16; ++b) fields.append(QString("button2_%1").arg(b));
+            fields << "s" << "t" << "aux1" << "aux2" << "aux3" << "aux4" << "aux5" << "aux6";
+        }
+        break;
+    case JoystickRelaySettings::mavlink_rc_channels:
+    case JoystickRelaySettings::mavlink_rc_channels_overwrite:
+        for (int ch = 1; ch <= 18; ++ch) fields.append(QString("chan%1").arg(ch));
+        break;
+    }
+    return fields;
+}
+
+QString relayPlotSignalId(const JoystickRelaySettings& settings, const QString& fieldName)
+{
+    if (settings.uid.isEmpty() || fieldName.isEmpty()) return QString();
+    return QString("remote_control/%1/%2").arg(settings.uid, fieldName);
+}
+
+QString relayPlotSignalLabel(const QString& relayName, const QString& fieldName)
+{
+    return QString("Remote Control | %1.%2").arg(relayName, fieldName);
+}
+
+static QSet<QString> relayPlotSignalIds(const JoystickRelaySettings& settings)
+{
+    QSet<QString> out;
+    const auto fields = relayFieldNames(settings);
+    out.reserve(fields.size());
+    for (const auto& field : fields) {
+        const QString id = relayPlotSignalId(settings, field);
+        if (!id.isEmpty()) out.insert(id);
+    }
+    return out;
+}
+
+static void untagRelayPlotSignals(const JoystickRelaySettings& settings)
+{
+    const auto ids = relayPlotSignalIds(settings);
+    for (const auto& id : ids) {
+        PlotSignalRegistry::instance().untagSignal(id);
+    }
+}
 
 JoystickRelayThread::JoystickRelayThread(QObject* parent,
                                          generic_thread_settings* thread_settings,
@@ -263,6 +318,25 @@ void JoystickRelayThread::run() {
                 QByteArray packed = packJoystickMavlink(settingsCopy, rolesCopy, kgcSysidCopy);
                 if (!packed.isEmpty())
                     emit write_to_port(packed);
+            }
+
+            // Publish tagged relay field samples for plotting independent of UI lifetime.
+            const QString base = QString("remote_control/%1/").arg(settingsCopy.uid);
+            const auto taggedIds = PlotSignalRegistry::instance().taggedIdsByPrefix(base);
+            if (!taggedIds.isEmpty()) {
+                const auto fields = relayFieldNames(settingsCopy);
+                const qint64 t_ns = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch() * 1000000LL;
+                for (int fi = 0; fi < fields.size(); ++fi) {
+                    const QString id = relayPlotSignalId(settingsCopy, fields[fi]);
+                    if (id.isEmpty() || !taggedIds.contains(id)) continue;
+
+                    double value = 0.0;
+                    if (fi >= 0 && fi < rolesCopy.size()) {
+                        const int role = rolesCopy[fi];
+                        if (role > 0) value = sharedRoleValues().getValue(role);
+                    }
+                    PlotSignalRegistry::instance().appendSample(id, t_ns, value);
+                }
             }
         }
         // sleep according to configured rate (fallback to 40 Hz)
@@ -591,9 +665,23 @@ void remote_control::manager::setRelayName(int idx, const QString& name)
 void remote_control::manager::updateRelaySettings(int idx, const JoystickRelaySettings& s)
 {
     if (idx < 0 || idx >= m_relaySettings.size()) return;
-    m_relaySettings[idx] = s;
+    const JoystickRelaySettings prev = m_relaySettings.value(idx);
+    JoystickRelaySettings next = s;
+    if (next.uid.isEmpty()) next.uid = prev.uid;
+    if (next.uid.isEmpty()) next.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    // If relay schema changed, remove no-longer-valid plot topics for this relay.
+    const auto prevIds = relayPlotSignalIds(prev);
+    const auto nextIds = relayPlotSignalIds(next);
+    for (const auto& id : prevIds) {
+        if (!nextIds.contains(id)) {
+            PlotSignalRegistry::instance().untagSignal(id);
+        }
+    }
+
+    m_relaySettings[idx] = next;
     if (idx < m_relayThreads.size() && m_relayThreads[idx])
-        m_relayThreads[idx]->updateSettings(s, m_relayFieldRoles.value(idx));
+        m_relayThreads[idx]->updateSettings(next, m_relayFieldRoles.value(idx));
     applyConnectability(idx);
     emit relaySettingsChanged(idx);
 }
@@ -619,14 +707,17 @@ void remote_control::manager::addRelay(const QString& name,
                                        const QVector<int>& roles,
                                        const QVector<QString>& vals)
 {
+    JoystickRelaySettings settings = s;
+    if (settings.uid.isEmpty()) settings.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
     generic_thread_settings ts;
-    ts.priority = static_cast<QThread::Priority>(s.priority);
-    auto *th = new JoystickRelayThread(nullptr, &ts, s, roles);
+    ts.priority = static_cast<QThread::Priority>(settings.priority);
+    auto *th = new JoystickRelayThread(nullptr, &ts, settings, roles);
     th->setKgcSysid(m_kgcSysid);
     th->start();
 
     m_relayThreads.append(th);
-    m_relaySettings.append(s);
+    m_relaySettings.append(settings);
     m_relayFieldRoles.append(roles);
     m_relayNames.append(name);
     m_relayFieldValues.append(vals);
@@ -642,6 +733,9 @@ void remote_control::manager::addRelay(const QString& name,
 void remote_control::manager::removeRelay(int idx)
 {
     if (idx < 0 || idx >= m_relayThreads.size()) return;
+
+    const JoystickRelaySettings removedSettings = m_relaySettings.value(idx);
+    untagRelayPlotSignals(removedSettings);
 
     auto *th = m_relayThreads[idx];
     if (th) {
@@ -678,6 +772,7 @@ void remote_control::manager::saveRelays()
         s.beginGroup(QString("relay/%1").arg(i));
         const JoystickRelaySettings &rs = m_relaySettings[i];
         s.setValue("name", m_relayNames.value(i, QString("Relay %1").arg(i + 1)));
+        s.setValue("uid", rs.uid);
         s.setValue("Port_Name", rs.Port_Name);
         s.setValue("msg_option", static_cast<int>(rs.msg_option));
         s.setValue("sysid", rs.sysid);
@@ -1351,6 +1446,8 @@ void manager::run(void)
     for (int i = 0; i < count; ++i) {
         s.beginGroup(QString("relay/%1").arg(i));
         JoystickRelaySettings settings;
+        settings.uid = s.value("uid", QString()).toString();
+        if (settings.uid.isEmpty()) settings.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
         settings.Port_Name = s.value("Port_Name", QString()).toString();
         settings.msg_option = static_cast<JoystickRelaySettings::msg_opt>(s.value("msg_option", 0).toInt());
         settings.sysid = s.value("sysid", 0).toUInt();
