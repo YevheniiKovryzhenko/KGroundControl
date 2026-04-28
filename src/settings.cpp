@@ -34,6 +34,7 @@
 
 #include "settings.h"
 #include "default_ui_config.h"
+#include "logging/log_manager.h"
 #include <QDebug>
 
 QString generic_port_settings::get_QString(void)
@@ -279,6 +280,8 @@ QString kgroundcontrol_settings::get_QString(void)
     QString text_out = "Mavlink Settings:\n";
     text_out += "System ID: " + QString::number(sysid);
     text_out += "Component ID: " + enum_helpers::value2key(compid);
+    text_out += "\nMAVLink Logging: " + QString(mavlink_logging_enabled ? "ENABLED" : "DISABLED");
+    text_out += "\nMAVLink Log Dir: " + (mavlink_logging_directory.isEmpty() ? log_manager::default_log_directory() : mavlink_logging_directory);
 
     text_out += "\nUI Font: " + font_family + ", " + QString::number(font_point_size) + "pt";
 
@@ -293,6 +296,8 @@ void kgroundcontrol_settings::save(QSettings &settings)
     settings.setValue("font_point_size", font_point_size);
     settings.setValue("plot_buffer_duration_sec", plot_buffer_duration_sec);
     settings.setValue("check_updates_on_startup", check_updates_on_startup);
+    settings.setValue("mavlink_logging_enabled", mavlink_logging_enabled);
+    settings.setValue("mavlink_logging_directory", mavlink_logging_directory.trimmed());
     settings.setValue("auto_install_on_startup", auto_install_on_startup);
     settings.endGroup();
 }
@@ -311,6 +316,12 @@ bool kgroundcontrol_settings::load(QSettings &settings)
     font_point_size = settings.value("font_point_size", font_point_size).toInt();
     plot_buffer_duration_sec = settings.value("plot_buffer_duration_sec", plot_buffer_duration_sec).toDouble();
     check_updates_on_startup = settings.value("check_updates_on_startup", check_updates_on_startup).toBool();
+    mavlink_logging_enabled = settings.value("mavlink_logging_enabled", mavlink_logging_enabled).toBool();
+    const QString default_log_dir = log_manager::default_log_directory();
+    mavlink_logging_directory = settings.value("mavlink_logging_directory", default_log_dir).toString().trimmed();
+    if (mavlink_logging_directory.isEmpty()) {
+        mavlink_logging_directory = default_log_dir;
+    }
     auto_install_on_startup = settings.value("auto_install_on_startup", auto_install_on_startup).toBool();
     settings.endGroup();
     return true;

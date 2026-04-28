@@ -279,6 +279,8 @@ bool connection_manager::add(QString new_port_name, \
     }
     }
 
+    port_->set_logical_name(new_port_name);
+
 
     if (port_->start() == 0)
     {

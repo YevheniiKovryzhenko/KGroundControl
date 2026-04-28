@@ -50,6 +50,9 @@ class QDialog;
 class QProgressBar;
 class QLabel;
 class QWidget;
+class QCheckBox;
+class QLineEdit;
+class QPushButton;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -174,6 +177,10 @@ private:
     mocap_manager* mocap_manager_ = nullptr;
     connection_manager* connection_manager_ = nullptr;
     remote_control::manager* remote_control_manager_ = nullptr;
+
+    QCheckBox* logging_enable_checkbox_ = nullptr;
+    QLineEdit* log_directory_display_ = nullptr;
+    QPushButton* log_directory_change_button_ = nullptr;
 
     mavlink_manager* mavlink_manager_ = nullptr;
     // no persistent plotting manager; each click spawns a new window

@@ -39,6 +39,7 @@
 #include "relaydialog.h"
 #include "default_ui_config.h"
 #include "plot/plot_signal_registry.h"
+#include "logging/log_manager.h"
 
 #include <QNetworkInterface>
 #include <QStringListModel>
@@ -57,9 +58,12 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QCheckBox>
+#include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
 #include <QProgressBar>
+#include <QFileDialog>
 
 // Ensure APP_VERSION is available for update checks
 #ifndef APP_VERSION
@@ -82,6 +86,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     load_settings();
     // Apply plotting buffer duration globally
     PlotSignalRegistry::instance().setBufferDurationSec(settings.plot_buffer_duration_sec);
+    log_manager::instance().apply_settings(settings);
     ui->stackedWidget_main->setCurrentIndex(0);
 
     // Apply loaded font settings
@@ -416,6 +421,16 @@ void KGroundControl::load_settings(void)
     
     // Restore UI state from settings
     ui->chk_auto_update->setChecked(settings.check_updates_on_startup);
+    if (logging_enable_checkbox_) {
+        logging_enable_checkbox_->setChecked(settings.mavlink_logging_enabled);
+    }
+    if (log_directory_display_) {
+        const QString log_dir = settings.mavlink_logging_directory.trimmed().isEmpty()
+            ? log_manager::default_log_directory()
+            : settings.mavlink_logging_directory.trimmed();
+        log_directory_display_->setText(log_dir);
+        log_directory_display_->setToolTip(log_dir);
+    }
 #ifdef Q_OS_LINUX
     ui->chk_auto_install->setChecked(settings.auto_install_on_startup);
 #else
@@ -520,6 +535,7 @@ void KGroundControl::closeEvent(QCloseEvent *event)
 
     //close all other active ports:
     connection_manager_->remove_all(false);
+    log_manager::instance().shutdown();
     event->accept();
 }
 
@@ -758,8 +774,24 @@ void KGroundControl::on_btn_settings_confirm_clicked()
     settings.font_point_size = ui->font_size_combo->currentText().toInt();
     if (ui->spin_plot_buffer)
         settings.plot_buffer_duration_sec = ui->spin_plot_buffer->value();
+    settings.check_updates_on_startup = ui->chk_auto_update->isChecked();
+#ifdef Q_OS_LINUX
+    settings.auto_install_on_startup = ui->chk_auto_install->isChecked();
+#endif
+    if (logging_enable_checkbox_)
+        settings.mavlink_logging_enabled = logging_enable_checkbox_->isChecked();
+    if (log_directory_display_)
+        settings.mavlink_logging_directory = log_directory_display_->text().trimmed();
     settings_mutex_->unlock();
 
+    // Persist immediately so settings survive even if the app exits unexpectedly.
+    {
+        QSettings qsettings;
+        settings.save(qsettings);
+        qsettings.sync();
+    }
+
+    log_manager::instance().apply_settings(settings);
     emit settings_updated(&settings);
 
     // Apply font live
@@ -815,6 +847,8 @@ void KGroundControl::on_btn_settings_reset_now_clicked()
 
     // Reset in-memory app settings to defaults
     settings = kgroundcontrol_settings{};
+    settings.mavlink_logging_directory = log_manager::default_log_directory();
+    log_manager::instance().apply_settings(settings);
     emit settings_updated(&settings);
 
     // Apply font and buffer defaults
@@ -838,6 +872,15 @@ void KGroundControl::on_btn_settings_reset_now_clicked()
         if (sizeIdx >= 0) ui->font_size_combo->setCurrentIndex(sizeIdx);
     }
     if (ui->settings_hard_reset_on_exit) ui->settings_hard_reset_on_exit->setChecked(false);
+    if (logging_enable_checkbox_) logging_enable_checkbox_->setChecked(settings.mavlink_logging_enabled);
+    if (log_directory_display_) {
+        log_directory_display_->setText(settings.mavlink_logging_directory);
+        log_directory_display_->setToolTip(settings.mavlink_logging_directory);
+    }
+    ui->chk_auto_update->setChecked(settings.check_updates_on_startup);
+#ifdef Q_OS_LINUX
+    ui->chk_auto_install->setChecked(settings.auto_install_on_startup);
+#endif
 
     QMessageBox::information(this, "Reset Complete", "All settings cleared. Defaults are now active.");
 }
@@ -868,6 +911,17 @@ void KGroundControl::on_btn_settings_clicked()
     ui->font_combo->setCurrentFont(QFont(settings.font_family));
     int idx = ui->font_size_combo->findText(QString::number(settings.font_point_size));
     if (idx >= 0) ui->font_size_combo->setCurrentIndex(idx);
+
+    if (logging_enable_checkbox_) {
+        logging_enable_checkbox_->setChecked(settings.mavlink_logging_enabled);
+    }
+    if (log_directory_display_) {
+        const QString log_dir = settings.mavlink_logging_directory.trimmed().isEmpty()
+            ? log_manager::default_log_directory()
+            : settings.mavlink_logging_directory.trimmed();
+        log_directory_display_->setText(log_dir);
+        log_directory_display_->setToolTip(log_dir);
+    }
 
 }
 
@@ -954,6 +1008,51 @@ void KGroundControl::setupSettingsGroups()
     generalLayout->setColumnStretch(1, 0);
     ui->group_general->setTitle("General");
     ui->group_general->setContentLayout(generalLayout);
+
+    // Create layout for Logging group
+    QGridLayout* loggingLayout = new QGridLayout();
+    QLabel* log_dir_label = new QLabel("Log directory:", this);
+    log_directory_change_button_ = new QPushButton("Change...", this);
+    log_directory_change_button_->setMinimumWidth(150);
+
+    log_directory_display_ = new QLineEdit(this);
+    log_directory_display_->setReadOnly(true);
+    log_directory_display_->setPlaceholderText("No directory selected");
+
+    logging_enable_checkbox_ = new QCheckBox("Enable MAVLink traffic logging", this);
+
+    loggingLayout->addWidget(log_dir_label, 0, 0);
+    loggingLayout->addWidget(log_directory_change_button_, 0, 1, Qt::AlignRight);
+    loggingLayout->addWidget(log_directory_display_, 1, 0, 1, 2);
+    loggingLayout->addWidget(logging_enable_checkbox_, 2, 0, 1, 2);
+    loggingLayout->setColumnStretch(0, 1);
+    loggingLayout->setColumnStretch(1, 0);
+    ui->group_logging->setTitle("Logging");
+    ui->group_logging->setContentLayout(loggingLayout);
+    ui->group_logging->setCollapsed(true);
+
+    connect(log_directory_change_button_, &QPushButton::clicked, this, [this]() {
+        if (!log_directory_display_) return;
+
+        const QString current_dir = log_directory_display_->text().trimmed().isEmpty()
+            ? log_manager::default_log_directory()
+            : log_directory_display_->text().trimmed();
+
+        const QString selected_dir = QFileDialog::getExistingDirectory(
+            this,
+            "Select log directory",
+            current_dir,
+            QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+
+        if (!selected_dir.isEmpty()) {
+            log_directory_display_->setText(selected_dir);
+            log_directory_display_->setToolTip(selected_dir);
+
+            settings_mutex_->lock();
+            settings.mavlink_logging_directory = selected_dir;
+            settings_mutex_->unlock();
+        }
+    });
     
     // Create layout for User Interface group
     QGridLayout* uiLayout = new QGridLayout();
@@ -995,6 +1094,9 @@ void KGroundControl::setupSettingsGroups()
     ui->settings_hard_reset_on_exit->setVisible(true);
     ui->btn_settings_reset_now->setVisible(true);
     ui->chk_auto_update->setVisible(true);
+    if (logging_enable_checkbox_) logging_enable_checkbox_->setVisible(true);
+    if (log_directory_display_) log_directory_display_->setVisible(true);
+    if (log_directory_change_button_) log_directory_change_button_->setVisible(true);
 #ifdef Q_OS_LINUX
     ui->chk_auto_install->setVisible(true);
     ui->btn_reinstall->setVisible(true);

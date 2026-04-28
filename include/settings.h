@@ -255,6 +255,10 @@ public:
     // Auto-update preferences
     bool check_updates_on_startup = true;
 
+    // App-wide MAVLink traffic logging settings.
+    bool mavlink_logging_enabled = false;
+    QString mavlink_logging_directory;
+
     // Self‑install preferences: when true the application will automatically
     // copy itself into ~/.local/bin and update its desktop entry on each
     // launch.  This behaviour is useful for end‑users but can interfere with

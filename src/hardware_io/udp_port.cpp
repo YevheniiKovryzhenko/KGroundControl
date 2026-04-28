@@ -36,6 +36,7 @@
 #include <QByteArray>
 #include <QNetworkDatagram>
 #include "hardware_io/udp_port.h"
+#include "logging/log_manager.h"
 
 //#define DEBUG
 
@@ -102,7 +103,7 @@ void UDP_Port::read_port(void)
 bool UDP_Port::read_message(void* message, int mavlink_channel_)
 {
     bool msgReceived = false;
-    mavlink_status_t status;
+    mavlink_status_t status{};
 
     mutex->lock();
     if (bytearray.size() > 0)
@@ -127,6 +128,12 @@ bool UDP_Port::read_message(void* message, int mavlink_channel_)
     {
         qDebug() << "ERROR: DROPPED " + QString::number(status.packet_rx_drop_count) + "PACKETS\n";
     }
+
+    if (msgReceived)
+    {
+        log_manager::instance().log_incoming_message(logical_name(), *static_cast<mavlink_message_t*>(message));
+    }
+
     // Done!
     return msgReceived;
 }
@@ -145,6 +152,11 @@ int UDP_Port::write_message(void* message)
     // Write buffer to serial port, locks port while writing
     int bytesWritten = _write_port(buf,len);
 
+    if (bytesWritten > 0)
+    {
+        log_manager::instance().log_outgoing_message(logical_name(), *static_cast<mavlink_message_t*>(message));
+    }
+
     return bytesWritten;
 }
 int UDP_Port::write_to_port(QByteArray message)
@@ -157,6 +169,13 @@ int UDP_Port::write_to_port(QByteArray message)
 
     // Unlock
     mutex->unlock();
+
+    if (len > 0)
+    {
+        const int written_len = (len > message.size()) ? message.size() : len;
+        log_manager::instance().log_outgoing_bytes(logical_name(), message.left(written_len));
+    }
+
     return len;
 }
 

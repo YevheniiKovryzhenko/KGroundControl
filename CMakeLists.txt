@@ -222,6 +222,15 @@ FetchContent_Declare(
 FetchContent_Populate(SDL2)
 add_subdirectory(${sdl2_SOURCE_DIR} ${sdl2_BINARY_DIR})
 
+
+# Fetch PX4 ulog_cpp for official ULog writing (optional; guarded)
+FetchContent_Declare(
+     ulog_cpp
+     GIT_REPOSITORY https://github.com/PX4/ulog_cpp.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(ulog_cpp)
+
 # Configure for static Qt builds
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
     message(STATUS "Configuring for static Qt build")
@@ -239,6 +248,9 @@ set(PROJECT_HEADERS
     # include/cartography.h
     include/default_ui_config.h
     include/update_manager.h
+
+    # Logging
+    include/logging/log_manager.h
     
     # Hardware I/O group
     include/hardware_io/connection_manager.h
@@ -276,6 +288,9 @@ set(PROJECT_SOURCES
     src/signal_filters.cpp
     src/default_ui_config.cpp
     src/update_manager.cpp
+
+    # Logging
+    src/logging/log_manager.cpp
     
     # Hardware I/O group
     src/hardware_io/connection_manager.cpp
@@ -398,6 +413,11 @@ target_compile_definitions(KGroundControl PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(KGroundControl PRIVATE SDL2-static)
 # Add SDL2 include directory (from FetchContent)
 target_include_directories(KGroundControl PRIVATE ${sdl2_SOURCE_DIR}/include)
+
+# Link the official PX4 ULog writer.
+target_link_libraries(KGroundControl PRIVATE ulog_cpp)
+# If FetchContent populated the source dir variable, add its include path so headers are available.
+target_include_directories(KGroundControl PRIVATE ${ulog_cpp_SOURCE_DIR}/include)
 
 # Static Qt build additional libraries
 if(FORCE_QT_STATIC OR QT_STATIC_BUILD)

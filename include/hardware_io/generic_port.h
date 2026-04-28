@@ -36,6 +36,7 @@
 #define GENERIC_PORT_H
 
 #include <QObject>
+#include <QString>
 
 //#include "mavlink_types.h"
 #include "settings.h"
@@ -61,6 +62,9 @@ public:
     virtual void save_settings(QSettings &qsettings)=0;
     virtual void load_settings(QSettings &qsettings)=0;
 
+    void set_logical_name(const QString& name) { logical_name_ = name; }
+    QString logical_name() const { return logical_name_; }
+
     // virtual void cleanup(void);
 signals:
     int ready_to_forward_new_data(QByteArray &new_data);
@@ -75,6 +79,9 @@ public slots:
 
     virtual QString get_settings_QString(void)=0;
     virtual void get_settings(void* current_settings)=0;
+
+private:
+    QString logical_name_ = "unknown_port";
 };
 
 #endif // GENERIC_PORT_H

@@ -1275,6 +1275,16 @@
          </widget>
         </item>
         <item>
+         <widget class="CollapsibleGroup" name="group_logging" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>0</height>
+           </size>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="CollapsibleGroup" name="group_user_interface" native="true">
           <property name="minimumSize">
            <size>
