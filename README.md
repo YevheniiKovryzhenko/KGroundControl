@@ -16,21 +16,15 @@ to communicate with multiple devices through a single port were major requiremen
 so the app was written from scratch with that in mind
 
 Additionally, it supports the Optitrack Motion Capture System and can stream data to multiple UAVs.
+Multi-joystick support, custom remote control message assignment, data visualization (2D/3D) and mavlink data logging
+is also supported.
 
 Check out my videos using KGC on [YouTube](https://www.youtube.com/playlist?list=PLgxIoIw6ONulUfYvzxfoZNM6QXrcRqKkV)!
 
-## Cross-Platform Features
-KGroundControl is designed to work across multiple platforms with minimal configuration:
-
-* Automatic Qt detection: The build system detects Qt installations in common locations.
-* Cross-platform deployment: Uses CMake-based deployment on Windows and Linux.
-* [To be completed] SDL2 integration: Cross-platform multimedia support for joysticks and other input devices.
-* MAVLink protocol: Platform-independent drone communication protocol
-
 ## Tested Architectures and Platforms
 * x86-64:
-  - Windows 10/11
-  - Ubuntu 20.04+
+  - Windows 11
+  - Ubuntu 22.04+
 * ARM64:
   - Raspbian (build from source)
 
@@ -38,8 +32,7 @@ KGroundControl is designed to work across multiple platforms with minimal config
 ### Binary
 You can use the standalone binary (executable) without installation. The most recent version is always available through the Releases tab.
 It is built with statically linked Qt and should be the most optimized version performance-wise, but it may take longer to start. On Linux,
-you may still need some external libraries depending on your distribution.
-The executable may need to be recompiled for your specific platform (see “Compiling from source”).
+you may still need some external libraries (depends on your distribution). Latest versions of KGC support automatic updates.
 
 ### Compiling from source
 Requirements:
