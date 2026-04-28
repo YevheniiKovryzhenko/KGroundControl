@@ -265,4 +265,16 @@ inline int QJoysticks::getPOV(const int index, const int pov)
     return -1;
 }
 
+inline QJoystickDevice *QJoysticks::getInputDevice(const int index)
+{
+    if (joystickExists(index))
+        return inputDevices().at(index);
+    return Q_NULLPTR;
+}
+
+inline QList<QJoystickDevice *> QJoysticks::inputDevices() const
+{
+    return m_devices;
+}
+
 #endif // JOYSTICK_H

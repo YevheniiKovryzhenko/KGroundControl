@@ -817,27 +817,6 @@ SDL_Joysticks *QJoysticks::sdlJoysticks() const
 // }
 
 /**
- * Returns a pointer to the device at the given \a index.
- */
-QJoystickDevice *QJoysticks::getInputDevice(const int index)
-{
-    if (joystickExists(index))
-        return inputDevices().at(index);
-
-    return Q_NULLPTR;
-}
-
-/**
- * Returns a pointer to a list containing all registered joysticks.
- * This can be used for advanced hacks or just to get all properties of each
- * joystick.
- */
-QList<QJoystickDevice *> QJoysticks::inputDevices() const
-{
-    return m_devices;
-}
-
-/**
  * If \a sort is set to true, then the device list will put all blacklisted
  * joysticks at the end of the list
  */
