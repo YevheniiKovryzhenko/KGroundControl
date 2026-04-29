@@ -8,6 +8,15 @@ on:
   release:
     types: [published, edited]  # Triggers on publish AND when you edit to add binaries
   workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
+    inputs:
+      release_id:
+        description: 'Release ID to process (get from URL: github.com/repo/releases/edit/{ID})'
+        required: true
+        type: string
+      version:
+        description: 'Version number (e.g., 1.3.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write  # Needed to push updates.json
@@ -21,12 +30,18 @@ jobs:
       uses: actions/checkout@v5
       with:
         fetch-depth: 0  # Get all history
-        ref: ${{ github.event.release.target_commitish }}  # Checkout the release branch
+        ref: ${{ github.event.release.target_commitish || github.ref }}  # Use release ref or current branch
     
     - name: Extract version from tag
       id: version
       run: |
-        VERSION="${{ github.event.release.tag_name }}"
+        if [ -z "${{ github.event.release.tag_name }}" ]; then
+          # Manual trigger: use the input version
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          # Release trigger: extract from tag
+          VERSION="${{ github.event.release.tag_name }}"
+        fi
         # Remove 'v' prefix if present
         VERSION="${VERSION#v}"
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
@@ -39,6 +54,13 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
         
+        # Determine release ID based on trigger type
+        if [ -z "${{ github.event.release.id }}" ]; then
+          RELEASE_ID="${{ github.event.inputs.release_id }}"
+        else
+          RELEASE_ID="${{ github.event.release.id }}"
+        fi
+        
         # Expected binary names (Ubuntu 24 first, then 22)
         LINUX_BINARY_24="KGroundControl_v${VERSION}_Ubuntu_24.04_x64"
         LINUX_BINARY_22="KGroundControl_v${VERSION}_Ubuntu_22.04_x64"
@@ -46,7 +68,7 @@ jobs:
         
         # Get release assets using GitHub CLI
         echo "🔍 Checking release assets..."
-        ASSETS=$(gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets --jq '.[].name')
+        ASSETS=$(gh api repos/${{ github.repository }}/releases/${RELEASE_ID}/assets --jq '.[].name')
         
         echo "Found assets:"
         echo "$ASSETS"
