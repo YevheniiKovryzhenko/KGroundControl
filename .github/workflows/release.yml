@@ -7,6 +7,7 @@ name: Update updates.json on Release
 on:
   release:
     types: [published, edited]  # Triggers on publish AND when you edit to add binaries
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
 
 permissions:
   contents: write  # Needed to push updates.json
@@ -17,7 +18,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0  # Get all history
         ref: ${{ github.event.release.target_commitish }}  # Checkout the release branch
@@ -196,8 +197,8 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         
-        # Get the branch name from the base ref
-        BRANCH="${{ github.event.release.target_commitish }}"
+        # Get the current branch name (target_commitish can be a commit SHA, so we need the actual branch)
+        BRANCH=$(git rev-parse --abbrev-ref HEAD)
         
         git add docs/updates.json
         
