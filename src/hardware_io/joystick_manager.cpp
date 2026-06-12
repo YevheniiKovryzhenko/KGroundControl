@@ -2360,7 +2360,22 @@ void Joystick_manager::buildRelayDetailPanel(QFormLayout *form, int relayIdx, re
     QStringList syslist;
     for (uint8_t s : avail_sysids) syslist.append(QString::number(s));
     sysCb->addItems(syslist);
-    sysCb->setCurrentText(QString::number(rs.sysid));
+
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int sysIdx = syslist.indexOf(QString::number(rs.sysid));
+    if (sysIdx >= 0) {
+        sysCb->setCurrentIndex(sysIdx);
+    } else if (!syslist.isEmpty()) {
+        sysCb->setCurrentIndex(0);
+        uint8_t newSys = static_cast<uint8_t>(syslist[0].toInt());
+        if (rs.sysid != newSys) {
+            rs.sysid = newSys;
+            gm->updateRelaySettings(relayIdx, rs);
+        }
+    } else {
+        sysCb->setCurrentIndex(-1); // Blank if no active sysids
+    }
+
     connect(sysCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, relayIdx, sysCb]() {
         auto *gm = remote_control::global_manager();
         if (!gm || relayIdx >= gm->relayCount()) return;
@@ -2391,16 +2406,31 @@ void Joystick_manager::buildRelayDetailPanel(QFormLayout *form, int relayIdx, re
     QComboBox *compBox = new QComboBox(form->parentWidget());
     compBox->installEventFilter(this);
     compBox->setObjectName("compCB");
-    {
-        uint8_t activeSysid = static_cast<uint8_t>(sysCb->currentText().toInt());
-        if (avail_compids.contains(activeSysid)) {
-            QStringList lst;
-            for (auto cid : avail_compids[activeSysid]) lst.append(enum_helpers::value2key(cid));
-            compBox->addItems(lst);
-            int compidx = lst.indexOf(enum_helpers::value2key(rs.compid));
-            if (compidx >= 0) compBox->setCurrentIndex(compidx);
-        }
+    
+    uint8_t activeSysid = sysCb->currentIndex() >= 0 ? static_cast<uint8_t>(sysCb->currentText().toInt()) : 0;
+    QStringList compList;
+    if (avail_compids.contains(activeSysid)) {
+        for (auto cid : avail_compids[activeSysid]) compList.append(enum_helpers::value2key(cid));
     }
+    compBox->addItems(compList);
+
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int compIdx = compList.indexOf(enum_helpers::value2key(rs.compid));
+    if (compIdx >= 0) {
+        compBox->setCurrentIndex(compIdx);
+    } else if (!compList.isEmpty()) {
+        compBox->setCurrentIndex(0);
+        mavlink_enums::mavlink_component_id newComp;
+        if (enum_helpers::key2value(compList[0], newComp)) {
+            if (rs.compid != newComp) {
+                rs.compid = newComp;
+                gm->updateRelaySettings(relayIdx, rs);
+            }
+        }
+    } else {
+        compBox->setCurrentIndex(-1); // Blank if no active compids
+    }
+
     connect(compBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, relayIdx, compBox]() {
         auto *gm = remote_control::global_manager();
         if (!gm || relayIdx >= gm->relayCount()) return;
@@ -2451,7 +2481,6 @@ void Joystick_manager::buildRelayDetailPanel(QFormLayout *form, int relayIdx, re
             QTreeWidgetItem *twItem = new QTreeWidgetItem(fieldTree);
             twItem->setText(0, fields[fi]);
             
-            // --- roleCb IS DEFINED HERE ---
             QComboBox *roleCb = new QComboBox(fieldTree);
             roleCb->installEventFilter(this);
             roleCb->addItems(enum_helpers::get_all_keys_list<remote_control::channel::enums::role>());
@@ -2589,8 +2618,22 @@ void Joystick_manager::buildRelayDetailPanel(QFormLayout *form, int relayIdx, re
     QComboBox *portCb = new QComboBox(form->parentWidget());
     portCb->installEventFilter(this);
     portCb->addItems(avail_ports);
-    if (!rs.Port_Name.isEmpty() && avail_ports.contains(rs.Port_Name))
-        portCb->setCurrentText(rs.Port_Name);
+    
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int portIdx = avail_ports.indexOf(rs.Port_Name);
+    if (portIdx >= 0) {
+        portCb->setCurrentIndex(portIdx);
+    } else if (!avail_ports.isEmpty()) {
+        portCb->setCurrentIndex(0);
+        if (rs.Port_Name != avail_ports[0]) {
+            rs.Port_Name = avail_ports[0];
+            rs.auto_disabled = false;
+            gm->updateRelaySettings(relayIdx, rs);
+        }
+    } else {
+        portCb->setCurrentIndex(-1);
+    }
+
     connect(portCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, relayIdx, portCb]() {
         auto *gm = remote_control::global_manager();
         if (!gm || relayIdx >= gm->relayCount()) return;
@@ -2652,7 +2695,22 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QStringList syslist;
     for (uint8_t s : avail_sysids) syslist.append(QString::number(s));
     sysCb->addItems(syslist);
-    sysCb->setCurrentText(QString::number(cmd.sysid));
+
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int sysIdx = syslist.indexOf(QString::number(cmd.sysid));
+    if (sysIdx >= 0) {
+        sysCb->setCurrentIndex(sysIdx);
+    } else if (!syslist.isEmpty()) {
+        sysCb->setCurrentIndex(0);
+        uint8_t newSys = static_cast<uint8_t>(syslist[0].toInt());
+        if (cmd.sysid != newSys) {
+            cmd.sysid = newSys;
+            gm->updateCommandSettings(cmdIdx, cmd);
+        }
+    } else {
+        sysCb->setCurrentIndex(-1); // Blank if no active sysids
+    }
+
     connect(sysCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, sysCb]() {
         auto *gm = remote_control::global_manager();
         if (!gm || cmdIdx >= gm->commandCount()) return;
@@ -2684,16 +2742,31 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QComboBox *compBox = new QComboBox(form->parentWidget());
     compBox->installEventFilter(this);
     compBox->setObjectName("compCB");
-    {
-        uint8_t activeSysid = static_cast<uint8_t>(sysCb->currentText().toInt());
-        if (avail_compids.contains(activeSysid)) {
-            QStringList lst;
-            for (auto cid : avail_compids[activeSysid]) lst.append(enum_helpers::value2key(cid));
-            compBox->addItems(lst);
-            int compidx = lst.indexOf(enum_helpers::value2key(cmd.compid));
-            if (compidx >= 0) compBox->setCurrentIndex(compidx);
-        }
+    
+    uint8_t activeSysid = sysCb->currentIndex() >= 0 ? static_cast<uint8_t>(sysCb->currentText().toInt()) : 0;
+    QStringList compList;
+    if (avail_compids.contains(activeSysid)) {
+        for (auto cid : avail_compids[activeSysid]) compList.append(enum_helpers::value2key(cid));
     }
+    compBox->addItems(compList);
+
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int compIdx = compList.indexOf(enum_helpers::value2key(cmd.compid));
+    if (compIdx >= 0) {
+        compBox->setCurrentIndex(compIdx);
+    } else if (!compList.isEmpty()) {
+        compBox->setCurrentIndex(0);
+        mavlink_enums::mavlink_component_id newComp;
+        if (enum_helpers::key2value(compList[0], newComp)) {
+            if (cmd.compid != newComp) {
+                cmd.compid = newComp;
+                gm->updateCommandSettings(cmdIdx, cmd);
+            }
+        }
+    } else {
+        compBox->setCurrentIndex(-1); // Blank if no active compids
+    }
+
     connect(compBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, compBox]() {
         auto *gm = remote_control::global_manager();
         if (!gm || cmdIdx >= gm->commandCount()) return;
@@ -2711,8 +2784,21 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QComboBox *portCb = new QComboBox(form->parentWidget());
     portCb->installEventFilter(this);
     portCb->addItems(avail_ports);
-    if (!cmd.Port_Name.isEmpty() && avail_ports.contains(cmd.Port_Name))
-        portCb->setCurrentText(cmd.Port_Name);
+    
+    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    int portIdx = avail_ports.indexOf(cmd.Port_Name);
+    if (portIdx >= 0) {
+        portCb->setCurrentIndex(portIdx);
+    } else if (!avail_ports.isEmpty()) {
+        portCb->setCurrentIndex(0);
+        if (cmd.Port_Name != avail_ports[0]) {
+            cmd.Port_Name = avail_ports[0];
+            gm->updateCommandSettings(cmdIdx, cmd);
+        }
+    } else {
+        portCb->setCurrentIndex(-1);
+    }
+
     connect(portCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, portCb]() {
         auto *gm = remote_control::global_manager();
         if (!gm || cmdIdx >= gm->commandCount()) return;
@@ -2841,7 +2927,7 @@ void Joystick_manager::on_button_add_clicked()
         } else if (type == 1) {
             JoystickCommandSettings s;
             s.type = JoystickCommandSettings::CMD_ARM_DISARM;
-            s.name = QString("Arm/Disarm %1").arg(gm->commandCount() + 1);
+            s.name = QString("Arm/Disarm");
             s.Port_Name.clear();
             gm->addCommand(s);
         } else if (type == 2) {

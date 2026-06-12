@@ -97,7 +97,7 @@ signals:
     void send_heartbeat_bytes(QByteArray);
 
 private:
-    kgroundcontrol_settings kground_control_settings_;
+    kgroundcontrol_settings kgroundcontrol_settings_;
 };
 
 

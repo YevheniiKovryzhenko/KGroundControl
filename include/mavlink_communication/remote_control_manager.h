@@ -142,6 +142,7 @@ namespace remote_control {
         JoystickRelayThread(QObject* parent,
                         generic_thread_settings* thread_settings,
                         const JoystickRelaySettings& relay_settings,
+                        kgroundcontrol_settings* kgroundcontrol_settings_in,
                         const QVector<int>& field_roles);
         ~JoystickRelayThread();
 
@@ -155,19 +156,20 @@ namespace remote_control {
         JoystickRelaySettings currentSettings();
         // Update only the enabled/auto_disabled flags (thread-safe)
         void updateEnabledState(bool enabled, bool autoDisabled);
-        // Update the KGC (sender) system ID used in packed messages (thread-safe)
-        void setKgcSysid(uint8_t sysid);
 
     signals:
         // Packed MAVLink bytes ready to be written to the configured port
         void write_to_port(QByteArray data);
 
+    public slots:
+        void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
+
     private:
         JoystickRelaySettings relaySettings;
         QVector<int> fieldRoles;
-        uint8_t m_kgcSysid = 254;  // KGC sender system ID, updated from settings
         bool stopRequested = false;
-        QMutex stopMutex;
+
+        kgroundcontrol_settings kgroundcontrol_settings_;
     };
 
     // Thread-safe storage for latest role values (axis/button/pov) for all roles
@@ -211,6 +213,18 @@ namespace remote_control {
                 YAW,
                 THROTTLE,
                 ARM,
+                MANUAL,
+                STABILIZED,
+                ACRO,
+                ALTCTL,
+                POSCTL,
+                OFFBOARD,
+                AUTO_LOITER,
+                AUTO_MISSION,
+                AUTO_RTL,
+                AUTO_LAND,
+                AUTO_TAKEOFF,
+                AUTO_PRECLAND,
                 AUX_1,
                 AUX_2,
                 AUX_3,
@@ -230,21 +244,7 @@ namespace remote_control {
                 AUX_17,
                 AUX_18,
                 AUX_19,
-                AUX_20,
-
-                // --- PX4 Flight Modes ---
-                MANUAL,
-                STABILIZED,
-                ACRO,
-                ALTCTL,
-                POSCTL,
-                OFFBOARD,
-                AUTO_LOITER,
-                AUTO_MISSION,
-                AUTO_RTL,
-                AUTO_LAND,
-                AUTO_TAKEOFF,
-                AUTO_PRECLAND
+                AUX_20                
             };
             Q_ENUM(role)
         };
@@ -461,8 +461,7 @@ namespace remote_control {
     {
         Q_OBJECT
     public:
-        explicit manager(QObject* parent, generic_thread_settings *new_settings);
-        explicit manager(QObject* parent);
+        explicit manager(QObject* parent, generic_thread_settings *new_settings, kgroundcontrol_settings *kground_control_settings_in);
         ~manager() override;
 
         void run();
@@ -510,8 +509,6 @@ namespace remote_control {
         // ---- Connection management (call from main thread) ----
         // Provide a connection_manager so relay threads can be wired to their ports.
         void setConnectionManager(connection_manager* cm);
-        // Set the KGC (sender) system ID; propagated to all relay threads.
-        void setKgcSysid(uint8_t sysid);
         // Notify backend of currently-available ports/sysids/compids.
         // Backend will auto-enable/disable relay threads and rewire write_to_port.
         void onPortsUpdated(const QStringList& ports);
@@ -534,6 +531,9 @@ namespace remote_control {
         void saveCommands();
         bool isCommandConnectable(int idx);
 
+    public slots:
+        void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
+
     signals:
         void relaysReady();
         // Emitted when a relay's connectable or user-enabled state changes.
@@ -554,6 +554,8 @@ namespace remote_control {
 
         void commandStateChanged(int idx, bool connectable);
         void commandCountChanged();
+
+        void kgroundcontrol_settings_updated(kgroundcontrol_settings* kground_control_settings_in_);
     private:
         QVector<remote_control::JoystickRelayThread*> m_relayThreads;
         QVector<JoystickRelaySettings> m_relaySettings;
@@ -577,7 +579,6 @@ namespace remote_control {
 
         // ---- Connection management state ----
         connection_manager* m_connectionManager = nullptr;
-        uint8_t m_kgcSysid = 254;  // KGC (sender) system ID
         QStringList m_availPorts;
         QVector<uint8_t> m_availSysids;
         QHash<uint8_t, QVector<mavlink_enums::mavlink_component_id>> m_availCompids;
@@ -595,6 +596,8 @@ namespace remote_control {
         void onRoleValueUpdated(int role, qreal value);
         void sendCommand(int idx, bool active);
         void applyCommandConnectability(int idx);
+
+        kgroundcontrol_settings kgroundcontrol_settings_;
     };
 
     // Global storage for raw unassigned joystick values, keyed by device and index.

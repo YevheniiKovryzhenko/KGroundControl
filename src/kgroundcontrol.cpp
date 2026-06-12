@@ -114,18 +114,16 @@ KGroundControl::KGroundControl(QWidget *parent)
     QJoysticks::getInstance()->updateInterfaces();
 
     // Start background remote-control manager which initializes joystick mappings
-    remote_control_manager_ = new remote_control::manager(this);
+    generic_thread_settings s;
+    remote_control_manager_ = new remote_control::manager(this, &s, &settings);
 
     // Provide the connection manager so the backend can wire relay thread
     // write_to_port signals directly to Generic_Port objects as ports appear.
     remote_control_manager_->setConnectionManager(connection_manager_);
 
-    // Seed KGC system ID into relay manager (and update it whenever settings change).
-    remote_control_manager_->setKgcSysid(settings.sysid);
-    connect(this, &KGroundControl::settings_updated, this, [this](kgroundcontrol_settings*){
-        if (remote_control_manager_)
-            remote_control_manager_->setKgcSysid(settings.sysid);
-    });
+    // Seed KGC system ID into remote control manager (and update it whenever settings change).
+    // connect(remote_control_manager_, &remote_control::manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);
+    connect(this, &KGroundControl::settings_updated, remote_control_manager_, &remote_control::manager::update_kgroundcontrol_settings, Qt::DirectConnection);
 
     // When relay threads are ready, seed them with the current port/sysid/compid
     // availability so they immediately evaluate connectivity and wire up.

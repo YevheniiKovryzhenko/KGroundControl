@@ -190,12 +190,15 @@ namespace remote_control {
     JoystickRelayThread::JoystickRelayThread(QObject* parent,
                                             generic_thread_settings* thread_settings,
                                             const JoystickRelaySettings& relay_settings,
+                                            kgroundcontrol_settings* kgroundcontrol_settings_in,
                                             const QVector<int>& field_roles)
         : generic_thread(parent, thread_settings),
         relaySettings(relay_settings),
         fieldRoles(field_roles)
     {
         stopRequested = false;
+
+        update_kgroundcontrol_settings(kgroundcontrol_settings_in);
     }
 
     JoystickRelayThread::~JoystickRelayThread() {
@@ -203,35 +206,36 @@ namespace remote_control {
     }
 
     void JoystickRelayThread::requestStop() {
-        QMutexLocker locker(&stopMutex);
+        QMutexLocker locker(mutex);
         stopRequested = true;
     }
 
     void JoystickRelayThread::updateSettings(const JoystickRelaySettings& relay_settings, const QVector<int>& field_roles) {
-        QMutexLocker locker(&stopMutex);
+        QMutexLocker locker(mutex);
         relaySettings = relay_settings;
         fieldRoles = field_roles;
     }
 
     QString JoystickRelayThread::portName() const {
-        QMutexLocker locker(const_cast<QMutex*>(&stopMutex));
+        QMutexLocker locker(mutex);
         return relaySettings.Port_Name;
     }
 
     JoystickRelaySettings JoystickRelayThread::currentSettings() {
-        QMutexLocker locker(&stopMutex);
+        QMutexLocker locker(mutex);
         return relaySettings;
     }
 
     void JoystickRelayThread::updateEnabledState(bool enabled, bool autoDisabled) {
-        QMutexLocker locker(&stopMutex);
+        QMutexLocker locker(mutex);
         relaySettings.enabled = enabled;
         relaySettings.auto_disabled = autoDisabled;
     }
 
-    void JoystickRelayThread::setKgcSysid(uint8_t sysid) {
-        QMutexLocker locker(&stopMutex);
-        m_kgcSysid = sysid;
+    void JoystickRelayThread::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_) {
+        if (!kground_control_settings_in_) return;
+        QMutexLocker locker(mutex);
+        kgroundcontrol_settings_ = *kground_control_settings_in_;
     }
 
     // ---------------------------------------------------------------------------
@@ -244,7 +248,7 @@ namespace remote_control {
     // Values are taken directly from sharedRoleValues() — no re-mapping.
     static QByteArray packJoystickMavlink(const JoystickRelaySettings& s,
                                         const QVector<int>& fieldRoles,
-                                        uint8_t kgcSysid)
+                                        kgroundcontrol_settings kgc_settings)
     {
         // Returns the current role output for field fi, or 0.0 if unassigned.
         auto getVal = [&](int fi) -> qreal {
@@ -301,7 +305,7 @@ namespace remote_control {
                 }
             }
             mavlink_msg_manual_control_pack(
-                kgcSysid, static_cast<uint8_t>(s.compid), &msg,
+                kgc_settings.sysid, kgc_settings.compid, &msg,
                 s.sysid,
                 x, y, z, r,
                 buttons, buttons2,
@@ -340,7 +344,7 @@ namespace remote_control {
             rc.chancount = chancount;
             rc.rssi = UINT8_MAX;
             mavlink_msg_rc_channels_encode(
-                kgcSysid, static_cast<uint8_t>(s.compid), &msg, &rc);
+                kgc_settings.sysid, kgc_settings.compid, &msg, &rc);
             break;
         }
 
@@ -368,7 +372,7 @@ namespace remote_control {
             ov.chan17_raw = getChan(16);
             ov.chan18_raw = getChan(17);
             mavlink_msg_rc_channels_override_encode(
-                kgcSysid, static_cast<uint8_t>(s.compid), &msg, &ov);
+                kgc_settings.sysid, kgc_settings.compid, &msg, &ov);
             break;
         }
         }
@@ -382,12 +386,12 @@ namespace remote_control {
         // simple loop that periodically copies shared role values and emits them
         while (true) {
             {
-                QMutexLocker locker(&stopMutex);
+                QMutexLocker locker(mutex);
                 if (stopRequested) break;
             }
             bool enabled;
             {
-                QMutexLocker locker(&stopMutex);
+                QMutexLocker locker(mutex);
                 enabled = relaySettings.enabled;
             }
             if (enabled) {
@@ -395,14 +399,15 @@ namespace remote_control {
                 JoystickRelaySettings settingsCopy;
                 QVector<int> rolesCopy;
                 uint8_t kgcSysidCopy;
+                kgroundcontrol_settings kgc_settings_copy; 
                 {
-                    QMutexLocker lk(&stopMutex);
+                    QMutexLocker lk(mutex);
                     settingsCopy  = relaySettings;
                     rolesCopy     = fieldRoles;
-                    kgcSysidCopy  = m_kgcSysid;
+                    kgc_settings_copy  = kgroundcontrol_settings_;
                 }
                 if (!settingsCopy.Port_Name.isEmpty()) {
-                    QByteArray packed = packJoystickMavlink(settingsCopy, rolesCopy, kgcSysidCopy);
+                    QByteArray packed = packJoystickMavlink(settingsCopy, rolesCopy, kgc_settings_copy);
                     if (!packed.isEmpty())
                         emit write_to_port(packed);
                 }
@@ -553,13 +558,6 @@ namespace remote_control {
     void manager::setConnectionManager(connection_manager* cm)
     {
         m_connectionManager = cm;
-    }
-
-    void manager::setKgcSysid(uint8_t sysid)
-    {
-        m_kgcSysid = sysid;
-        for (auto *th : m_relayThreads)
-            if (th) th->setKgcSysid(sysid);
     }
 
     // checkRelayConnectable: port in avail list AND sysid seen AND compid observed.
@@ -817,8 +815,11 @@ namespace remote_control {
 
         generic_thread_settings ts;
         ts.priority = static_cast<QThread::Priority>(settings.priority);
-        auto *th = new JoystickRelayThread(nullptr, &ts, settings, roles);
-        th->setKgcSysid(m_kgcSysid);
+        mutex->lock();
+        kgroundcontrol_settings kgs_settings_copy = kgroundcontrol_settings_;
+        mutex->unlock();
+        auto *th = new JoystickRelayThread(nullptr, &ts, settings, &kgs_settings_copy, roles);
+        connect(this, &manager::kgroundcontrol_settings_updated, th, &JoystickRelayThread::update_kgroundcontrol_settings, Qt::DirectConnection);
         th->start();
 
         m_relayThreads.append(th);
@@ -1038,24 +1039,29 @@ namespace remote_control {
     // Packs and sends the MAVLink message via the connection manager
     void manager::sendCommand(int idx, bool active) {
         if (idx < 0 || idx >= m_commandSettings.size()) return;
+
         const auto& s = m_commandSettings[idx];
         QByteArray packed;
         switch (s.type)
         {
         case JoystickCommandSettings::CMD_ARM_DISARM:
             {
+                // Prepare command for off-board mode
+                mavlink_command_long_t com = { 0 };
+                com.target_system    = s.sysid;
+                com.target_component = s.compid;
+
+                com.command = MAV_CMD::MAV_CMD_COMPONENT_ARM_DISARM;
+                com.confirmation = 0;
+                com.param1 = (float) active;
+                if (s.armDisarm.force) com.param2 = 21196;
+
+                // Encode
                 mavlink_message_t msg;
-                // Note: s.sysid is the TARGET system ID
-                mavlink_msg_command_long_pack(
-                    m_kgcSysid, // Sender system ID (KGC)
-                    static_cast<uint8_t>(mavlink_enums::ALL), // Sender component ID
-                    &msg,
-                    s.sysid, // Target system ID
-                    static_cast<uint8_t>(s.compid), // Target component ID
-                    MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                    active ? 1.0f : 0.0f,
-                    s.armDisarm.force ? 1.0f : 0.0f,
-                    0, 0, 0, 0, 0);
+                mutex->lock();
+                mavlink_msg_command_long_encode(kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg, &com);
+                mutex->unlock();
+
                 uint8_t buf[MAVLINK_MAX_PACKET_LEN];
                 unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
                 packed = QByteArray(reinterpret_cast<const char*>(buf), len);
@@ -1066,14 +1072,16 @@ namespace remote_control {
                 if (active) {
                     mavlink_message_t msg;
                     // Note: s.sysid is the TARGET system ID
+                    mutex->lock();
                     mavlink_msg_set_mode_pack(
-                        m_kgcSysid, // Sender system ID (KGC)
+                        kgroundcontrol_settings_.sysid, // Sender system ID (KGC)
                         static_cast<uint8_t>(mavlink_enums::ALL), // Sender component ID
                         &msg,
                         s.sysid, // Target system ID
                         s.setMode.baseMode,
                         s.setMode.customMode
                     );
+                    mutex->unlock();
                     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
                     unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
                     packed = QByteArray(reinterpret_cast<const char*>(buf), len);
@@ -1102,6 +1110,15 @@ namespace remote_control {
             s.endGroup();
         }
         s.endGroup();
+    }
+
+    void manager::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
+    {
+        mutex->lock();
+        kgroundcontrol_settings_ = *kground_control_settings_in_;
+        mutex->unlock();
+
+        emit kgroundcontrol_settings_updated(kground_control_settings_in_);
     }
 
     // Implementation of SharedRoleValues
@@ -1580,12 +1597,13 @@ namespace remote_control {
         } // namespace pov
     } // namespace channel
 
-    // new convenience constructor: create default settings and start immediately
-    manager::manager(QObject* parent)
-        : generic_thread(parent, []{ static generic_thread_settings s; return &s; }())
+    manager::manager(QObject* parent, generic_thread_settings *new_settings, kgroundcontrol_settings *kground_control_settings_in)
+        : generic_thread(parent, new_settings)
     {
         // register globally so UI can attach
         set_global_manager(this);
+
+        update_kgroundcontrol_settings(kground_control_settings_in);
 
         // Capture device list and load calibration HERE (main thread) so that
         // run() never has to call QJoysticks methods that access m_devices directly.
@@ -1598,13 +1616,6 @@ namespace remote_control {
 
         // start thread automatically so callers don't need to remember
         this->start();
-    }
-
-    manager::manager(QObject* parent, generic_thread_settings *new_settings)
-        : generic_thread(parent, new_settings)
-    {
-        // register globally so UI can attach
-        set_global_manager(this);
     }
 
     QStringList manager::deviceNames() const
@@ -1759,7 +1770,12 @@ namespace remote_control {
             generic_thread_settings *ts = new generic_thread_settings();
             ts->priority = static_cast<QThread::Priority>(settings.priority);
             // Do not set parent to this (QThread) to avoid cross-thread QObject errors
-            auto *th = new JoystickRelayThread(nullptr, ts, settings, roles);
+            mutex->lock();
+            kgroundcontrol_settings kgs_settings_copy = kgroundcontrol_settings_;
+            mutex->unlock();
+            auto *th = new JoystickRelayThread(nullptr, ts, settings, &kgs_settings_copy, roles);
+            connect(this, &manager::kgroundcontrol_settings_updated, th, &JoystickRelayThread::update_kgroundcontrol_settings, Qt::DirectConnection);
+
             delete ts; // generic_thread memcpy'd it; we own this heap allocation
             th->start();
 
@@ -1775,15 +1791,6 @@ namespace remote_control {
 
         // Initialize wired-port tracking to match thread count
         m_relayCurWiredPort.resize(m_relayThreads.size());
-
-        // Seed KGC system ID from settings (key: kgroundcontrol/sysid, default 254)
-        {
-            QSettings ks;
-            uint8_t kgcSys = static_cast<uint8_t>(ks.value("kgroundcontrol/sysid", 254).toUInt());
-            m_kgcSysid = kgcSys;
-            for (auto *th : m_relayThreads)
-                if (th) th->setKgcSysid(kgcSys);
-        }
 
         emit relaysReady();
 
