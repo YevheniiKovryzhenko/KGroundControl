@@ -211,8 +211,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     {
         QSettings s; s.beginGroup("mocap_manager");
         const bool reopen = s.value("connection/was_open", false).toBool();
+        const bool wasVisible = s.value("window/visible", false).toBool();
         s.endGroup();
-        if (reopen) {
+        if (reopen || wasVisible) {
             mocap_manager_ = new mocap_manager();
             connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
             connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);
