@@ -2695,21 +2695,14 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QStringList syslist;
     for (uint8_t s : avail_sysids) syslist.append(QString::number(s));
     sysCb->addItems(syslist);
-
-    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
+    
     int sysIdx = syslist.indexOf(QString::number(cmd.sysid));
-    if (sysIdx >= 0) {
-        sysCb->setCurrentIndex(sysIdx);
-    } else if (!syslist.isEmpty()) {
+    if (sysIdx >= 0) sysCb->setCurrentIndex(sysIdx);
+    else if (!syslist.isEmpty()) {
         sysCb->setCurrentIndex(0);
         uint8_t newSys = static_cast<uint8_t>(syslist[0].toInt());
-        if (cmd.sysid != newSys) {
-            cmd.sysid = newSys;
-            gm->updateCommandSettings(cmdIdx, cmd);
-        }
-    } else {
-        sysCb->setCurrentIndex(-1); // Blank if no active sysids
-    }
+        if (cmd.sysid != newSys) { cmd.sysid = newSys; gm->updateCommandSettings(cmdIdx, cmd); }
+    } else sysCb->setCurrentIndex(-1);
 
     connect(sysCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, sysCb]() {
         auto *gm = remote_control::global_manager();
@@ -2723,8 +2716,7 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
         QComboBox *comp = sysCb->parentWidget()->findChild<QComboBox *>("compCB");
         if (comp) {
             QString cur = comp->currentText();
-            comp->blockSignals(true);
-            comp->clear();
+            comp->blockSignals(true); comp->clear();
             if (avail_compids.contains(val)) {
                 QStringList lst;
                 for (auto cid : avail_compids[val]) lst.append(enum_helpers::value2key(cid));
@@ -2742,7 +2734,6 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QComboBox *compBox = new QComboBox(form->parentWidget());
     compBox->installEventFilter(this);
     compBox->setObjectName("compCB");
-    
     uint8_t activeSysid = sysCb->currentIndex() >= 0 ? static_cast<uint8_t>(sysCb->currentText().toInt()) : 0;
     QStringList compList;
     if (avail_compids.contains(activeSysid)) {
@@ -2750,22 +2741,15 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     }
     compBox->addItems(compList);
 
-    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
     int compIdx = compList.indexOf(enum_helpers::value2key(cmd.compid));
-    if (compIdx >= 0) {
-        compBox->setCurrentIndex(compIdx);
-    } else if (!compList.isEmpty()) {
+    if (compIdx >= 0) compBox->setCurrentIndex(compIdx);
+    else if (!compList.isEmpty()) {
         compBox->setCurrentIndex(0);
         mavlink_enums::mavlink_component_id newComp;
         if (enum_helpers::key2value(compList[0], newComp)) {
-            if (cmd.compid != newComp) {
-                cmd.compid = newComp;
-                gm->updateCommandSettings(cmdIdx, cmd);
-            }
+            if (cmd.compid != newComp) { cmd.compid = newComp; gm->updateCommandSettings(cmdIdx, cmd); }
         }
-    } else {
-        compBox->setCurrentIndex(-1); // Blank if no active compids
-    }
+    } else compBox->setCurrentIndex(-1);
 
     connect(compBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, compBox]() {
         auto *gm = remote_control::global_manager();
@@ -2785,19 +2769,12 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     portCb->installEventFilter(this);
     portCb->addItems(avail_ports);
     
-    // FORCE SYNC: If backend value isn't in the list, update backend to match UI
     int portIdx = avail_ports.indexOf(cmd.Port_Name);
-    if (portIdx >= 0) {
-        portCb->setCurrentIndex(portIdx);
-    } else if (!avail_ports.isEmpty()) {
+    if (portIdx >= 0) portCb->setCurrentIndex(portIdx);
+    else if (!avail_ports.isEmpty()) {
         portCb->setCurrentIndex(0);
-        if (cmd.Port_Name != avail_ports[0]) {
-            cmd.Port_Name = avail_ports[0];
-            gm->updateCommandSettings(cmdIdx, cmd);
-        }
-    } else {
-        portCb->setCurrentIndex(-1);
-    }
+        if (cmd.Port_Name != avail_ports[0]) { cmd.Port_Name = avail_ports[0]; gm->updateCommandSettings(cmdIdx, cmd); }
+    } else portCb->setCurrentIndex(-1);
 
     connect(portCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, portCb]() {
         auto *gm = remote_control::global_manager();
@@ -2813,63 +2790,48 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     form->addRow("Port to write", portCb);
     portCb->setObjectName("portCB");
 
-    // --- Command Specific Settings ---
-    if (cmd.type == JoystickCommandSettings::CMD_ARM_DISARM) {
-        QCheckBox *forceCb = new QCheckBox("Force", form->parentWidget());
-        forceCb->setChecked(cmd.armDisarm.force);
-        connect(forceCb, &QCheckBox::toggled, this, [this, cmdIdx](bool checked) {
-            auto *gm = remote_control::global_manager();
-            if (!gm || cmdIdx >= gm->commandCount()) return;
-            auto c = gm->commandSettings(cmdIdx);
-            c.armDisarm.force = checked;
-            gm->updateCommandSettings(cmdIdx, c);
-            gm->saveCommands();
-        });
-        form->addRow("Arm/Disarm Options", forceCb);
-        
-    } else if (cmd.type == JoystickCommandSettings::CMD_SET_MODE) {
-        QComboBox *modeCb = new QComboBox(form->parentWidget());
-        modeCb->addItem("MANUAL", remote_control::channel::enums::MANUAL);
-        modeCb->addItem("STABILIZED", remote_control::channel::enums::STABILIZED);
-        modeCb->addItem("ACRO", remote_control::channel::enums::ACRO);
-        modeCb->addItem("ALTCTL", remote_control::channel::enums::ALTCTL);
-        modeCb->addItem("POSCTL", remote_control::channel::enums::POSCTL);
-        modeCb->addItem("OFFBOARD", remote_control::channel::enums::OFFBOARD);
-        modeCb->addItem("AUTO_LOITER", remote_control::channel::enums::AUTO_LOITER);
-        modeCb->addItem("AUTO_MISSION", remote_control::channel::enums::AUTO_MISSION);
-        modeCb->addItem("AUTO_RTL", remote_control::channel::enums::AUTO_RTL);
-        modeCb->addItem("AUTO_LAND", remote_control::channel::enums::AUTO_LAND);
-        modeCb->addItem("AUTO_TAKEOFF", remote_control::channel::enums::AUTO_TAKEOFF);
-        modeCb->addItem("AUTO_PRECLAND", remote_control::channel::enums::AUTO_PRECLAND);
+    // ========================================================================
+    // --- Nested Collapsible Groups for Specific Command Settings ------------
+    // ========================================================================
 
-        int currentModeRole = remote_control::channel::enums::MANUAL;
-        for (int i = 0; i < modeCb->count(); ++i) {
-            int role = modeCb->itemData(i).toInt();
-            uint8_t bm = 0; uint32_t cm = 0;
-            if (remote_control::getPX4ModeSettings(role, bm, cm)) {
-                if (bm == cmd.setMode.baseMode && cm == cmd.setMode.customMode) {
-                    currentModeRole = role;
-                    break;
-                }
-            }
-        }
-        modeCb->setCurrentIndex(modeCb->findData(currentModeRole));
-        
-        connect(modeCb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, cmdIdx, modeCb](int idx) {
-            auto *gm = remote_control::global_manager();
-            if (!gm || cmdIdx >= gm->commandCount()) return;
-            int role = modeCb->itemData(idx).toInt();
-            auto c = gm->commandSettings(cmdIdx);
-            uint8_t bm = 0; uint32_t cm = 0;
-            if (remote_control::getPX4ModeSettings(role, bm, cm)) {
-                c.setMode.baseMode = bm;
-                c.setMode.customMode = cm;
-                gm->updateCommandSettings(cmdIdx, c);
-                gm->saveCommands();
-            }
-        });
-        form->addRow("Flight Mode", modeCb);
-    }
+    // --- Arm/Disarm Options (Nested Collapsible Group) ---
+    CollapsibleGroup *armGroup = new CollapsibleGroup(form->parentWidget());
+    armGroup->setTitle("Arm / Disarm Options");
+    armGroup->setCollapsed(true); // Collapsed by default
+
+    QFormLayout *armForm = new QFormLayout();
+    armForm->setContentsMargins(10, 5, 10, 5); // Indent slightly for nested look
+    
+    QCheckBox *forceCb = new QCheckBox();
+    forceCb->setChecked(cmd.armDisarm.force);
+    connect(forceCb, &QCheckBox::toggled, this, [this, cmdIdx](bool checked) {
+        auto *gm = remote_control::global_manager();
+        if (!gm || cmdIdx >= gm->commandCount()) return;
+        auto c = gm->commandSettings(cmdIdx);
+        c.armDisarm.force = checked;
+        gm->updateCommandSettings(cmdIdx, c);
+        gm->saveCommands();
+    });
+    armForm->addRow("Force Arm/Disarm:", forceCb);
+    armGroup->setContentLayout(armForm);
+
+    // --- Mode Switching Options (Nested Collapsible Group) ---
+    CollapsibleGroup *modeGroup = new CollapsibleGroup(form->parentWidget());
+    modeGroup->setTitle("Mode Switching Options");
+    modeGroup->setCollapsed(true); // Collapsed by default
+
+    QVBoxLayout *modeLayout = new QVBoxLayout();
+    modeLayout->setContentsMargins(10, 5, 10, 5);
+    
+    QLabel *modeInfo = new QLabel("Flight modes are automatically triggered\nwhen assigned roles (e.g., MANUAL, AUTO_MISSION)\nare activated on any joystick.");
+    modeInfo->setWordWrap(true);
+    modeInfo->setStyleSheet("color: gray; font-style: italic;");
+    modeLayout->addWidget(modeInfo);
+    modeGroup->setContentLayout(modeLayout);
+
+    // Add the nested groups to the main form layout (spanning all columns)
+    form->addRow(armGroup);
+    form->addRow(modeGroup);
 }
 
 void Joystick_manager::on_button_add_clicked()
@@ -2885,30 +2847,9 @@ void Joystick_manager::on_button_add_clicked()
     layout->addWidget(label);
 
     QComboBox *typeCombo = new QComboBox(&dialog);
-    typeCombo->addItem("Joystick Relay (Continuous streaming)", 0);
-    typeCombo->addItem("Arm / Disarm Command", 1);
-    typeCombo->addItem("Set Mode Command", 2);
+    typeCombo->addItem("Joystick Remote Control Relay (Continuous streaming at a set rate)", 0);
+    typeCombo->addItem("Vehicle Commands (Arm & Mode Switching passthrough)", 1);
     layout->addWidget(typeCombo);
-
-    QComboBox *modeCombo = new QComboBox(&dialog);
-    modeCombo->setVisible(false);
-    modeCombo->addItem("MANUAL", remote_control::channel::enums::MANUAL);
-    modeCombo->addItem("STABILIZED", remote_control::channel::enums::STABILIZED);
-    modeCombo->addItem("ACRO", remote_control::channel::enums::ACRO);
-    modeCombo->addItem("ALTCTL", remote_control::channel::enums::ALTCTL);
-    modeCombo->addItem("POSCTL", remote_control::channel::enums::POSCTL);
-    modeCombo->addItem("OFFBOARD", remote_control::channel::enums::OFFBOARD);
-    modeCombo->addItem("AUTO_LOITER", remote_control::channel::enums::AUTO_LOITER);
-    modeCombo->addItem("AUTO_MISSION", remote_control::channel::enums::AUTO_MISSION);
-    modeCombo->addItem("AUTO_RTL", remote_control::channel::enums::AUTO_RTL);
-    modeCombo->addItem("AUTO_LAND", remote_control::channel::enums::AUTO_LAND);
-    modeCombo->addItem("AUTO_TAKEOFF", remote_control::channel::enums::AUTO_TAKEOFF);
-    modeCombo->addItem("AUTO_PRECLAND", remote_control::channel::enums::AUTO_PRECLAND);
-    layout->addWidget(modeCombo);
-
-    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [=](int index) {
-        modeCombo->setVisible(index == 2);
-    });
 
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -2922,27 +2863,12 @@ void Joystick_manager::on_button_add_clicked()
             s.priority = static_cast<int>(default_ui_config::Priority::TimeCriticalPriority);
             s.Port_Name.clear();
             s.enabled = false;
-            QString name = QString("Relay %1").arg(gm->relayCount() + 1);
+            QString name = QString("Remote Control Relay %1").arg(gm->relayCount() + 1);
             gm->addRelay(name, s, {}, {});
         } else if (type == 1) {
             JoystickCommandSettings s;
-            s.type = JoystickCommandSettings::CMD_ARM_DISARM;
-            s.name = QString("Arm/Disarm");
+            s.name = QString("Commands Relay %1").arg(gm->commandCount() + 1);
             s.Port_Name.clear();
-            gm->addCommand(s);
-        } else if (type == 2) {
-            int modeRole = modeCombo->currentData().toInt();
-            JoystickCommandSettings s;
-            s.type = JoystickCommandSettings::CMD_SET_MODE;
-            s.name = QString("Set Mode: %1").arg(modeCombo->currentText());
-            s.Port_Name.clear();
-            
-            uint8_t base_mode = 0;
-            uint32_t custom_mode = 0;
-            if (remote_control::getPX4ModeSettings(modeRole, base_mode, custom_mode)) {
-                s.setMode.baseMode = base_mode;
-                s.setMode.customMode = custom_mode;
-            }
             gm->addCommand(s);
         }
     }

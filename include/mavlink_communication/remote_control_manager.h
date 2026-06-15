@@ -83,41 +83,31 @@ public:
 class JoystickCommandSettings {
     Q_GADGET
 public:
-    enum cmd_type {
-        CMD_ARM_DISARM,
-        CMD_SET_MODE
-    };
-    Q_ENUM(cmd_type)
-
     class ArmDisarmParams {
     public:
-        bool force = false; // Public variable
+        bool force = false;
         void save(QSettings &s) const;
         void load(QSettings &s);
     };
 
     class SetModeParams {
     public:
-        uint8_t baseMode = 0;
-        uint32_t customMode = 0;
         void save(QSettings &s) const;
         void load(QSettings &s);
     };
 
+    // Shared command configuration (applies to ALL command types)
     QString uid;
     QString name;
     QString Port_Name;
     uint8_t sysid = 0;
     mavlink_enums::mavlink_component_id compid = mavlink_enums::ALL;
-    
-    cmd_type type = CMD_ARM_DISARM;
     bool enabled = true; 
     
-    // Instances of the nested classes
+    // Type-specific parameters
     ArmDisarmParams armDisarm;
     SetModeParams setMode;
 
-    // Main Save/Load methods that delegate to the nested classes
     void save(QSettings &s) const;
     void load(QSettings &s);
 };
@@ -131,9 +121,6 @@ namespace remote_control {
 
     // Build a user-facing label for a relay field signal.
     QString relayPlotSignalLabel(const QString& relayName, const QString& fieldName);
-
-    bool getPX4ModeSettings(int role, uint8_t &base_mode, uint32_t &custom_mode);
-
     
     // Relay thread for joystick-to-MAVLink relaying
     class JoystickRelayThread : public generic_thread {
@@ -212,19 +199,21 @@ namespace remote_control {
                 PITCH,
                 YAW,
                 THROTTLE,
+                
                 ARM,
+                
                 MANUAL,
                 STABILIZED,
                 ACRO,
-                ALTCTL,
-                POSCTL,
+                ALTITUDE,
+                POSITION,
                 OFFBOARD,
-                AUTO_LOITER,
-                AUTO_MISSION,
-                AUTO_RTL,
-                AUTO_LAND,
-                AUTO_TAKEOFF,
-                AUTO_PRECLAND,
+                HOLD,
+                MISSION,
+                TAKEOFF,
+                LAND,
+                RETURN_HOME,
+                
                 AUX_1,
                 AUX_2,
                 AUX_3,
@@ -590,11 +579,14 @@ namespace remote_control {
         void applyConnectability(int idx);
 
         // Command dispatcher state
+        QMutex m_commandMutex;
         QVector<JoystickCommandSettings> m_commandSettings;
-        QVector<bool> m_lastCommandStates; // Tracks last active state for edge detection
-
+        bool m_lastArmState = false;
+        QMap<int, bool> m_lastModeStates; // Tracks last active state per mode role
+        
         void onRoleValueUpdated(int role, qreal value);
-        void sendCommand(int idx, bool active);
+        void sendArmDisarmCommand(const JoystickCommandSettings& cmd, bool active);
+        void sendSetModeCommand(const JoystickCommandSettings& cmd, int role);
         void applyCommandConnectability(int idx);
 
         kgroundcontrol_settings kgroundcontrol_settings_;

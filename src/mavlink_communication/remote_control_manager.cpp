@@ -44,6 +44,28 @@
 #include <QUuid>
 #include "all/mavlink.h"
 
+// Explicit mapping matching PX4 v1.17.0 core architecture
+enum PX4_CUSTOM_MAIN_MODE {
+    PX4_CUSTOM_MAIN_MODE_MANUAL     = 1,
+    PX4_CUSTOM_MAIN_MODE_ALTCTL     = 2,
+    PX4_CUSTOM_MAIN_MODE_POSCTL     = 3,
+    PX4_CUSTOM_MAIN_MODE_AUTO       = 4,
+    PX4_CUSTOM_MAIN_MODE_ACRO       = 5,
+    PX4_CUSTOM_MAIN_MODE_OFFBOARD   = 6,
+    PX4_CUSTOM_MAIN_MODE_STABILIZED = 7
+};
+
+enum PX4_CUSTOM_SUB_MODE_AUTO {
+    PX4_CUSTOM_SUB_MODE_AUTO_READY    = 1,
+    PX4_CUSTOM_SUB_MODE_AUTO_TAKEOFF  = 2,
+    PX4_CUSTOM_SUB_MODE_AUTO_LOITER   = 3,
+    PX4_CUSTOM_SUB_MODE_AUTO_MISSION  = 4,
+    PX4_CUSTOM_SUB_MODE_AUTO_RTL      = 5,
+    PX4_CUSTOM_SUB_MODE_AUTO_LAND     = 6,
+    PX4_CUSTOM_SUB_MODE_AUTO_PRECLAND = 9
+};
+
+
 void JoystickCommandSettings::ArmDisarmParams::save(QSettings &s) const {
     s.beginGroup("arm_disarm");
     s.setValue("force", force);
@@ -56,49 +78,38 @@ void JoystickCommandSettings::ArmDisarmParams::load(QSettings &s) {
     s.endGroup();
 }
 
-
 void JoystickCommandSettings::SetModeParams::save(QSettings &s) const {
     s.beginGroup("set_mode");
-    s.setValue("base_mode", baseMode);
-    s.setValue("custom_mode", customMode);
+    // Reserved for future use
     s.endGroup();
 }
 
 void JoystickCommandSettings::SetModeParams::load(QSettings &s) {
     s.beginGroup("set_mode");
-    baseMode = s.value("base_mode", 0).toUInt();
-    customMode = s.value("custom_mode", 0).toUInt();
+    // Reserved for future use
     s.endGroup();
 }
 
 void JoystickCommandSettings::save(QSettings &s) const {
-    // Save common fields
     s.setValue("name", name);
     s.setValue("enabled", enabled);
     s.setValue("uid", uid);
     s.setValue("Port_Name", Port_Name);
     s.setValue("sysid", sysid);
     s.setValue("compid", static_cast<int>(compid));
-    s.setValue("type", static_cast<int>(type));
-    
-    // Delegate to the correct nested class based on type
-    if (type == CMD_ARM_DISARM) armDisarm.save(s);
-    else if (type == CMD_SET_MODE) setMode.save(s);
+    armDisarm.save(s);
+    setMode.save(s);
 }
 
 void JoystickCommandSettings::load(QSettings &s) {
-    // Load common fields
-    name = s.value("name", "Command").toString();
+    name = s.value("name", "Commands").toString();
     enabled = s.value("enabled", true).toBool();
     uid = s.value("uid").toString();
     Port_Name = s.value("Port_Name").toString();
     sysid = s.value("sysid", 0).toUInt();
     compid = static_cast<mavlink_enums::mavlink_component_id>(s.value("compid", 0).toInt());
-    type = static_cast<cmd_type>(s.value("type", 0).toInt());
-    
-    // Delegate to the correct nested class based on type
-    if (type == CMD_ARM_DISARM) armDisarm.load(s);
-    else if (type == CMD_SET_MODE) setMode.load(s);
+    armDisarm.load(s);
+    setMode.load(s);
 }
 
 // JoystickRelayThread implementation and sharedRoleValues
@@ -122,38 +133,6 @@ namespace remote_control {
             break;
         }
         return fields;
-    }
-
-    bool getPX4ModeSettings(int role, uint8_t &base_mode, uint32_t &custom_mode) {
-        // PX4 primarily relies on custom_mode, but QGC typically sends 12 for base_mode
-        base_mode = 12; 
-        
-        uint8_t main_mode = 0;
-        uint8_t sub_mode = 0;
-
-        switch (role) {
-            case channel::enums::MANUAL:      main_mode = 1; break;
-            case channel::enums::STABILIZED:  main_mode = 7; break;
-            case channel::enums::ACRO:        main_mode = 5; break;
-            case channel::enums::ALTCTL:      main_mode = 2; break;
-            case channel::enums::POSCTL:      main_mode = 3; break;
-            case channel::enums::OFFBOARD:    main_mode = 6; break;
-            
-            // AUTO modes (Main mode 4) require a sub-mode
-            case channel::enums::AUTO_LOITER:    main_mode = 4; sub_mode = 3; break;
-            case channel::enums::AUTO_MISSION:   main_mode = 4; sub_mode = 4; break;
-            case channel::enums::AUTO_RTL:       main_mode = 4; sub_mode = 5; break;
-            case channel::enums::AUTO_LAND:      main_mode = 4; sub_mode = 6; break;
-            case channel::enums::AUTO_TAKEOFF:   main_mode = 4; sub_mode = 2; break;
-            case channel::enums::AUTO_PRECLAND:  main_mode = 4; sub_mode = 9; break;
-            
-            default: 
-                return false; // Not a PX4 mode role
-        }
-
-        // PX4 Custom Mode format: Main mode in bits 16-23, Sub mode in bits 24-31
-        custom_mode = (static_cast<uint32_t>(main_mode) << 16) | (static_cast<uint32_t>(sub_mode) << 24);
-        return true;
     }
 
     QString relayPlotSignalId(const JoystickRelaySettings& settings, const QString& fieldName)
@@ -921,24 +900,25 @@ namespace remote_control {
     }
 
     void manager::addCommand(const JoystickCommandSettings& s) {
+        QMutexLocker locker(&m_commandMutex);
         JoystickCommandSettings settings = s;
         if (settings.uid.isEmpty()) settings.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
         m_commandSettings.append(settings);
-        m_lastCommandStates.append(false);
         saveCommands();
         applyCommandConnectability(m_commandSettings.size() - 1);
         emit commandCountChanged();
     }
 
     void manager::removeCommand(int idx) {
+        QMutexLocker locker(&m_commandMutex);
         if (idx < 0 || idx >= m_commandSettings.size()) return;
         m_commandSettings.removeAt(idx);
-        m_lastCommandStates.removeAt(idx);
         saveCommands();
         emit commandCountChanged();
     }
 
     void manager::updateCommandSettings(int idx, const JoystickCommandSettings& s) {
+        QMutexLocker locker(&m_commandMutex);
         if (idx < 0 || idx >= m_commandSettings.size()) return;
         m_commandSettings[idx] = s;
         saveCommands();
@@ -959,142 +939,204 @@ namespace remote_control {
         emit commandStateChanged(idx, isCommandConnectable(idx));
     }
 
-    // Helper function to get the command type from a role
-    JoystickCommandSettings::cmd_type getCommandTypeFromRole(channel::enums::role role) {
-        switch (role) {
-            case channel::enums::ARM:
-                return JoystickCommandSettings::CMD_ARM_DISARM;
+    // Helper to explicitly identify flight mode roles without relying on enum numerical order
+    static bool isFlightModeRole(int role) {
+        switch (static_cast<channel::enums::role>(role)) {
             case channel::enums::MANUAL:
             case channel::enums::STABILIZED:
             case channel::enums::ACRO:
-            case channel::enums::ALTCTL:
-            case channel::enums::POSCTL:
+            case channel::enums::ALTITUDE:
+            case channel::enums::POSITION:
             case channel::enums::OFFBOARD:
-            case channel::enums::AUTO_LOITER:
-            case channel::enums::AUTO_MISSION:
-            case channel::enums::AUTO_RTL:
-            case channel::enums::AUTO_LAND:
-            case channel::enums::AUTO_TAKEOFF:
-            case channel::enums::AUTO_PRECLAND:
-                return JoystickCommandSettings::CMD_SET_MODE;
+            case channel::enums::HOLD:
+            case channel::enums::MISSION:
+            case channel::enums::TAKEOFF:
+            case channel::enums::LAND:
+            case channel::enums::RETURN_HOME:
+                return true;
             default:
-                return static_cast<JoystickCommandSettings::cmd_type>(-1); // Invalid
+                return false;
         }
     }
 
-    // Updated onRoleValueUpdated
     void manager::onRoleValueUpdated(int role, qreal value) {
-        bool isActive = value > 0.5; // Threshold for boolean true
-
-        // Find the command that corresponds to this role
-        int commandIndex = -1;
-        JoystickCommandSettings::cmd_type expectedType = getCommandTypeFromRole(static_cast<channel::enums::role>(role));
-        if (expectedType == static_cast<JoystickCommandSettings::cmd_type>(-1)) {
-            return; // This role doesn't trigger a command
+        bool isActive = value > 0.5;
+        
+        // Snapshot commands and states to avoid race conditions with the main thread
+        QVector<JoystickCommandSettings> cmdsSnapshot;
+        bool lastArm;
+        QMap<int, bool> lastModes;
+        {
+            QMutexLocker locker(&m_commandMutex);
+            cmdsSnapshot = m_commandSettings;
+            lastArm = m_lastArmState;
+            lastModes = m_lastModeStates;
         }
 
-        for (int i = 0; i < m_commandSettings.size(); ++i) {
-            const auto& cmd = m_commandSettings[i];
-            if (cmd.type == expectedType) {
-                // For SET_MODE, we need to check if it's the *exact* mode
-                if (cmd.type == JoystickCommandSettings::CMD_SET_MODE) {
-                    uint8_t expectedBaseMode;
-                    uint32_t expectedCustomMode;
-                    if (getPX4ModeSettings(role, expectedBaseMode, expectedCustomMode)) {
-                        if (cmd.setMode.baseMode == expectedBaseMode && cmd.setMode.customMode == expectedCustomMode) {
-                            commandIndex = i;
-                            break;
-                        }
-                    }
-                } else {
-                    // For ARM/DISARM, any command of that type will do
-                    commandIndex = i;
-                    break;
+        // 1. Handle ARM/DISARM (Broadcasts to all enabled vehicle blocks)
+        if (role == channel::enums::ARM) {
+            if (isActive != lastArm) {
+                for (const auto& cmd : cmdsSnapshot) {
+                    sendArmDisarmCommand(cmd, isActive);
+                }
+                QMutexLocker locker(&m_commandMutex);
+                m_lastArmState = isActive;
+            }
+        } 
+        // 2. Handle FLIGHT MODES (Order-independent explicit check)
+        else if (isFlightModeRole(role)) {
+            bool lastState = lastModes.value(role, false);
+            if (isActive && !lastState) { // Rising edge only
+                for (const auto& cmd : cmdsSnapshot) {
+                    sendSetModeCommand(cmd, role);
                 }
             }
+            QMutexLocker locker(&m_commandMutex);
+            m_lastModeStates[role] = isActive;
         }
-
-        if (commandIndex == -1) {
-            return; // No command found for this role
-        }
-
-        const auto& cmd = m_commandSettings[commandIndex];
-        bool lastState = m_lastCommandStates.value(commandIndex, false);
-        bool shouldSend = false;
-
-        if (cmd.type == JoystickCommandSettings::CMD_ARM_DISARM) {
-            // Respond to both edges (active -> arm, inactive -> disarm)
-            if (isActive != lastState) shouldSend = true;
-        } else if (cmd.type == JoystickCommandSettings::CMD_SET_MODE) {
-            // Respond ONLY to positive edge (inactive -> active)
-            if (isActive && !lastState) shouldSend = true;
-        }
-
-        if (shouldSend) {
-            sendCommand(commandIndex, isActive);
-        }
-        m_lastCommandStates[commandIndex] = isActive;
     }
 
-    // Packs and sends the MAVLink message via the connection manager
-    void manager::sendCommand(int idx, bool active) {
-        if (idx < 0 || idx >= m_commandSettings.size()) return;
+    void manager::sendSetModeCommand(const JoystickCommandSettings& cmd, int role) 
+    {
+        if (!cmd.enabled) return;
 
-        const auto& s = m_commandSettings[idx];
-        QByteArray packed;
-        switch (s.type)
-        {
-        case JoystickCommandSettings::CMD_ARM_DISARM:
-            {
-                // Prepare command for off-board mode
-                mavlink_command_long_t com = { 0 };
-                com.target_system    = s.sysid;
-                com.target_component = s.compid;
+        mavlink_message_t msg;
+        bool isActionCommand = false;
 
-                com.command = MAV_CMD::MAV_CMD_COMPONENT_ARM_DISARM;
-                com.confirmation = 0;
-                com.param1 = (float) active;
-                if (s.armDisarm.force) com.param2 = 21196;
+        // Pathway A Registers: Dynamic Navigation Actions (COMMAND_LONG)
+        uint16_t actionCommandId = 0;
+        float param1 = 0.0f;
+        float param7 = 0.0f;
 
-                // Encode
-                mavlink_message_t msg;
-                mutex->lock();
-                mavlink_msg_command_long_encode(kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg, &com);
-                mutex->unlock();
+        // Pathway B Registers: Steady-State Custom Modes (SET_MODE Payload)
+        uint32_t mainMode = 0;
+        uint32_t subMode = 0;
 
-                uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-                unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
-                packed = QByteArray(reinterpret_cast<const char*>(buf), len);
+        switch (role) {
+            // ==========================================
+            // 1. Dynamic Action Command Mapping
+            // ==========================================
+            case channel::enums::TAKEOFF:
+                isActionCommand = true;
+                actionCommandId = MAV_CMD_NAV_TAKEOFF;
+                param1 = 0.0f; // Minimum pitch (0 for standard VTOL/Multirotors)
+                param7 = 2.5f; // Safe default takeoff target climb altitude in meters
                 break;
-            }
-        case JoystickCommandSettings::CMD_SET_MODE:
-            {
-                if (active) {
-                    mavlink_message_t msg;
-                    // Note: s.sysid is the TARGET system ID
-                    mutex->lock();
-                    mavlink_msg_set_mode_pack(
-                        kgroundcontrol_settings_.sysid, // Sender system ID (KGC)
-                        static_cast<uint8_t>(mavlink_enums::ALL), // Sender component ID
-                        &msg,
-                        s.sysid, // Target system ID
-                        s.setMode.baseMode,
-                        s.setMode.customMode
-                    );
-                    mutex->unlock();
-                    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-                    unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
-                    packed = QByteArray(reinterpret_cast<const char*>(buf), len);
-                }
+
+            case channel::enums::LAND:
+                isActionCommand = true;
+                actionCommandId = MAV_CMD_NAV_LAND;
                 break;
-            }
-        default:
-            break;
+
+            case channel::enums::RETURN_HOME:
+                isActionCommand = true;
+                actionCommandId = MAV_CMD_NAV_RETURN_TO_LAUNCH;
+                break;
+
+            // ==========================================
+            // 2. Steady Flight Mode Mapping
+            // ==========================================
+            case channel::enums::MANUAL:      
+                mainMode = PX4_CUSTOM_MAIN_MODE_MANUAL; 
+                break;
+            case channel::enums::STABILIZED:  
+                mainMode = PX4_CUSTOM_MAIN_MODE_STABILIZED; 
+                break;
+            case channel::enums::ACRO:        
+                mainMode = PX4_CUSTOM_MAIN_MODE_ACRO; 
+                break;
+            case channel::enums::ALTITUDE:    
+                mainMode = PX4_CUSTOM_MAIN_MODE_ALTCTL; 
+                break;
+            case channel::enums::POSITION:    
+                mainMode = PX4_CUSTOM_MAIN_MODE_POSCTL; 
+                break;
+            case channel::enums::OFFBOARD:    
+                mainMode = PX4_CUSTOM_MAIN_MODE_OFFBOARD; 
+                break;
+            
+            case channel::enums::HOLD:    
+                mainMode = PX4_CUSTOM_MAIN_MODE_AUTO; 
+                subMode  = PX4_CUSTOM_SUB_MODE_AUTO_LOITER; 
+                break;
+            case channel::enums::MISSION:   
+                mainMode = PX4_CUSTOM_MAIN_MODE_AUTO; 
+                subMode  = PX4_CUSTOM_SUB_MODE_AUTO_MISSION; 
+                break;
+                
+            default: 
+                return; // Safety guard: skip axes, arm, or AUX pass-through channels safely
         }
+
+        // Pack the appropriate MAVLink packet context based on the mode type
+        {
+            QMutexLocker locker(mutex);
+            if (isActionCommand) {
+                // Send dynamic navigation triggers through the action protocol block
+                mavlink_msg_command_long_pack(
+                    kgroundcontrol_settings_.sysid,                             
+                    static_cast<uint8_t>(kgroundcontrol_settings_.compid),      
+                    &msg,
+                    cmd.sysid,                            
+                    static_cast<uint8_t>(cmd.compid),                           
+                    actionCommandId,                                        
+                    0,                                    
+                    param1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, param7
+                );
+            } else {
+                // Apply bit-shifting to package custom modes for PX4's internal state machine
+                uint32_t customModeValue = (mainMode << 16) | (subMode << 24);
+                uint8_t baseModeValue = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED; // Evaluates to 1
+                
+                // Pack using standard message ID 11 (SET_MODE)
+                mavlink_msg_set_mode_pack(
+                    kgroundcontrol_settings_.sysid,
+                    static_cast<uint8_t>(kgroundcontrol_settings_.compid),
+                    &msg,
+                    cmd.sysid,
+                    baseModeValue,
+                    customModeValue
+                );
+            }
+        }        
+
+        // Common Serialization and Network Port Transfer Pipeline
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
+        QByteArray packed(reinterpret_cast<const char*>(buf), len);
 
         if (!packed.isEmpty() && m_connectionManager) {
             Generic_Port *port = nullptr;
-            if (m_connectionManager->get_port(s.Port_Name, &port) && port) {
+            if (m_connectionManager->get_port(cmd.Port_Name, &port) && port) {
+                QMetaObject::invokeMethod(port, "write_to_port", Qt::QueuedConnection, Q_ARG(QByteArray, packed));
+            }
+        }
+    }
+
+
+    void manager::sendArmDisarmCommand(const JoystickCommandSettings& cmd, bool active) 
+    {
+        if (!cmd.enabled) return;
+
+        mavlink_message_t msg;
+        {
+            QMutexLocker locker(mutex);
+            mavlink_msg_command_long_pack(
+            kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg,
+            cmd.sysid, static_cast<uint8_t>(cmd.compid),
+            MAV_CMD_COMPONENT_ARM_DISARM, 0,
+            active ? 1.0f : 0.0f,
+            cmd.armDisarm.force ? 21196.0f : 0.0f,
+            0, 0, 0, 0, 0);
+        }
+
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
+        QByteArray packed(reinterpret_cast<const char*>(buf), len);
+
+        if (!packed.isEmpty() && m_connectionManager) {
+            Generic_Port *port = nullptr;
+            if (m_connectionManager->get_port(cmd.Port_Name, &port) && port) {
                 QMetaObject::invokeMethod(port, "write_to_port", Qt::QueuedConnection, Q_ARG(QByteArray, packed));
             }
         }
@@ -1309,7 +1351,7 @@ namespace remote_control {
                 }
                 void manager::set_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return; //invalid role
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != static_cast<channel::enums::role>(role_))
                     {
                         settings_.role = static_cast<channel::enums::role>(role_);
@@ -1319,7 +1361,7 @@ namespace remote_control {
                 }
                 void manager::unset_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return; //invalid role
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != channel::enums::UNUSED && settings_.role == static_cast<channel::enums::role>(role_))
                     {
                         settings_.role = channel::enums::UNUSED;
@@ -1448,7 +1490,7 @@ namespace remote_control {
                 }
                 void manager::set_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return; //invalid role
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != static_cast<channel::enums::role>(role_))
                     {
                         settings_.role = static_cast<channel::enums::role>(role_);
@@ -1458,7 +1500,7 @@ namespace remote_control {
                 }
                 void manager::unset_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return; //invalid role
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != channel::enums::UNUSED && settings_.role == static_cast<channel::enums::role>(role_))
                     {
                         settings_.role = channel::enums::UNUSED;
@@ -1568,7 +1610,7 @@ namespace remote_control {
 
                 void manager::set_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return;
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != static_cast<channel::enums::role>(role_))
                     {
                         settings_.role = static_cast<channel::enums::role>(role_);
@@ -1579,7 +1621,7 @@ namespace remote_control {
 
                 void manager::unset_role(int role_)
                 {
-                    if (role_ > channel::enums::role::AUX_20 || role_ < channel::enums::UNUSED) return;
+                    if (!QMetaEnum::fromType<channel::enums::role>().valueToKey(role_)) return; // invalid role
                     if (settings_.role != channel::enums::UNUSED &&
                         settings_.role == static_cast<channel::enums::role>(role_))
                     {
@@ -1787,14 +1829,13 @@ namespace remote_control {
 
             s.endGroup();
         }
-        s.endGroup();
 
         // Initialize wired-port tracking to match thread count
         m_relayCurWiredPort.resize(m_relayThreads.size());
 
         emit relaysReady();
 
-            // Load command entries from settings
+        // Load command entries from settings
         int cmdCount = s.value("command/count", 0).toInt();
         for (int i = 0; i < cmdCount; ++i) {
             s.beginGroup(QString("command/%1").arg(i));
@@ -1806,9 +1847,9 @@ namespace remote_control {
             if (cs.uid.isEmpty()) cs.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
             
             m_commandSettings.append(cs);
-            m_lastCommandStates.append(false);
             s.endGroup();
         }
+        s.endGroup();
 
         qDebug() << "[remote_control::manager] background setup complete. relays:" << m_relayThreads.size();
 
