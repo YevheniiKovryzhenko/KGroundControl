@@ -1022,7 +1022,9 @@ mocap_manager::mocap_manager(QWidget *parent)
         const bool wasVisible = s.value("window/visible", false).toBool();
         if (reopen) {
             startConnectionFromUi(true);
-            if (wasVisible) this->show();
+        }
+        if (wasVisible) {
+            this->show();
         }
 
         s.endGroup();
@@ -1039,13 +1041,17 @@ mocap_manager::~mocap_manager()
 
 void mocap_manager::closeEvent(QCloseEvent *event)
 {
+    // true if the user clicked the 'X' button; false if KGroundControl called close() on exit
+    const bool user_initiated = event->spontaneous();
+
     // Persist current settings/state
     {
         QSettings s;
         s.beginGroup("mocap_manager");
         s.setValue("geometry", saveGeometry());
         s.setValue("window/maximized", isMaximized());
-        s.setValue("window/visible", isVisible());
+        // s.setValue("window/visible", isVisible());
+        s.setValue("window/visible", user_initiated ? false : isVisible());
         // Connection pane
         const bool use_ipv6 = ui->btn_connection_ipv4->isChecked();
         s.setValue("connection/use_ipv6", use_ipv6);

@@ -90,7 +90,7 @@ void system_status_thread::run()
     while (!(QThread::currentThread()->isInterruptionRequested()))
     {
         mavlink_message_t message;
-        mavlink_msg_heartbeat_pack(kground_control_settings_.sysid, kground_control_settings_.compid, &message, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, MAV_MODE_GUIDED_ARMED, 0, MAV_STATE_ACTIVE);
+        mavlink_msg_heartbeat_pack(kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &message, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, MAV_MODE_GUIDED_ARMED, 0, MAV_STATE_ACTIVE);
         // Serialise to bytes here (background thread) so the QueuedConnection
         // carries a deep-copied QByteArray instead of a raw stack pointer.
         uint8_t buf[MAVLINK_MAX_PACKET_LEN];
@@ -103,7 +103,7 @@ void system_status_thread::run()
 void system_status_thread::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
 {
     mutex->lock();
-    kground_control_settings_ = *kground_control_settings_in_;
+    kgroundcontrol_settings_ = *kground_control_settings_in_;
     mutex->unlock();
 }
 

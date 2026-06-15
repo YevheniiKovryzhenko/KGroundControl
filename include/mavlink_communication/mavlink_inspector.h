@@ -190,7 +190,7 @@ private:
     QMutex* mutex = nullptr;
     QVector<mavlink_data_aggregator*> msgs;
 
-    kgroundcontrol_settings kground_control_settings_;
+    kgroundcontrol_settings kgroundcontrol_settings_;
 };
 
 

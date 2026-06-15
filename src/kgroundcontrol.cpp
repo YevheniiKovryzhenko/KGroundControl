@@ -114,18 +114,16 @@ KGroundControl::KGroundControl(QWidget *parent)
     QJoysticks::getInstance()->updateInterfaces();
 
     // Start background remote-control manager which initializes joystick mappings
-    remote_control_manager_ = new remote_control::manager(this);
+    generic_thread_settings s;
+    remote_control_manager_ = new remote_control::manager(this, &s, &settings);
 
     // Provide the connection manager so the backend can wire relay thread
     // write_to_port signals directly to Generic_Port objects as ports appear.
     remote_control_manager_->setConnectionManager(connection_manager_);
 
-    // Seed KGC system ID into relay manager (and update it whenever settings change).
-    remote_control_manager_->setKgcSysid(settings.sysid);
-    connect(this, &KGroundControl::settings_updated, this, [this](kgroundcontrol_settings*){
-        if (remote_control_manager_)
-            remote_control_manager_->setKgcSysid(settings.sysid);
-    });
+    // Seed KGC system ID into remote control manager (and update it whenever settings change).
+    // connect(remote_control_manager_, &remote_control::manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);
+    connect(this, &KGroundControl::settings_updated, remote_control_manager_, &remote_control::manager::update_kgroundcontrol_settings, Qt::DirectConnection);
 
     // When relay threads are ready, seed them with the current port/sysid/compid
     // availability so they immediately evaluate connectivity and wire up.
@@ -211,8 +209,9 @@ KGroundControl::KGroundControl(QWidget *parent)
     {
         QSettings s; s.beginGroup("mocap_manager");
         const bool reopen = s.value("connection/was_open", false).toBool();
+        const bool wasVisible = s.value("window/visible", false).toBool();
         s.endGroup();
-        if (reopen) {
+        if (reopen || wasVisible) {
             mocap_manager_ = new mocap_manager();
             connect(this, &KGroundControl::about2close, mocap_manager_, &mocap_manager::close);
             connect(this, &KGroundControl::close_mocap, mocap_manager_, &mocap_manager::close);

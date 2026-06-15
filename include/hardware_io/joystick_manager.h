@@ -52,6 +52,7 @@
 #include <QLineEdit>
 #include <QTreeWidgetItem>
 #include <QString>
+#include <QFormLayout>
 
 #include "hardware_io/joystick.h"
 #include "mavlink_communication/remote_control_manager.h"
@@ -172,7 +173,7 @@ private:
 };
 
 namespace Ui {
-class Joystick_manager;
+    class Joystick_manager;
 }
 
 // Top‑level widget for joystick configuration.
@@ -192,6 +193,17 @@ public:
 
 public slots:
     void update_roles_list();
+    
+    // Must be connected to the about2close signal (DirectConnection) so that
+    // commitRolesToDevice() runs while remote_control::manager is still alive.
+    // After this call all raw manager pointers held by axis/button/pov widgets
+    // are nulled out so the destructor's commit call becomes a safe no-op.
+    void prepareForShutdown();
+
+    // slots to refresh available choices (to be connected from outside)
+    void update_relay_port_list(const QVector<QString>& new_ports);
+    void update_relay_sysid_list(const QVector<uint8_t>& new_sysids);
+    void update_relay_compids(uint8_t sysid, const QVector<mavlink_enums::mavlink_component_id>& compids);
 
 signals:
     void calibration_mode_toggled(bool enabled);
@@ -203,15 +215,6 @@ signals:
     QVector<QString> get_port_names(void);
     QVector<uint8_t> get_sysids(void);
     QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
-
-private slots:
-    void update_joystick_list(void);
-
-    void on_comboBox_joysticopt_currentTextChanged(const QString &arg1);
-
-    bool add_axis(int axis_id);
-    bool add_button(int button_id);
-    void onRemoteControlReady();
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -228,7 +231,6 @@ protected:
     void on_pushButton_import_clicked();
     void on_pushButton_cal_axes_toggled(bool checked);
 
-protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
 
 private:
@@ -294,13 +296,15 @@ private:
     void attachManagerToButton(JoystickButton *btn);
     void attachManagerToPov(POVIndicator *ind);
     // role values are obtained from sharedRoleValues (mapping lives in managers)
+    
+    struct OutputEntry {
+        bool isCommand;
+        int index; // Index in either relay or command list
+        QString name;
+    };
+    int selected_output_index = -1;
+    QVector<OutputEntry> m_outputList;
 
-private slots:
-    // notified whenever any axis/button manager reports its mapped value changed
-    void joystick_value_updated(int role, qreal value);
-
-private:
-    int selected_relay_index = -1;
     QButtonGroup *relay_btn_group = nullptr;
 
     // lists maintained for combobox population
@@ -309,34 +313,36 @@ private:
     QMap<uint8_t, QVector<mavlink_enums::mavlink_component_id>> avail_compids;
 
     void on_relay_button_clicked(QAbstractButton *btn);
-
-    void update_relays_list();
+    void update_outputs_list();
+    void buildRelayDetailPanel(QFormLayout *form, int relayIdx, remote_control::manager *gm);
+    void buildCommandDetailPanel(QFormLayout *form, int cmdIdx, remote_control::manager *gm);
     void syncRelayPlotCheckboxes();
+    // Refreshes the Enabled checkbox widget state for entry i in-place
 
     // Refreshes the Enabled checkbox widget state for entry i in-place
     // (no full rebuild).  Also sets settings.enabled = false if connectable
     // just became false.  Caller is responsible for sync_relay_threads/save.
-    void refresh_relay_checkbox(int i);
+    void refresh_output_connectivity(int outputIdx);
 
     // guard against recursive UI rebuilds triggered by thread signals
     bool updating_relays = false;
 
-public slots:
-    // Must be connected to the about2close signal (DirectConnection) so that
-    // commitRolesToDevice() runs while remote_control::manager is still alive.
-    // After this call all raw manager pointers held by axis/button/pov widgets
-    // are nulled out so the destructor's commit call becomes a safe no-op.
-    void prepareForShutdown();
-
-    // slots to refresh available choices (to be connected from outside)
-    void update_relay_port_list(const QVector<QString>& new_ports);
-    void update_relay_sysid_list(const QVector<uint8_t>& new_sysids);
-    void update_relay_compids(uint8_t sysid, const QVector<mavlink_enums::mavlink_component_id>& compids);
 
 private slots:
     void on_button_add_clicked();
     void on_button_remove_clicked();
     void on_button_edit_clicked();
+
+    void update_joystick_list(void);
+
+    void on_comboBox_joysticopt_currentTextChanged(const QString &arg1);
+
+    bool add_axis(int axis_id);
+    bool add_button(int button_id);
+    void onRemoteControlReady();
+
+    // notified whenever any axis/button manager reports its mapped value changed
+    void joystick_value_updated(int role, qreal value);
 };
 
 #endif // JOYSTICK_MANAGER_H

@@ -655,7 +655,7 @@ void mavlink_manager::relay_updated(uint8_t sysid_out, mavlink_enums::mavlink_co
 bool mavlink_manager::toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force)
 {
     mutex->lock();
-    emit get_kgroundcontrol_settings(&kground_control_settings_);
+    emit get_kgroundcontrol_settings(&kgroundcontrol_settings_);
 
     // Prepare command for off-board mode
     mavlink_command_long_t com = { 0 };
@@ -669,7 +669,7 @@ bool mavlink_manager::toggle_arm_state(QString port_name, uint8_t sys_id_, mavli
 
     // Encode
     mavlink_message_t message;
-    mavlink_msg_command_long_encode(kground_control_settings_.sysid, kground_control_settings_.compid, &message, &com);
+    mavlink_msg_command_long_encode(kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &message, &com);
 
     // Send the message
     if (emit write_message(port_name, &message) > 0)
@@ -699,7 +699,7 @@ bool mavlink_manager::get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_
 void mavlink_manager::update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_)
 {
     mutex->lock();
-    kground_control_settings_ = *kground_control_settings_in_;
+    kgroundcontrol_settings_ = *kground_control_settings_in_;
     mutex->unlock();
 }
 
