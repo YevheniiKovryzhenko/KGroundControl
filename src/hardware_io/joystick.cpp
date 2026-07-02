@@ -33,6 +33,7 @@
  ****************************************************************************/
 
 #include "hardware_io/joystick.h"
+#include "mavlink_communication/remote_control_manager.h"
 
 #include <QDebug>
 #include <QFile>
@@ -249,6 +250,9 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
     s.setValue("hardwareId", hardwareId);
     s.setValue("name", dev->name);
 
+    // Resolve the meta enum for conversion
+    QMetaEnum metaEnum = QMetaEnum::fromType<remote_control::channel::enums::role>();
+
     s.beginGroup("axes");
     for (int i = 0; i < dev->axes.count(); ++i)
     {
@@ -262,13 +266,18 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
             s.setValue("deadzone", c.deadzone);
             s.setValue("scale", c.scale);
             s.setValue("invert", c.invert);
-            s.setValue("mapped_role", c.mapped_role);
             s.setValue("updated", c.updated.toMSecsSinceEpoch());
             s.setValue("version", c.version);
+            
             // Output settings
             s.setValue("output_min", c.output_min);
             s.setValue("output_max", c.output_max);
             s.setValue("output_deadzone", c.output_deadzone);
+
+            // Dynamic string conversion for axis mapped_role
+            const char* key = metaEnum.valueToKey(c.mapped_role);
+            QString roleStr = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+            s.setValue("mapped_role", roleStr);
         }
         s.endGroup();
     }
@@ -278,7 +287,13 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
     for (int i = 0; i < dev->buttons.count(); ++i)
     {
         s.beginGroup(QString::number(i));
-        if (i < dev->buttonRole.count()) s.setValue("role", dev->buttonRole.at(i));
+        if (i < dev->buttonRole.count()) 
+        {
+            // Dynamic string conversion for button role
+            const char* key = metaEnum.valueToKey(dev->buttonRole.at(i));
+            QString roleStr = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+            s.setValue("role", roleStr);
+        }
         if (i < dev->buttonCalibration.count())
         {
             const ButtonCalibrationEntry &bc = dev->buttonCalibration.at(i);
@@ -297,7 +312,13 @@ void QJoysticks::saveCalibration(const QString &hardwareId)
     for (int i = 0; i < dev->povs.count(); ++i)
     {
         s.beginGroup(QString::number(i));
-        if (i < dev->povRole.count()) s.setValue("role", dev->povRole.at(i));
+        if (i < dev->povRole.count()) 
+        {
+            // Dynamic string conversion for POV role
+            const char* key = metaEnum.valueToKey(dev->povRole.at(i));
+            QString roleStr = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+            s.setValue("role", roleStr);
+        }
         s.endGroup();
     }
     s.endGroup();
@@ -320,6 +341,24 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
     s.beginGroup(group);
     if (!s.contains("hardwareId")) { s.endGroup(); return; }
 
+    // Resolve the meta enum for string-to-enum conversions
+    QMetaEnum metaEnum = QMetaEnum::fromType<remote_control::channel::enums::role>();
+
+    // Helper lambda to strictly parse text-based string keys
+    auto parseRoleValue = [&metaEnum](const QVariant &var, int defaultValue) -> int {
+        if (!var.isValid()) return defaultValue;
+        
+        QString roleStr = var.toString();
+        if (roleStr.isEmpty()) return defaultValue;
+
+        // Standard lookup for modern string keys (e.g., "ARM", "TERMINATE")
+        int enumVal = metaEnum.keyToValue(roleStr.toUtf8().constData());
+        if (enumVal == -1) {
+            return static_cast<int>(remote_control::channel::enums::UNUSED); // Safe fallback for unparseable elements
+        }
+        return enumVal;
+    };
+
     s.beginGroup("axes");
     dev->axisCalibration.clear();
     for (int i = 0; i < dev->axes.count(); ++i)
@@ -332,10 +371,14 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
         c.deadzone = s.value("deadzone", c.deadzone).toDouble();
         c.scale = s.value("scale", c.scale).toDouble();
         c.invert = s.value("invert", c.invert).toBool();
-        c.mapped_role = s.value("mapped_role", c.mapped_role).toInt();
+        
+        // Strictly parse the string role name
+        c.mapped_role = parseRoleValue(s.value("mapped_role"), c.mapped_role);
+        
         qint64 ms = s.value("updated", 0).toLongLong();
         if (ms) c.updated = QDateTime::fromMSecsSinceEpoch(ms);
         c.version = s.value("version", c.version).toInt();
+        
         // Output settings
         c.output_min = s.value("output_min", 1000.0).toDouble();
         c.output_max = s.value("output_max", 2000.0).toDouble();
@@ -351,8 +394,11 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
     for (int i = 0; i < dev->buttons.count(); ++i)
     {
         s.beginGroup(QString::number(i));
-        int role = s.value("role", -1).toInt();
+        
+        // Strictly parse the button role string name
+        int role = parseRoleValue(s.value("role"), -1);
         dev->buttonRole.append(role);
+        
         ButtonCalibrationEntry bc;
         bc.output_min     = s.value("output_min",     bc.output_min).toDouble();
         bc.output_max     = s.value("output_max",     bc.output_max).toDouble();
@@ -365,12 +411,13 @@ void QJoysticks::loadCalibration(const QString &hardwareId)
     s.endGroup();
 
     s.beginGroup("povs");
-    // load stored POV roles (defaults to -1/unassigned if missing)
     dev->povRole.clear();
     for (int i = 0; i < dev->povs.count(); ++i)
     {
         s.beginGroup(QString::number(i));
-        int role = s.value("role", -1).toInt();
+        
+        // Strictly parse the POV role string name
+        int role = parseRoleValue(s.value("role"), -1);
         dev->povRole.append(role);
         s.endGroup();
     }
@@ -416,6 +463,9 @@ bool QJoysticks::exportCalibration(const QString &hardwareId, const QString &pat
     root["hardwareId"] = dev->hardwareId;
     root["name"] = dev->name;
 
+    // Resolve the meta enum for integer-to-string conversion
+    QMetaEnum metaEnum = QMetaEnum::fromType<remote_control::channel::enums::role>();
+
     QJsonArray axesArr;
     for (int i = 0; i < dev->axisCalibration.count(); ++i)
     {
@@ -427,9 +477,13 @@ bool QJoysticks::exportCalibration(const QString &hardwareId, const QString &pat
         o["deadzone"] = c.deadzone;
         o["scale"] = c.scale;
         o["invert"] = c.invert;
-        o["mapped_role"] = c.mapped_role;
         o["updated"] = static_cast<qint64>(c.updated.toMSecsSinceEpoch());
         o["version"] = c.version;
+
+        // Dynamic string conversion for axis role
+        const char* key = metaEnum.valueToKey(c.mapped_role);
+        o["mapped_role"] = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+
         axesArr.append(o);
     }
     root["axes"] = axesArr;
@@ -438,7 +492,11 @@ bool QJoysticks::exportCalibration(const QString &hardwareId, const QString &pat
     for (int i = 0; i < dev->buttonRole.count(); ++i)
     {
         QJsonObject o;
-        o["role"] = dev->buttonRole.at(i);
+
+        // Dynamic string conversion for button role
+        const char* key = metaEnum.valueToKey(dev->buttonRole.at(i));
+        o["role"] = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+
         if (i < dev->buttonCalibration.count())
         {
             const auto &bc = dev->buttonCalibration.at(i);
@@ -479,6 +537,22 @@ bool QJoysticks::importCalibrationToHardware(const QString &path, const QString 
     s.setValue("hardwareId", hardwareId);
     s.setValue("name", root.value("name").toString());
 
+    // Resolve the meta enum for string validation
+    QMetaEnum metaEnum = QMetaEnum::fromType<remote_control::channel::enums::role>();
+
+    // Helper lambda to strictly enforce string-only validation
+    auto parseJsonRole = [&metaEnum](const QJsonValue &val) -> QString {
+        QString roleStr = val.toString();
+        if (roleStr.isEmpty()) return QStringLiteral("UNUSED");
+
+        // Verify the string key maps to a registered runtime enum variant
+        int enumVal = metaEnum.keyToValue(roleStr.toUtf8().constData());
+        if (enumVal == -1) {
+            return QStringLiteral("UNUSED"); 
+        }
+        return roleStr;
+    };
+
     QJsonArray axesArr = root.value("axes").toArray();
     s.beginGroup("axes");
     for (int i = 0; i < axesArr.size(); ++i)
@@ -491,9 +565,11 @@ bool QJoysticks::importCalibrationToHardware(const QString &path, const QString 
         s.setValue("deadzone", o.value("deadzone").toDouble());
         s.setValue("scale", o.value("scale").toDouble());
         s.setValue("invert", o.value("invert").toBool());
-        s.setValue("mapped_role", o.value("mapped_role").toInt());
         s.setValue("updated", o.value("updated").toVariant());
         s.setValue("version", o.value("version").toInt());
+
+        // Strictly import and store the verified string key name
+        s.setValue("mapped_role", parseJsonRole(o.value("mapped_role")));
         s.endGroup();
     }
     s.endGroup();
@@ -504,12 +580,25 @@ bool QJoysticks::importCalibrationToHardware(const QString &path, const QString 
     {
         s.beginGroup(QString::number(i));
         QJsonObject o = btnArr.at(i).toObject();
-        s.setValue("role",           o.value("role").toInt());
         s.setValue("output_min",     o.value("output_min").toDouble(0.0));
         s.setValue("output_max",     o.value("output_max").toDouble(1.0));
         s.setValue("mode",           o.value("mode").toInt(0));
         s.setValue("cyclic_step",    o.value("cyclic_step").toDouble(1.0));
         s.setValue("cyclic_initial", o.value("cyclic_initial").toDouble(0.0));
+
+        // Strictly import and store the verified string key name
+        s.setValue("role", parseJsonRole(o.value("role")));
+        s.endGroup();
+    }
+    s.endGroup();
+
+    QJsonArray povArr = root.value("povs").toArray();
+    s.beginGroup("povs");
+    for (int i = 0; i < povArr.size(); ++i)
+    {
+        s.beginGroup(QString::number(i));
+        QJsonObject o = povArr.at(i).toObject();
+        s.setValue("role", parseJsonRole(o.value("role")));
         s.endGroup();
     }
     s.endGroup();
@@ -517,6 +606,7 @@ bool QJoysticks::importCalibrationToHardware(const QString &path, const QString 
     s.endGroup();
     return true;
 }
+
 
 void QJoysticks::clearAllCalibrations()
 {

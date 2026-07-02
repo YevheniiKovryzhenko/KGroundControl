@@ -42,7 +42,6 @@
 #include <QDateTime>
 #include <QSet>
 #include <QUuid>
-#include "all/mavlink.h"
 
 // Explicit mapping matching PX4 v1.17.0 core architecture
 enum PX4_CUSTOM_MAIN_MODE {
@@ -68,13 +67,15 @@ enum PX4_CUSTOM_SUB_MODE_AUTO {
 
 void JoystickCommandSettings::ArmDisarmParams::save(QSettings &s) const {
     s.beginGroup("arm_disarm");
-    s.setValue("force", force);
+    s.setValue("forceArm", forceArm);
+    s.setValue("forceDisarm", forceDisarm);
     s.endGroup();
 }
 
 void JoystickCommandSettings::ArmDisarmParams::load(QSettings &s) {
     s.beginGroup("arm_disarm");
-    force = s.value("force", false).toBool();
+    forceArm = s.value("forceArm", false).toBool();
+    forceDisarm = s.value("forceDisarm", false).toBool();
     s.endGroup();
 }
 
@@ -853,6 +854,10 @@ namespace remote_control {
         QSettings s;
         s.beginGroup("joystick_manager");
         s.setValue("relay/count", m_relaySettings.size());
+
+        // Resolve the meta enum for conversion
+        QMetaEnum metaEnum = QMetaEnum::fromType<channel::enums::role>();
+
         for (int i = 0; i < m_relaySettings.size(); ++i) {
             s.beginGroup(QString("relay/%1").arg(i));
             const JoystickRelaySettings &rs = m_relaySettings[i];
@@ -872,7 +877,12 @@ namespace remote_control {
             s.beginWriteArray("field_roles");
             for (int j = 0; j < roles.size(); ++j) {
                 s.setArrayIndex(j);
-                s.setValue("role", roles[j]);
+                
+                // Fallback to "UNUSED" if the integer isn't valid in the meta enum
+                const char* key = metaEnum.valueToKey(roles[j]);
+                QString roleStr = key ? QString::fromUtf8(key) : QStringLiteral("UNUSED");
+                
+                s.setValue("role", roleStr); 
             }
             s.endArray();
 
@@ -887,6 +897,82 @@ namespace remote_control {
             s.endGroup();
         }
         s.endGroup();
+    }
+
+    void manager::loadRelays()
+    {
+        // Load relay entries from settings and spawn JoystickRelayThread instances
+        QSettings s;
+        s.beginGroup("joystick_manager");
+        int count = s.value("relay/count", 0).toInt();
+
+        // Resolve the meta enum for inverse lookup
+        QMetaEnum metaEnum = QMetaEnum::fromType<channel::enums::role>();
+
+        for (int i = 0; i < count; ++i) {
+            s.beginGroup(QString("relay/%1").arg(i));
+            JoystickRelaySettings settings;
+            settings.uid = s.value("uid", QString()).toString();
+            if (settings.uid.isEmpty()) settings.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            settings.Port_Name = s.value("Port_Name", QString()).toString();
+            settings.msg_option = static_cast<JoystickRelaySettings::msg_opt>(s.value("msg_option", 0).toInt());
+            settings.sysid = s.value("sysid", 0).toUInt();
+            settings.compid = static_cast<mavlink_enums::mavlink_component_id>(s.value("compid", 0).toInt());
+            settings.update_rate_hz = s.value("update_rate_hz", 40).toUInt();
+            settings.priority = s.value("priority", 0).toInt();
+            settings.enabled = s.value("enabled", false).toBool();
+            settings.auto_disabled = s.value("auto_disabled", false).toBool();
+            settings.enable_extensions = s.value("enable_extensions", false).toBool();
+
+            QVector<int> roles;
+            int fieldCount = s.beginReadArray("field_roles");
+            for (int idx = 0; idx < fieldCount; ++idx) {
+                s.setArrayIndex(idx);
+                
+                // Read the string key name out of QSettings
+                QString roleStr = s.value("role", QStringLiteral("UNUSED")).toString();
+                
+                // Map string key -> runtime int enum value
+                int enumVal = metaEnum.keyToValue(roleStr.toUtf8().constData());
+                if (enumVal == -1) {
+                    enumVal = static_cast<int>(channel::enums::UNUSED); // Fallback if missing or deprecated
+                }
+                roles.append(enumVal);
+            }
+            s.endArray();
+
+            QVector<QString> fieldVals;
+            int valCount = s.beginReadArray("field_values");
+            for (int idx = 0; idx < valCount; ++idx) {
+                s.setArrayIndex(idx);
+                fieldVals.append(s.value("value", QString("0")).toString());
+            }
+            s.endArray();
+
+            QString entryName = s.value("name", QString("Relay %1").arg(i + 1)).toString();
+
+            // create thread
+            generic_thread_settings *ts = new generic_thread_settings();
+            ts->priority = static_cast<QThread::Priority>(settings.priority);
+            
+            mutex->lock();
+            kgroundcontrol_settings kgs_settings_copy = kgroundcontrol_settings_;
+            mutex->unlock();
+            
+            auto *th = new JoystickRelayThread(nullptr, ts, settings, &kgs_settings_copy, roles);
+            connect(this, &manager::kgroundcontrol_settings_updated, th, &JoystickRelayThread::update_kgroundcontrol_settings, Qt::DirectConnection);
+
+            delete ts; 
+            th->start();
+
+            m_relayThreads.append(th);
+            m_relaySettings.append(settings);
+            m_relayFieldRoles.append(roles);
+            m_relayNames.append(entryName);
+            m_relayFieldValues.append(fieldVals);
+
+            s.endGroup();
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -964,16 +1050,17 @@ namespace remote_control {
         
         // Snapshot commands and states to avoid race conditions with the main thread
         QVector<JoystickCommandSettings> cmdsSnapshot;
-        bool lastArm;
+        bool lastArm, lastTerminate;
         QMap<int, bool> lastModes;
         {
             QMutexLocker locker(&m_commandMutex);
             cmdsSnapshot = m_commandSettings;
             lastArm = m_lastArmState;
+            lastTerminate = m_lastTerminateState;
             lastModes = m_lastModeStates;
         }
 
-        // 1. Handle ARM/DISARM (Broadcasts to all enabled vehicle blocks)
+        // Handle ARM/DISARM
         if (role == channel::enums::ARM) {
             if (isActive != lastArm) {
                 for (const auto& cmd : cmdsSnapshot) {
@@ -983,7 +1070,18 @@ namespace remote_control {
                 m_lastArmState = isActive;
             }
         } 
-        // 2. Handle FLIGHT MODES (Order-independent explicit check)
+        // Handle FLIGHT TERMINATION
+        else if (role == channel::enums::TERMINATE) {
+            if (isActive && !lastTerminate) { // Rising edge only
+                for (const auto& cmd : cmdsSnapshot) {
+                    sendFlightTerminationCommand(cmd);
+                }
+            }
+            // Always track the falling edge so it can reset the rising edge detector
+            QMutexLocker locker(&m_commandMutex);
+            m_lastTerminateState = isActive;
+        }
+        // Handle FLIGHT MODES
         else if (isFlightModeRole(role)) {
             bool lastState = lastModes.value(role, false);
             if (isActive && !lastState) { // Rising edge only
@@ -993,6 +1091,20 @@ namespace remote_control {
             }
             QMutexLocker locker(&m_commandMutex);
             m_lastModeStates[role] = isActive;
+        }
+    }
+
+    void manager::sendMavlinkMessage(const QString& portName, const mavlink_message_t& msg)
+    {
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
+        QByteArray packed(reinterpret_cast<const char*>(buf), len);
+
+        if (!packed.isEmpty() && m_connectionManager) {
+            Generic_Port *port = nullptr;
+            if (m_connectionManager->get_port(portName, &port) && port) {
+                QMetaObject::invokeMethod(port, "write_to_port", Qt::QueuedConnection, Q_ARG(QByteArray, packed));
+            }
         }
     }
 
@@ -1100,19 +1212,8 @@ namespace remote_control {
             }
         }        
 
-        // Common Serialization and Network Port Transfer Pipeline
-        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-        unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
-        QByteArray packed(reinterpret_cast<const char*>(buf), len);
-
-        if (!packed.isEmpty() && m_connectionManager) {
-            Generic_Port *port = nullptr;
-            if (m_connectionManager->get_port(cmd.Port_Name, &port) && port) {
-                QMetaObject::invokeMethod(port, "write_to_port", Qt::QueuedConnection, Q_ARG(QByteArray, packed));
-            }
-        }
+        sendMavlinkMessage(cmd.Port_Name, msg);
     }
-
 
     void manager::sendArmDisarmCommand(const JoystickCommandSettings& cmd, bool active) 
     {
@@ -1121,26 +1222,39 @@ namespace remote_control {
         mavlink_message_t msg;
         {
             QMutexLocker locker(mutex);
+            
+            float armState   = active ? 1.0f : 0.0f;
+            float forceCheck = active ? (cmd.armDisarm.forceArm ? 21196.0f : 0.0f) 
+                                    : (cmd.armDisarm.forceDisarm ? 21196.0f : 0.0f);
+
             mavlink_msg_command_long_pack(
-            kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg,
-            cmd.sysid, static_cast<uint8_t>(cmd.compid),
-            MAV_CMD_COMPONENT_ARM_DISARM, 0,
-            active ? 1.0f : 0.0f,
-            cmd.armDisarm.force ? 21196.0f : 0.0f,
-            0, 0, 0, 0, 0);
+                kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg,
+                cmd.sysid, static_cast<uint8_t>(cmd.compid),
+                MAV_CMD_COMPONENT_ARM_DISARM, 0,
+                armState, forceCheck, 0, 0, 0, 0, 0);
         }
 
-        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-        unsigned len = mavlink_msg_to_send_buffer(buf, &msg);
-        QByteArray packed(reinterpret_cast<const char*>(buf), len);
-
-        if (!packed.isEmpty() && m_connectionManager) {
-            Generic_Port *port = nullptr;
-            if (m_connectionManager->get_port(cmd.Port_Name, &port) && port) {
-                QMetaObject::invokeMethod(port, "write_to_port", Qt::QueuedConnection, Q_ARG(QByteArray, packed));
-            }
-        }
+        sendMavlinkMessage(cmd.Port_Name, msg);
     }
+
+    void manager::sendFlightTerminationCommand(const JoystickCommandSettings& cmd) 
+    {
+        if (!cmd.enabled) return;
+
+        mavlink_message_t msg;
+        {
+            QMutexLocker locker(mutex);
+            mavlink_msg_command_long_pack(
+                kgroundcontrol_settings_.sysid, kgroundcontrol_settings_.compid, &msg,
+                cmd.sysid, static_cast<uint8_t>(cmd.compid),
+                MAV_CMD_DO_FLIGHTTERMINATION, 0,
+                1.0f, // Always 1.0 to forcefully execute the trigger
+                0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        }
+
+        sendMavlinkMessage(cmd.Port_Name, msg);
+    }
+
 
     void manager::saveCommands() {
         QSettings s;
@@ -1149,6 +1263,25 @@ namespace remote_control {
         for (int i = 0; i < m_commandSettings.size(); ++i) {
             s.beginGroup(QString("command/%1").arg(i));        
             m_commandSettings[i].save(s);         
+            s.endGroup();
+        }
+        s.endGroup();
+    }
+
+    void manager::loadCommands() {
+        QSettings s;
+        s.beginGroup("joystick_manager");
+        int cmdCount = s.value("command/count", 0).toInt();
+        for (int i = 0; i < cmdCount; ++i) {
+            s.beginGroup(QString("command/%1").arg(i));
+            
+            JoystickCommandSettings cs;
+            cs.load(s); 
+            
+            // Ensure it has a UID if loading an old/empty config
+            if (cs.uid.isEmpty()) cs.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            
+            m_commandSettings.append(cs);
             s.endGroup();
         }
         s.endGroup();
@@ -1771,85 +1904,9 @@ namespace remote_control {
             }
         }
 
-        // Load relay entries from settings and spawn JoystickRelayThread instances
-        QSettings s;
-        s.beginGroup("joystick_manager");
-        int count = s.value("relay/count", 0).toInt();
-        for (int i = 0; i < count; ++i) {
-            s.beginGroup(QString("relay/%1").arg(i));
-            JoystickRelaySettings settings;
-            settings.uid = s.value("uid", QString()).toString();
-            if (settings.uid.isEmpty()) settings.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            settings.Port_Name = s.value("Port_Name", QString()).toString();
-            settings.msg_option = static_cast<JoystickRelaySettings::msg_opt>(s.value("msg_option", 0).toInt());
-            settings.sysid = s.value("sysid", 0).toUInt();
-            settings.compid = static_cast<mavlink_enums::mavlink_component_id>(s.value("compid", 0).toInt());
-            settings.update_rate_hz = s.value("update_rate_hz", 40).toUInt();
-            settings.priority = s.value("priority", 0).toInt();
-            settings.enabled = s.value("enabled", false).toBool();
-            settings.auto_disabled = s.value("auto_disabled", false).toBool();
-            settings.enable_extensions = s.value("enable_extensions", false).toBool();
-
-            QVector<int> roles;
-            int fieldCount = s.beginReadArray("field_roles");
-            for (int idx=0; idx<fieldCount; ++idx) {
-                s.setArrayIndex(idx);
-                roles.append(s.value("role", -1).toInt());
-            }
-            s.endArray();
-
-            QVector<QString> fieldVals;
-            int valCount = s.beginReadArray("field_values");
-            for (int idx=0; idx<valCount; ++idx) {
-                s.setArrayIndex(idx);
-                fieldVals.append(s.value("value", QString("0")).toString());
-            }
-            s.endArray();
-
-            QString entryName = s.value("name", QString("Relay %1").arg(i + 1)).toString();
-
-            // create thread
-            generic_thread_settings *ts = new generic_thread_settings();
-            ts->priority = static_cast<QThread::Priority>(settings.priority);
-            // Do not set parent to this (QThread) to avoid cross-thread QObject errors
-            mutex->lock();
-            kgroundcontrol_settings kgs_settings_copy = kgroundcontrol_settings_;
-            mutex->unlock();
-            auto *th = new JoystickRelayThread(nullptr, ts, settings, &kgs_settings_copy, roles);
-            connect(this, &manager::kgroundcontrol_settings_updated, th, &JoystickRelayThread::update_kgroundcontrol_settings, Qt::DirectConnection);
-
-            delete ts; // generic_thread memcpy'd it; we own this heap allocation
-            th->start();
-
-            m_relayThreads.append(th);
-            m_relaySettings.append(settings);
-            m_relayFieldRoles.append(roles);
-            m_relayNames.append(entryName);
-            m_relayFieldValues.append(fieldVals);
-
-            s.endGroup();
-        }
-
-        // Initialize wired-port tracking to match thread count
-        m_relayCurWiredPort.resize(m_relayThreads.size());
-
+        loadRelays();
+        loadCommands();
         emit relaysReady();
-
-        // Load command entries from settings
-        int cmdCount = s.value("command/count", 0).toInt();
-        for (int i = 0; i < cmdCount; ++i) {
-            s.beginGroup(QString("command/%1").arg(i));
-            
-            JoystickCommandSettings cs;
-            cs.load(s); 
-            
-            // Ensure it has a UID if loading an old/empty config
-            if (cs.uid.isEmpty()) cs.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            
-            m_commandSettings.append(cs);
-            s.endGroup();
-        }
-        s.endGroup();
 
         qDebug() << "[remote_control::manager] background setup complete. relays:" << m_relayThreads.size();
 

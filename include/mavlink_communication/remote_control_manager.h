@@ -48,6 +48,7 @@
 #include <QHash>
 #include <QStringList>
 #include <QSet>
+#include "all/mavlink.h"
 
 class QJoystickDevice;
 class connection_manager;
@@ -85,7 +86,8 @@ class JoystickCommandSettings {
 public:
     class ArmDisarmParams {
     public:
-        bool force = false;
+        bool forceArm = false;
+        bool forceDisarm = false;
         void save(QSettings &s) const;
         void load(QSettings &s);
     };
@@ -201,6 +203,7 @@ namespace remote_control {
                 THROTTLE,
                 
                 ARM,
+                TERMINATE,
                 
                 MANUAL,
                 STABILIZED,
@@ -478,6 +481,7 @@ namespace remote_control {
 
         // Persist current relay state to QSettings (same key-space as run() load)
         void saveRelays();
+        void loadRelays();
 
         // access to joystick device information
         QStringList deviceNames() const;
@@ -518,6 +522,7 @@ namespace remote_control {
         void removeCommand(int idx);
         void updateCommandSettings(int idx, const JoystickCommandSettings& s);
         void saveCommands();
+        void loadCommands();
         bool isCommandConnectable(int idx);
 
     public slots:
@@ -582,11 +587,15 @@ namespace remote_control {
         QMutex m_commandMutex;
         QVector<JoystickCommandSettings> m_commandSettings;
         bool m_lastArmState = false;
+        bool m_lastTerminateState = false;
         QMap<int, bool> m_lastModeStates; // Tracks last active state per mode role
         
         void onRoleValueUpdated(int role, qreal value);
+        
+        void sendMavlinkMessage(const QString& portName, const mavlink_message_t& msg);
         void sendArmDisarmCommand(const JoystickCommandSettings& cmd, bool active);
         void sendSetModeCommand(const JoystickCommandSettings& cmd, int role);
+        void sendFlightTerminationCommand(const JoystickCommandSettings& cmd);
         void applyCommandConnectability(int idx);
 
         kgroundcontrol_settings kgroundcontrol_settings_;
