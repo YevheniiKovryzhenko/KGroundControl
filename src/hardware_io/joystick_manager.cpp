@@ -1771,9 +1771,6 @@ void Joystick_manager::on_pushButton_reset_clicked()
     commitRolesToDevice();
 }
 
-
-
-
 void Joystick_manager::on_pushButton_export_clicked()
 {
     if (joysticks->count() == 0) return;
@@ -1783,43 +1780,14 @@ void Joystick_manager::on_pushButton_export_clicked()
     QString filename = QFileDialog::getSaveFileName(this, "Export Calibration", QDir::homePath(), "Joystick Calibration (*.json)");
     if (filename.isEmpty()) return;
 
-    QJsonObject root;
-    root["hardwareId"] = dev->hardwareId;
-    QJsonArray axesArr;
-    for (const CalibrationEntry &c : dev->axisCalibration)
-    {
-        QJsonObject o;
-        o["raw_min"] = c.raw_min;
-        o["raw_center"] = c.raw_center;
-        o["raw_max"] = c.raw_max;
-        o["deadzone"] = c.deadzone;
-        o["scale"] = c.scale;
-        o["invert"] = c.invert;
-        o["mapped_role"] = c.mapped_role;
-        o["updated"] = static_cast<qint64>(c.updated.toMSecsSinceEpoch());
-        o["version"] = c.version;
-        axesArr.append(o);
-    }
-    root["axes"] = axesArr;
-    QJsonArray btnArr;
-    for (int r : dev->buttonRole) { QJsonObject o; o["role"] = r; btnArr.append(o); }
-    root["buttons"] = btnArr;
-    // include POV roles as well so export/import are consistent
-    QJsonArray povArr;
-    for (int r : dev->povRole) { QJsonObject o; o["role"] = r; povArr.append(o); }
-    root["povs"] = povArr;
-
-    QJsonDocument doc(root);
-    QFile f(filename);
-    if (!f.open(QIODevice::WriteOnly))
-    {
+    // Direct call to the backend engine to prevent duplication bugs!
+    if (joysticks->exportCalibration(dev->hardwareId, filename)) {
+        QMessageBox::information(this, "Joystick Manager", "Calibration exported successfully.");
+    } else {
         QMessageBox::warning(this, "Joystick Manager", "Failed to export calibration.");
-        return;
     }
-    f.write(doc.toJson(QJsonDocument::Indented));
-    f.close();
-    QMessageBox::information(this, "Joystick Manager", "Calibration exported successfully.");
 }
+
 
 void Joystick_manager::on_pushButton_import_clicked()
 {
@@ -1829,60 +1797,22 @@ void Joystick_manager::on_pushButton_import_clicked()
 
     QString filename = QFileDialog::getOpenFileName(this, "Import Calibration", QDir::homePath(), "Joystick Calibration (*.json)");
     if (filename.isEmpty()) return;
-    QFile f(filename);
-    if (!f.open(QIODevice::ReadOnly))
+
+    // STEP 1: Let the core library cleanly parse and import the string keys to QSettings
+    if (!joysticks->importCalibrationToHardware(filename, dev->hardwareId))
     {
         QMessageBox::warning(this, "Joystick Manager", "Failed to import calibration.");
         return;
-    }
-    QByteArray data = f.readAll();
-    f.close();
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-    {
-        QMessageBox::warning(this, "Joystick Manager", "Failed to import calibration.");
-        return;
-    }
-    QJsonObject root = doc.object();
-    QJsonArray axesArr = root.value("axes").toArray();
-    dev->axisCalibration.clear();
-    for (int i = 0; i < axesArr.size(); ++i)
-    {
-        QJsonObject o = axesArr.at(i).toObject();
-        CalibrationEntry c;
-        c.raw_min = o.value("raw_min").toDouble(c.raw_min);
-        c.raw_center = o.value("raw_center").toDouble(c.raw_center);
-        c.raw_max = o.value("raw_max").toDouble(c.raw_max);
-        c.deadzone = o.value("deadzone").toDouble(c.deadzone);
-        c.scale = o.value("scale").toDouble(c.scale);
-        c.invert = o.value("invert").toBool(c.invert);
-        c.mapped_role = o.value("mapped_role").toInt(c.mapped_role);
-        qint64 ms = static_cast<qint64>(o.value("updated").toDouble(0));
-        if (ms) c.updated = QDateTime::fromMSecsSinceEpoch(ms);
-        c.version = o.value("version").toInt(c.version);
-        dev->axisCalibration.append(c);
-    }
-    QJsonArray btnArr = root.value("buttons").toArray();
-    dev->buttonRole.clear();
-    for (int i = 0; i < btnArr.size(); ++i)
-    {
-        QJsonObject o = btnArr.at(i).toObject();
-        dev->buttonRole.append(o.value("role").toInt(-1));
-    }
-    QJsonArray povArr = root.value("povs").toArray();
-    dev->povRole.clear();
-    for (int i = 0; i < povArr.size(); ++i)
-    {
-        QJsonObject o = povArr.at(i).toObject();
-        dev->povRole.append(o.value("role").toInt(-1));
     }
 
-    // update UI and runtime with new values
-    // reuse code from selection change
+    // STEP 2: Use the library to read those string settings back into runtime C++ variables
+    joysticks->loadCalibration(dev->hardwareId);
+
+    // Update UI and runtime dependencies with the fresh values
+    // (Retained from your unique UI orchestration block)
     if (dev)
     {
-        // enforce unique mapping across axes/buttons/POVs in imported data
+        // Enforce unique mapping across axes/buttons/POVs in imported data
         {
             QSet<int> used;
             for (int i = 0; i < dev->axisCalibration.count(); ++i)
@@ -1895,7 +1825,7 @@ void Joystick_manager::on_pushButton_import_clicked()
                     else
                     {
                         used.insert(r);
-                        clearRoleFromOtherDevices(r); // clear on other devices as well
+                        clearRoleFromOtherDevices(r); 
                     }
                 }
             }
@@ -1928,8 +1858,10 @@ void Joystick_manager::on_pushButton_import_clicked()
                 }
             }
         }
-        // persist imported calibration automatically
+        
+        // Persist clean validated configurations automatically
         joysticks->saveCalibration(dev->hardwareId);
+        
         QList<JoystickAxisBar*> axisBars = axes_container->findChildren<JoystickAxisBar*>();
         for (JoystickAxisBar *bar : axisBars)
         {
@@ -1938,7 +1870,7 @@ void Joystick_manager::on_pushButton_import_clicked()
             {
                 const CalibrationEntry &c = dev->axisCalibration.at(axis);
                 if (bar->joystick) bar->joystick->set_calibration_values(c.raw_min, c.raw_max, c.invert);
-                // reverse checkbox
+                
                 QCheckBox *rev = axes_container->findChild<QCheckBox*>(QStringLiteral("axis_reverse_") + QString::number(axis));
                 if (rev)
                 {
@@ -1946,29 +1878,18 @@ void Joystick_manager::on_pushButton_import_clicked()
                     rev->setChecked(c.invert);
                     rev->blockSignals(false);
                 }
-                if (c.mapped_role >= 0)
+                
+                QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(axis));
+                if (cb)
                 {
-                    if (bar->joystick) bar->joystick->set_role(c.mapped_role);
-                    QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(axis));
-                    if (cb)
-                    {
-                        cb->blockSignals(true);
-                        cb->setCurrentIndex(c.mapped_role);
-                        cb->blockSignals(false);
-                    }
-                }
-                else
-                {
-                    QComboBox *cb = axes_container->findChild<QComboBox*>(QStringLiteral("axis_role_") + QString::number(axis));
-                    if (cb)
-                    {
-                        cb->blockSignals(true);
-                        cb->setCurrentIndex(0);
-                        cb->blockSignals(false);
-                    }
+                    cb->blockSignals(true);
+                    cb->setCurrentIndex(c.mapped_role >= 0 ? c.mapped_role : 0);
+                    cb->blockSignals(false);
+                    if (bar->joystick && c.mapped_role >= 0) bar->joystick->set_role(c.mapped_role);
                 }
             }
         }
+        
         QList<JoystickButton*> buttons = buttons_container->findChildren<JoystickButton*>();
         for (JoystickButton *b : buttons)
         {
@@ -1976,8 +1897,10 @@ void Joystick_manager::on_pushButton_import_clicked()
             if (btn >= 0 && btn < dev->buttonRole.count())
             {
                 int role = dev->buttonRole.at(btn);
-                if (b->button) { if (role >= 0) b->button->set_role(role); }
-                else if (b->button) b->button->unset_role(role);
+                if (b->button) { 
+                    if (role >= 0) b->button->set_role(role); 
+                }
+                
                 QComboBox *cb = buttons_container->findChild<QComboBox*>(QStringLiteral("button_role_") + QString::number(btn));
                 if (cb)
                 {
@@ -1988,7 +1911,6 @@ void Joystick_manager::on_pushButton_import_clicked()
             }
         }
 
-        // make sure POV comboboxes also reflect imported roles
         QList<QComboBox*> povBoxes = povs_container->findChildren<QComboBox*>();
         for (QComboBox *cb : povBoxes)
         {
@@ -2007,14 +1929,14 @@ void Joystick_manager::on_pushButton_import_clicked()
             }
         }
     }
-    // turn off calibration mode since we just applied changes
+    
+    // Deactivate axis calibration mode toggle since we just updated properties
     ui->pushButton_cal_axes->blockSignals(true);
     ui->pushButton_cal_axes->setChecked(false);
     ui->pushButton_cal_axes->blockSignals(false);
 
-    QMessageBox::information(this, "Joystick Manager", "Calibration imported and applied. Press Save to persist.");
+    QMessageBox::information(this, "Joystick Manager", "Calibration imported and applied successfully.");
 }
-
 
 void Joystick_manager::relayoutButtons()
 {
@@ -2802,36 +2724,48 @@ void Joystick_manager::buildCommandDetailPanel(QFormLayout *form, int cmdIdx, re
     QFormLayout *armForm = new QFormLayout();
     armForm->setContentsMargins(10, 5, 10, 5); // Indent slightly for nested look
     
-    QCheckBox *forceCb = new QCheckBox();
-    forceCb->setChecked(cmd.armDisarm.force);
-    connect(forceCb, &QCheckBox::toggled, this, [this, cmdIdx](bool checked) {
+    QCheckBox *forceArmCb = new QCheckBox();
+    forceArmCb->setChecked(cmd.armDisarm.forceArm);
+    connect(forceArmCb, &QCheckBox::toggled, this, [this, cmdIdx](bool checked) {
         auto *gm = remote_control::global_manager();
         if (!gm || cmdIdx >= gm->commandCount()) return;
         auto c = gm->commandSettings(cmdIdx);
-        c.armDisarm.force = checked;
+        c.armDisarm.forceArm = checked;
         gm->updateCommandSettings(cmdIdx, c);
         gm->saveCommands();
-    });
-    armForm->addRow("Force Arm/Disarm:", forceCb);
+    });    
+    armForm->addRow("Force Arm:", forceArmCb);
+    
+    QCheckBox *forceDisarmCb = new QCheckBox();
+    forceDisarmCb->setChecked(cmd.armDisarm.forceDisarm);
+    connect(forceDisarmCb, &QCheckBox::toggled, this, [this, cmdIdx](bool checked) {
+        auto *gm = remote_control::global_manager();
+        if (!gm || cmdIdx >= gm->commandCount()) return;
+        auto c = gm->commandSettings(cmdIdx);
+        c.armDisarm.forceDisarm = checked;
+        gm->updateCommandSettings(cmdIdx, c);
+        gm->saveCommands();
+    });    
+    armForm->addRow("Force Disarm:", forceDisarmCb);
     armGroup->setContentLayout(armForm);
 
-    // --- Mode Switching Options (Nested Collapsible Group) ---
-    CollapsibleGroup *modeGroup = new CollapsibleGroup(form->parentWidget());
-    modeGroup->setTitle("Mode Switching Options");
-    modeGroup->setCollapsed(true); // Collapsed by default
+    // // --- Mode Switching Options (Nested Collapsible Group) ---
+    // CollapsibleGroup *modeGroup = new CollapsibleGroup(form->parentWidget());
+    // modeGroup->setTitle("Mode Switching Options");
+    // modeGroup->setCollapsed(true); // Collapsed by default
 
-    QVBoxLayout *modeLayout = new QVBoxLayout();
-    modeLayout->setContentsMargins(10, 5, 10, 5);
+    // QVBoxLayout *modeLayout = new QVBoxLayout();
+    // modeLayout->setContentsMargins(10, 5, 10, 5);
     
-    QLabel *modeInfo = new QLabel("Flight modes are automatically triggered\nwhen assigned roles (e.g., MANUAL, AUTO_MISSION)\nare activated on any joystick.");
-    modeInfo->setWordWrap(true);
-    modeInfo->setStyleSheet("color: gray; font-style: italic;");
-    modeLayout->addWidget(modeInfo);
-    modeGroup->setContentLayout(modeLayout);
+    // QLabel *modeInfo = new QLabel("Flight modes are automatically triggered\nwhen assigned roles (e.g., MANUAL, AUTO_MISSION)\nare activated on any joystick.");
+    // modeInfo->setWordWrap(true);
+    // modeInfo->setStyleSheet("color: gray; font-style: italic;");
+    // modeLayout->addWidget(modeInfo);
+    // modeGroup->setContentLayout(modeLayout);
 
     // Add the nested groups to the main form layout (spanning all columns)
     form->addRow(armGroup);
-    form->addRow(modeGroup);
+    // form->addRow(modeGroup);
 }
 
 void Joystick_manager::on_button_add_clicked()
