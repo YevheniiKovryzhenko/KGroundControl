@@ -1,387 +1,202 @@
-#!/bin/bash
-#--------------------------------------------------------------
-# Step 0: Check if the script is being run as a superuser
-#--------------------------------------------------------------
-if [ "$(id -u)" -eq 0 ]; then
-    echo "ERROR: This script should not be run as a superuser (root). Please run it as a normal user."
-    exit 1
-fi
+#!/usr/bin/env bash
+# Build a native Ubuntu Qt SDK; Qt is static by default, system libraries may be shared.
+# See README.md for scope, optional dependencies, and project setup.
+set -Eeuo pipefail
+trap 'printf "ERROR: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
-#--------------------------------------------------------------
-# Check for the -y flag to skip all package prompts (kept for apt)
-#--------------------------------------------------------------
-skip_prompts=false
-while getopts "y" opt; do
-    case ${opt} in
-        y ) skip_prompts=true;;
-        \? ) echo "Usage: $0 [-y]"; exit 1;;
+version=6.12.0
+build_type=Static
+qt_root=${HOME}/Qt
+jobs=${JOBS:-}
+install_deps=true
+creator=false
+accept_license=false
+with_webengine=false
+extra_configure=()
+usage() {
+    cat <<'HELP'
+Usage: install.sh [options] [-- extra Qt configure arguments]
+  --version VERSION     Qt 6 release tag (default: 6.12.0; optional v prefix)
+  --shared              Build shared release libraries instead of static
+  --root PATH           SDK parent (default: $HOME/Qt)
+  --jobs N              Parallel jobs (default: min(CPUs, available RAM / 3 GiB))
+  --no-deps             Do not run apt (dependencies must already be installed)
+  --creator             Also install Ubuntu's Qt Creator package
+  --with-webengine      Include WebEngine/PDF sources (shared builds only)
+  -y, --accept-license  Accept Qt's open-source license without configure prompt
+  -h, --help            Show help
+Existing sources/builds are retained for incremental retries. No automatic deletion.
+Changed configuration requires a new --root or manual relocation of the old build.
+HELP
+}
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+while (($#)); do
+    case "$1" in
+        --version|--root|--jobs)
+            (($# >= 2)) || die "Missing value for $1"
+            case "$1" in
+                --version) version=${2#v} ;;
+                --root) qt_root=$2 ;;
+                --jobs) jobs=$2 ;;
+            esac
+            shift 2 ;;
+        --shared) build_type=Shared; shift ;;
+        --no-deps) install_deps=false; shift ;;
+        --creator) creator=true; shift ;;
+        --with-webengine) with_webengine=true; shift ;;
+        -y|--accept-license) accept_license=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; extra_configure=("$@"); break ;;
+        *) die "Unknown option: $1 (use --help)" ;;
     esac
 done
+[[ $version =~ ^6\.[0-9]+\.[0-9]+$ ]] || die 'Expected a Qt 6 release such as 6.12.0'
+[[ -z $jobs || $jobs =~ ^[1-9][0-9]*$ ]] || die '--jobs must be a positive integer'
+[[ $qt_root = /* && $qt_root != / ]] || die '--root must be an absolute directory other than /'
+if [[ $build_type = Static ]] && $with_webengine; then
+    die 'Qt WebEngine does not support static builds; use --shared --with-webengine'
+fi
+((EUID != 0)) || die 'Run as a normal user; only package installation uses sudo'
+if ! $accept_license && [[ ! -t 0 ]]; then
+    die 'Noninteractive builds require --accept-license after reviewing the Qt licenses'
+fi
 
-# --- Prompt helpers (single-keypress y/n, no enter required) ---
-skip_prompts=false
-delete_build_after=false
-delete_src_after=false
-
-prompt_yes_no() {
-    # Usage: prompt_yes_no "Prompt text" default_yes/no
-    local prompt="$1"
-    local default="$2"
-    local dchar="N"
-    local hint="[y/N]"
-    if [ "$default" = "yes" ]; then
-        dchar="Y"
-        hint="[Y/n]"
+# Explicit package names: no shell/apt wildcards and no unrelated system upgrade.
+if $install_deps; then
+    command -v apt-get >/dev/null || die 'apt-get is required; use --no-deps on other distributions'
+    sudo apt-get update
+    packages=(
+        build-essential cmake ninja-build git perl python3 python3-html5lib
+        bison flex gperf pkg-config clang libclang-dev llvm-dev ca-certificates
+        libfontconfig1-dev libfreetype-dev libgtk-3-dev libatspi2.0-dev
+        libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev libxrender-dev
+        libxcb1-dev libxcb-cursor-dev libxcb-glx0-dev libxcb-keysyms1-dev
+        libxcb-image0-dev libxcb-shm0-dev libxcb-icccm4-dev libxcb-sync-dev
+        libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libxcb-render0-dev
+        libxcb-render-util0-dev libxcb-util-dev libxcb-xinerama0-dev libxcb-xkb-dev
+        libxkbcommon-dev libxkbcommon-x11-dev libsm-dev libice-dev
+        libgl-dev libegl-dev libglu1-mesa-dev libgbm-dev libdrm-dev libvulkan-dev
+        libwayland-dev wayland-protocols libinput-dev libudev-dev libmtdev-dev
+        libssl-dev libdbus-1-dev libicu-dev libglib2.0-dev zlib1g-dev
+        libjpeg-dev libpng-dev libtiff-dev libwebp-dev libmng-dev
+        libharfbuzz-dev libdouble-conversion-dev libpcre2-dev libzstd-dev
+        libsqlite3-dev libpq-dev default-libmysqlclient-dev unixodbc-dev
+        libasound2-dev libpulse-dev libsndfile1-dev libpipewire-0.3-dev
+        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libavcodec-dev
+        libavformat-dev libavutil-dev libswresample-dev libswscale-dev
+        libbluetooth-dev libpcsclite-dev libusb-1.0-0-dev libsdl2-dev
+        libspeechd-dev flite1-dev libhunspell-dev libprotobuf-dev
+        protobuf-compiler libgrpc++-dev protobuf-compiler-grpc
+    )
+    if $with_webengine; then
+        packages+=(nodejs libnss3-dev libnspr4-dev libxcomposite-dev libxcursor-dev
+            libxdamage-dev libxrandr-dev libxshmfence-dev libxss-dev libxtst-dev
+            libxkbfile-dev libcups2-dev libcap-dev libpci-dev)
     fi
-    if $skip_prompts; then
-        [ "$default" = "yes" ] && return 0 || return 1
-    fi
-    printf "%s %s " "$prompt" "$hint"
-    while IFS= read -r -n1 -s key; do
-        case "$key" in
-            y|Y) echo "Y"; return 0 ;;
-            n|N) echo "N"; return 1 ;;
-            "") echo "$dchar"; [ "$default" = "yes" ] && return 0 || return 1 ;;
-        esac
-    done
-}
-
-# Parse -y flag for non-interactive
-while getopts "y" opt; do
-    case ${opt} in
-        y ) skip_prompts=true;;
-        \? ) echo "Usage: $0 [-y]"; exit 1;;
-    esac
+    if $creator; then packages+=(qtcreator); fi
+    sudo apt-get install -y "${packages[@]}"
+elif $creator; then
+    die '--creator requires package installation; remove --no-deps'
+fi
+for tool in cmake ninja git perl python3 pkg-config c++; do
+    command -v "$tool" >/dev/null || die "Missing build tool: $tool"
 done
-
-# --- Upfront prompts: ask all questions before long install ---
-if prompt_yes_no "Delete build directory automatically after successful install?" yes; then
-    delete_build_after=true
+if [[ -z $jobs ]]; then
+    cpu_jobs=$(getconf _NPROCESSORS_ONLN)
+    memory_jobs=$(awk '/MemAvailable:/ {n=int($2/3145728); print (n>0?n:1)}' /proc/meminfo)
+    jobs=$((cpu_jobs < memory_jobs ? cpu_jobs : memory_jobs))
 fi
-if prompt_yes_no "Delete source directory after successful install? (keep by default)" no; then
-    delete_src_after=true
+sdk_root="$qt_root/$build_type/v$version"
+mkdir -p "$sdk_root"
+sdk_root=$(cd "$sdk_root" && pwd -P)
+src_dir="$sdk_root/src"
+build_dir="$sdk_root/build"
+install_dir="$sdk_root/install"
+# Serialize runs targeting the same SDK (flock comes with Ubuntu's util-linux).
+exec 9>"$sdk_root/.installer.lock"
+flock -n 9 || die "Another installer is using $sdk_root"
+mkdir -p "$sdk_root/logs"
+exec > >(tee -a "$sdk_root/logs/install-$(date +%Y%m%d-%H%M%S).log") 2>&1
+printf 'Building Qt %s (%s), jobs=%s, prefix=%s\n' "$version" "$build_type" "$jobs" "$install_dir"
+
+if [[ ! -e $src_dir ]]; then
+    git clone --branch "v$version" --single-branch https://code.qt.io/qt/qt5.git "$src_dir"
 fi
-#--------------------------------------------------------------
-# Step 1: Update and Upgrade the System
-#--------------------------------------------------------------
-echo "==============================================="
-echo "Updating and Upgrading System Packages..."
-echo "==============================================="
-sudo_prompted=false
-if ! sudo -n true 2>/dev/null; then
-    echo "Sudo password required for package installation."
-    sudo_prompted=true
-    sudo true || { echo "ERROR: Sudo authentication failed."; exit 1; }
+[[ -e $src_dir/.git ]] || die "Source directory is not a Git checkout: $src_dir (relocate it and retry)"
+# Never reset, clean, or force-switch a user's sources.
+actual_commit=$(git -C "$src_dir" rev-parse HEAD)
+expected_commit=$(git -C "$src_dir" rev-parse "refs/tags/v$version^{commit}")
+[[ $actual_commit = "$expected_commit" ]] || die 'Source HEAD differs from requested tag; use a separate --root'
+[[ -z $(git -C "$src_dir" status --porcelain --untracked-files=no --ignore-submodules=all) ]] || die 'Tracked source files have local changes'
+# Check existing submodules before initialization can update their worktrees.
+[[ -z $(git -C "$src_dir" submodule foreach --quiet --recursive 'git status --porcelain --untracked-files=no') ]] || die 'Submodules have tracked local modifications'
+# all includes add-ons and preview/deprecated modules omitted by default.
+subset=all
+if ! $with_webengine; then subset+=,-qtwebengine; fi
+# -f is required by Qt for repeat initialization, including interrupted runs.
+# Reject changed checked-out commits before asking its initializer to proceed.
+if git -C "$src_dir" submodule status --recursive | grep -Eq '^[+U]'; then
+    die 'Existing submodules differ from release commits or have conflicts'
 fi
-sudo apt-get update && sudo apt-get upgrade -y
-echo
-
-#--------------------------------------------------------------
-# Step 2: Install Required Packages
-#--------------------------------------------------------------
-echo "==============================================="
-echo "Installing required packages..."
-echo "==============================================="
-sudo apt-get install -y make cmake build-essential libclang-dev clang ninja-build gcc git bison python3 gperf pkg-config \
-libfontconfig1-dev libfreetype6-dev libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev libxrender-dev \
-libxcb1-dev libxcb-glx0-dev libxcb-keysyms1-dev libxcb-image0-dev libxcb-shm0-dev libxcb-icccm4-dev libxcb-sync-dev \
-libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libxcb-render-util0-dev libxcb-util-dev libxcb-xinerama0-dev \
-libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev libatspi2.0-dev libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
-libsdl2-dev g++ pkg-config libgl1-mesa-dev libxcb*-dev libfontconfig1-dev libxkbcommon-x11-dev libgtk-3-dev \
-libssl-dev
-echo
-
-#--------------------------------------------------------------
-# Step 3: Setup Qt Version, Build Type, and Directories
-#--------------------------------------------------------------
-# Hardcoded parameters (adjust here):
-Qt_version="v6.10.2"   # Tag/branch to use
-Build_type="Static"    # Options: "Static" (default) or "Shared"
-
-# Resolve target subdirectory and configure flags based on Build_type
-case "$Build_type" in
-    Static)
-        qt_subdir="Static"
-        configure_flags=(
-            -static -release
-            -no-feature-accessibility
-            -opensource
-            -prefix
-        )
-        ;;
-    Shared)
-        qt_subdir="Shared"
-        configure_flags=(
-            -debug
-            -no-feature-accessibility
-            -opensource
-            -prefix
-        )
-        ;;
-    *)
-        echo "ERROR: Unknown Build_type='$Build_type'. Use 'Static' or 'Shared'."
-        exit 1
-        ;;
-esac
-
-Qt_root_dir="$HOME/Qt/${qt_subdir}/$Qt_version"
-src_dir="${Qt_root_dir}/src"
-build_dir="${Qt_root_dir}/build"
-install_dir="${Qt_root_dir}/install"
-
-echo "==============================================="
-echo "Preparing Qt $Qt_version ($Build_type) in $Qt_root_dir"
-echo "==============================================="
-mkdir -p "$Qt_root_dir"
-
-# --- New: checkpoint/state helpers ----------------------------------------
-STATE_DIR="$Qt_root_dir/.install_state"
-mkdir -p "$STATE_DIR"
-
-mark_step() {
-    # mark a step as completed: mark_step cloned|initialized|configured|built|installed
-    mkdir -p "$STATE_DIR"
-    touch "$STATE_DIR/$1"
-}
-
-step_done() {
-    [[ -f "$STATE_DIR/$1" ]]
-}
-
-prompt_continue() {
-    # usage: prompt_continue "question"
-    if $skip_prompts; then
-        return 0
-    fi
-    read -r -p "$1 [y/N]: " resp
-    case "$resp" in
-        [yY]) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-#--------------------------------------------------------------
-# Step 4: Smart clone/switch of source (with checkpoints)
-#--------------------------------------------------------------
-source_changed=false
-
-# Decide whether we need to reclone - use checkpoint when present
-need_reclone=false
-# If a successful clone checkpoint exists and the git dir is present, we can reuse it.
-if step_done cloned && [ -d "$src_dir/.git" ]; then
-    echo "Found previous successful clone checkpoint; reusing existing repository."
-    need_reclone=false
-else
-    # No checkpoint -> assume previous attempt failed. Do not prompt: remove and reclone.
-    if [ -d "$src_dir" ] && [ ! -d "$src_dir/.git" ]; then
-        echo "Found non-git directory at $src_dir without checkpoint. Removing and will reclone."
-        rm -rf "$src_dir"
-    elif [ -d "$src_dir/.git" ] && ! step_done cloned; then
-        echo "Found git repository at $src_dir but no 'cloned' checkpoint. Assuming failed attempt; removing and will reclone."
-        rm -rf "$src_dir"
-    fi
-    need_reclone=true
+(cd "$src_dir" && ./init-repository -f --module-subset="$subset")
+git -C "$src_dir" submodule status --recursive > "$sdk_root/source-modules.txt"
+if grep -Eq '^[+U]' "$sdk_root/source-modules.txt"; then
+    die 'Submodules differ from release commits or have conflicts; inspect source-modules.txt'
 fi
+[[ -z $(git -C "$src_dir" submodule foreach --quiet --recursive 'git status --porcelain --untracked-files=no') ]] || die 'Submodules have tracked local modifications'
 
-# If we decided to reuse (need_reclone=false) ensure repo exists and attempt to switch/init
-if [ -d "$src_dir/.git" ] && ! $need_reclone; then
-    echo "Using existing repository at $src_dir"
-    (
-        set -e
-        cd "$src_dir"
-        git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Not a git repo"; exit 1; }
-        git fetch --tags -p origin || true
-        current_ref=$(git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo "unknown")
-        if [ "$current_ref" != "$Qt_version" ]; then
-            echo "Switching Qt sources from '$current_ref' to '$Qt_version'..."
-            git reset --hard
-            git clean -fdx
-            git checkout -f "$Qt_version"
-            source_changed=true
-        else
-            echo "Qt sources already at $Qt_version; no switch needed."
-        fi
-
-        # Ensure submodules are initialized; filter out qtwebengine before init
-        # remove_webengine_submodules
-        if ./init-repository --module-subset=default,-qtwebengine -f; then
-            # basic verification: qtbase (essential) should exist
-            if [ -d "qtbase" ] || [ -d "$src_dir/qtbase" ]; then
-                mark_step cloned || true
-                mark_step initialized || true
-                echo "Submodules initialized successfully."
-            else
-                echo "Warning: init-repository claimed success but expected submodule 'qtbase' missing."
-                exit 1
-            fi
-        else
-            echo "ERROR: init-repository failed for existing repo."
-            exit 1
-        fi
-    ) || {
-        echo "Existing repo handling failed -> will attempt fresh reclone."
-        need_reclone=true
-    }
+flags=(-release -opensource -prefix "$install_dir" -nomake examples -nomake tests)
+if [[ $build_type = Static ]]; then flags+=(-static); else flags+=(-shared); fi
+if $accept_license; then flags+=(-confirm-license); fi
+if ! $with_webengine; then flags+=(-skip qtwebengine); fi
+# Require desktop X11 and TLS support instead of silently omitting these plugins.
+flags+=(-xcb -openssl-runtime)
+flags+=("${extra_configure[@]}")
+mkdir -p "$build_dir"
+# Refuse stale cache reuse when source/configuration/toolchain inputs change.
+request=$(printf '%s\n' 'installer-schema=2' "$actual_commit" "$subset" "${flags[@]}" \
+    "CC=${CC:-}" "CXX=${CXX:-}" "CFLAGS=${CFLAGS:-}" "CXXFLAGS=${CXXFLAGS:-}" \
+    "LDFLAGS=${LDFLAGS:-}" "PATH=$PATH" "CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH:-}" \
+    "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}" "$(cmake --version)" "$(c++ --version)" | sha256sum)
+if [[ -f $build_dir/CMakeCache.txt ]]; then
+    [[ -f $build_dir/.installer-request && $(cat "$build_dir/.installer-request") = "$request" ]] ||
+        die "Build configuration changed or cache is from an older installer. Relocate $build_dir (and use a fresh install prefix) or choose another --root."
 fi
+# Always configure/build/install: CMake/Ninja handle incremental work and interrupted runs.
+printf '%s\n' "$request" > "$build_dir/.installer-request"
+(cd "$build_dir" && "$src_dir/configure" "${flags[@]}")
+cmake --build "$build_dir" --parallel "$jobs"
+cmake --install "$build_dir"
 
-# Fresh clone path (unchanged in intent) — runs when need_reclone is true
-if $need_reclone; then
-    echo "Re-cloning Qt sources at $Qt_version to recover or first-time setup..."
-    rm -rf "$src_dir"
-    git clone --branch "${Qt_version}" https://code.qt.io/qt/qt5.git "$src_dir" || {
-        echo "ERROR: Failed to clone Qt repository."
-        exit 1
-    }
-    # Mark clone checkpoint
-    mark_step cloned
-
-    (
-        set -e
-        cd "$src_dir"
-        # filter out qtwebengine-related submodules before initialization
-        # remove_webengine_submodules
-        if ./init-repository --module-subset=default,-qtwebengine -f; then
-            # verify basic submodule presence
-            if [ -d "qtbase" ] || [ -d "$src_dir/qtbase" ]; then
-                mark_step initialized
-                echo "Submodules initialized successfully after fresh clone."
-            else
-                echo "ERROR: init-repository reported success but 'qtbase' submodule missing."
-                exit 1
-            fi
-        else
-            echo "ERROR: Failed to initialize Qt submodules."
-            exit 1
-        fi
-    ) || {
-        echo "ERROR: Failed during submodule initialization after clone."
-        exit 1
-    }
-    source_changed=true
-fi
-echo
-
-#--------------------------------------------------------------
-# Step 5: Configure the build (reconfigure when sources changed or first time)
-# Use checkpoint to skip unnecessary reconfigure
-#--------------------------------------------------------------
-cd "${Qt_root_dir}"
-
-# Clean build/install only if sources changed (reclone or switched)
-if $source_changed; then
-    if [ -d "$build_dir" ]; then
-        echo "==============================================="
-        echo "Sources changed -> cleaning existing build folder..."
-        echo "==============================================="
-        rm -rf "$build_dir"
-    fi
-    if [ -d "$install_dir" ]; then
-        echo "==============================================="
-        echo "Sources changed -> cleaning existing install folder..."
-        echo "==============================================="
-        rm -rf "$install_dir"
-    fi
-fi
-
-# Decide whether to configure: if configured checkpoint exists and sources didn't change, skip
-should_configure=false
-if step_done configured && ! $source_changed && [ -f "$build_dir/CMakeCache.txt" ]; then
-    echo "Found configured checkpoint and no source changes -> skipping configure."
-    should_configure=false
-else
-    should_configure=true
-fi
-
-if $should_configure; then
-    echo "==============================================="
-    echo "Configuring build settings ($Build_type)..."
-    echo "==============================================="
-    mkdir -p "$build_dir"
-    cd "$build_dir"
-    # Build full configure command
-    ../src/configure \
-        "${configure_flags[@]}" "${install_dir}/" \
-        -nomake examples -nomake tests -skip qtwebengine \
-        -DQT_FEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DQT_FEATURE_xlib=ON
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Configure failed."
-        exit 1
-    fi
-    mark_step configured
-    echo
-else
-    echo "Configuration unchanged; skipping reconfigure."
-fi
-
-#--------------------------------------------------------------
-# Step 6: Compile Qt (only when needed)
-#--------------------------------------------------------------
-if step_done built && ! $should_configure; then
-    echo "Found built checkpoint and no reconfigure required -> skipping build."
-else
-    echo "==============================================="
-    echo "Compiling $Qt_version..."
-    echo "==============================================="
-    mkdir -p "$build_dir"
-    cd "$build_dir"
-    cmake --build . --parallel
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Build failed."
-        exit 1
-    fi
-    mark_step built
-    echo
-fi
-
-#--------------------------------------------------------------
-# Step 7: Install Qt (only when build ran this run or not installed)
-#--------------------------------------------------------------
-if step_done installed && ! $should_configure; then
-    echo "Found installed checkpoint -> skipping install."
-else
-    echo "==============================================="
-    echo "Installing $Qt_version..."
-    echo "==============================================="
-    cd "$build_dir"
-    cmake --install .
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Install failed."
-        exit 1
-    fi
-    mark_step installed
-    echo
-fi
-
-#--------------------------------------------------------------
-# Step 8: Install Qt Creator (optional)
-#--------------------------------------------------------------
-echo "==============================================="
-echo "Installing Qt Creator..."
-echo "==============================================="
-if sudo -n true 2>/dev/null; then
-    sudo apt install qtcreator -y
-post_cleanup
-else
-    # avoid parentheses in this echoed string to reduce chance of parser confusion
-    echo "Skipping Qt Creator install - sudo requires password."
-fi
-echo
-
-#--------------------------------------------------------------
-# Final Step: Completion Message
-#--------------------------------------------------------------
-echo "==============================================="
-echo "Qt $Qt_version installation and setup completed successfully!"
-echo "==============================================="
-
-# --- Ensure cleanup runs after install ---
-if $delete_build_after && [ -d "$build_dir" ]; then
-    echo "Deleting build directory to free disk space..."
-    rm -rf "$build_dir"
-    echo "Build directory deleted."
-fi
-if $delete_src_after && [ -d "$src_dir" ]; then
-    echo "Deleting source directory..."
-    rm -rf "$src_dir"
-    echo "Source directory deleted."
-fi
+# A real consumer configure verifies module packages, static transitive dependencies,
+# and plugin targets against the installed prefix instead of trusting marker files.
+mkdir -p "$sdk_root/verify"
+cat > "$sdk_root/verify/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.22)
+project(QtSdkCheck LANGUAGES CXX)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network SerialPort Location)
+foreach(plugin QXcbIntegrationPlugin QTlsBackendOpenSSLPlugin)
+    if(NOT TARGET Qt6::${plugin})
+        message(FATAL_ERROR "Desktop SDK validation requires Qt6::${plugin}")
+    endif()
+endforeach()
+get_target_property(core_type Qt6::Core TYPE)
+if(EXPECT_STATIC AND NOT core_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "Expected static Qt Core, got ${core_type}")
+endif()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/main.cpp" "#include <QApplication>\n#include <QSslSocket>\n#include <QSerialPort>\nint main(int argc,char**argv){QApplication app(argc,argv);QSerialPort port;return QSslSocket::supportsSsl()?0:1;}\n")
+qt_add_executable(qt-sdk-check "${CMAKE_CURRENT_BINARY_DIR}/main.cpp")
+target_link_libraries(qt-sdk-check PRIVATE Qt6::Widgets Qt6::Network Qt6::SerialPort Qt6::Location)
+if(EXPECT_STATIC)
+    qt_import_plugins(qt-sdk-check NO_DEFAULT INCLUDE Qt6::QXcbIntegrationPlugin Qt6::QTlsBackendOpenSSLPlugin)
+endif()
+CMAKE
+expect_static=OFF
+if [[ $build_type = Static ]]; then expect_static=ON; fi
+cmake -S "$sdk_root/verify" -B "$sdk_root/verify/build" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$install_dir" -DQt6_DIR="$install_dir/lib/cmake/Qt6" \
+    -DEXPECT_STATIC="$expect_static"
+cmake --build "$sdk_root/verify/build" --parallel "$jobs"
+find "$install_dir" -name 'Qt6*Config.cmake' -print | sort > "$sdk_root/installed-modules.txt"
+printf '\nSDK installed and consumer link verified: %s\nModule inventory: %s\n' "$install_dir" "$sdk_root/installed-modules.txt"
+printf 'Review %s/config.summary for optional features disabled by dependency detection.\n' "$build_dir"

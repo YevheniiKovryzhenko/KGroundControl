@@ -1,27 +1,27 @@
 {
   "updates": {
     "linux": {
-      "latest-version": "1.3.1",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.1/KGroundControl_v1.3.1_Ubuntu_22.04_x64",
-      "changelog": "- Added proper Arm/Disarm and Mode Switching assignments for remote control pannel. Now joystick roles can be bound to send arm/disarm and mode switching requests\r\n- Resolved mocap manager window always open upon application restart\n",
+      "latest-version": "1.3.2",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.2/KGroundControl_v1.3.2_Ubuntu_22.04_x64",
+      "changelog": "Minor joystick commands update:\r\n+ Added ability to seperately assign force flag for arm and disarm commands (joystick control)\r\n+ Added flight termination command\n",
       "mandatory-update": false
     },
     "windows": {
-      "latest-version": "1.3.1",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.1/KGroundControl_v1.3.1_Windows_x64.exe",
-      "changelog": "- Added proper Arm/Disarm and Mode Switching assignments for remote control pannel. Now joystick roles can be bound to send arm/disarm and mode switching requests\r\n- Resolved mocap manager window always open upon application restart\n",
+      "latest-version": "1.3.2",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.2/KGroundControl_v1.3.2_Windows_x64.exe",
+      "changelog": "Minor joystick commands update:\r\n+ Added ability to seperately assign force flag for arm and disarm commands (joystick control)\r\n+ Added flight termination command\n",
       "mandatory-update": false
     },
     "linux-ubuntu-24.04": {
-      "latest-version": "1.3.1",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.1/KGroundControl_v1.3.1_Ubuntu_24.04_x64",
-      "changelog": "- Added proper Arm/Disarm and Mode Switching assignments for remote control pannel. Now joystick roles can be bound to send arm/disarm and mode switching requests\r\n- Resolved mocap manager window always open upon application restart\n",
+      "latest-version": "1.3.2",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.2/KGroundControl_v1.3.2_Ubuntu_24.04_x64",
+      "changelog": "Minor joystick commands update:\r\n+ Added ability to seperately assign force flag for arm and disarm commands (joystick control)\r\n+ Added flight termination command\n",
       "mandatory-update": false
     },
     "linux-ubuntu-22.04": {
-      "latest-version": "1.3.1",
-      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.1/KGroundControl_v1.3.1_Ubuntu_22.04_x64",
-      "changelog": "- Added proper Arm/Disarm and Mode Switching assignments for remote control pannel. Now joystick roles can be bound to send arm/disarm and mode switching requests\r\n- Resolved mocap manager window always open upon application restart\n",
+      "latest-version": "1.3.2",
+      "download-url": "https://github.com/YevheniiKovryzhenko/KGroundControl/releases/download/v1.3.2/KGroundControl_v1.3.2_Ubuntu_22.04_x64",
+      "changelog": "Minor joystick commands update:\r\n+ Added ability to seperately assign force flag for arm and disarm commands (joystick control)\r\n+ Added flight termination command\n",
       "mandatory-update": false
     }
   }

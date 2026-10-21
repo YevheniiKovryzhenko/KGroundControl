@@ -25,21 +25,22 @@
 #include <QString>
 #include <QTime>
 
-class QSimpleUpdater;
+class QNetworkAccessManager;
+#include <QUrl>
 class QDialog;
 class QProgressBar;
 class QLabel;
 class QWidget;
 
 /**
- * @brief Manages application auto-updates using QSimpleUpdater
+ * @brief Manages platform-specific, verified application updates
  * 
  * SAFETY-CRITICAL DESIGN:
  * - Non-blocking update checks with timeout
  * - Silent failure in offline mode
  * - Manual download only (no auto-download)
  * - User confirmation required for all actions
- * - Downloads to user's Downloads folder for transparency
+ * - Verified downloads to a bounded per-user cache
  */
 class UpdateManager : public QObject
 {
@@ -108,6 +109,7 @@ signals:
      * @brief Emitted when update check starts (non-blocking)
      */
     void checkingForUpdates();
+    void checkFinished();
 
     /**
      * @brief Emitted when a new version is available
@@ -156,10 +158,6 @@ signals:
      */
     void dialogClosed();
 
-private slots:
-    void onCheckingFinished(const QString &url);
-    void onDownloadFinishedInternal(const QString &url, const QString &filepath);
-
 public slots:
     void onDownloadStartedInternal();
     void onDownloadProgressInternal(qint64 bytesReceived, qint64 bytesTotal);
@@ -205,8 +203,20 @@ public:
     // writing desktop entries.  public so installIfNotInUserBin() can call
     // it without an instance.
     static QStringList desktopDirectories();
+    static QString defaultFeedUrl() {
+        return QStringLiteral("https://yevheniikovryzhenko.github.io/KGroundControl/updates.json");
+    }
 
-    QSimpleUpdater *m_updater;
+    bool isSilentCheck() const { return m_silentCheck; }
+
+private:
+    QNetworkAccessManager *m_network;
+    bool m_checkPending = false;
+    bool m_downloadPending = false;
+    bool m_installPending = false;
+    QUrl m_assetUrl;
+    QByteArray m_expectedSha256;
+    qint64 m_expectedSize = 0;
     QString m_updateUrl;
     QString m_latestVersion;
     QString m_changelog;
@@ -214,14 +224,8 @@ public:
     bool m_silentCheck;
     QString m_downloadFilePath;
 
-    // keep track of which platform key we asked for and whether we've
-    // already tried falling back to the generic "linux" entry.  This
-    // allows the updater to gracefully handle old JSON files that only
-    // contain a single "linux" entry while still preferring a
-    // distribution‑specific key when available.
     QString m_requestedPlatformKey;
-    bool m_didFallback;
-    
+
     // Dialog management
     QDialog* m_updateDialog;
     QProgressBar* m_progressBar;
@@ -231,7 +235,7 @@ public:
     qint64 m_lastBytesReceived;
     QTime m_lastProgressTime;
 
-    // helper used internally to build a platform key string for linux
+    // Exact build platform and architecture, shared with release asset naming.
     QString computePlatformKey() const;
 };
 

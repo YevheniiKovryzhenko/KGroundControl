@@ -1,13 +1,56 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.22)
 
 # Use modern policy so CMAKE_MSVC_RUNTIME_LIBRARY works as intended (CMake >= 3.15)
 if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
-project(KGroundControl VERSION 1.3.2 LANGUAGES CXX)
+# Release tags provide the version without editing source on
+# main and every release branch for each patch tag.
+set(KGC_VERSION "" CACHE STRING "Release version override (otherwise use exact Git tag)")
+set(_kgc_version "${KGC_VERSION}")
+if(NOT _kgc_version)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-common-dir
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE _kgc_git_dir OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        get_filename_component(_kgc_git_dir "${_kgc_git_dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        file(GLOB_RECURSE _kgc_tag_files CONFIGURE_DEPENDS "${_kgc_git_dir}/refs/tags/*")
+        foreach(_git_metadata "${_kgc_git_dir}/HEAD" "${_kgc_git_dir}/packed-refs" ${_kgc_tag_files})
+            if(EXISTS "${_git_metadata}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_git_metadata}")
+            endif()
+        endforeach()
+        execute_process(COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE _kgc_tag OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(_kgc_tag MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$")
+            set(_kgc_version "${CMAKE_MATCH_1}")
+        endif()
+        if(NOT _kgc_version)
+            execute_process(COMMAND "${GIT_EXECUTABLE}" tag --merged HEAD
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                OUTPUT_VARIABLE _kgc_tags OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+            string(REPLACE "\n" ";" _kgc_tags "${_kgc_tags}")
+            foreach(_tag IN LISTS _kgc_tags)
+                if(_tag MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$")
+                    if(NOT _kgc_version OR CMAKE_MATCH_1 VERSION_GREATER _kgc_version)
+                        set(_kgc_version "${CMAKE_MATCH_1}")
+                    endif()
+                endif()
+            endforeach()
+        endif()
+    endif()
+endif()
+if(NOT _kgc_version)
+    message(FATAL_ERROR "No stable Git version tag found. Fetch tags or set KGC_VERSION when building a source archive.")
+endif()
+if(NOT _kgc_version MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "KGC_VERSION must be a stable major.minor.patch version")
+endif()
+project(KGroundControl VERSION ${_kgc_version} LANGUAGES CXX)
 
-set(QT_TARGET_VERSION 6.10.2)
 
 # Ensure standard multi-config types exist when using a multi-config generator (e.g., MSVC/Visual Studio, Ninja Multi-Config)
 if(MSVC OR CMAKE_GENERATOR MATCHES "Multi-Config")
@@ -27,84 +70,6 @@ option(FORCE_QT_STATIC "Force static Qt build even if dynamic is available" OFF)
 
 # Add cmake modules path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
-# Cross-platform Qt path detection
-if(WIN32)
-    # Try common Windows Qt installation paths
-    set(QT_PATHS
-        "$ENV{QTDIR}"
-        # Static Qt installations
-        "C:/Qt/Static/v${QT_TARGET_VERSION}/install"
-        "C:/Qt_Static/v${QT_TARGET_VERSION}/install"
-        # Dynamic Qt installations (fallback)
-        "C:/Qt/Shared/v${QT_TARGET_VERSION}/install"
-        "C:/Qt_Shared/v${QT_TARGET_VERSION}/install"        
-        # Standard dynamic Qt installations (fallback)
-        "C:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
-        "D:/Qt/${QT_TARGET_VERSION}/msvc2022_64"
-        "C:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
-        "D:/Qt/${QT_TARGET_VERSION}/msvc2019_64"
-        # MinGW installations (last resort)
-        "C:/Qt/${QT_TARGET_VERSION}/mingw_64"
-        "D:/Qt/${QT_TARGET_VERSION}/mingw_64"
-    )
-    foreach(QT_PATH ${QT_PATHS})
-        if(EXISTS "${QT_PATH}")
-            message(STATUS "Found Qt installation at: ${QT_PATH}")
-            set(CMAKE_PREFIX_PATH "${QT_PATH}")
-            
-            # Set QT_STATIC_BUILD based on the Qt installation type (check static patterns FIRST!)
-            if("${QT_PATH}" MATCHES ".*[Ss]tatic.*" OR "${QT_PATH}" MATCHES ".*Qt_Static.*")
-                set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
-                message(STATUS "Using static Qt libraries")
-            elseif("${QT_PATH}" MATCHES ".*Qt_Shared.*" OR "${QT_PATH}" MATCHES ".*Qt/.*" OR "${QT_PATH}" MATCHES ".*msvc.*" OR "${QT_PATH}" MATCHES ".*mingw.*")
-                set(QT_STATIC_BUILD FALSE CACHE BOOL "Qt is built as shared/dynamic library" FORCE)
-                message(STATUS "Using dynamic Qt libraries")
-            endif()
-            
-            break()
-        endif()
-    endforeach()
-elseif(APPLE)
-    # Try common macOS Qt installation paths
-    set(QT_PATHS
-        "$ENV{QTDIR}"
-        "/opt/homebrew/lib/cmake/Qt6"
-        "/usr/local/lib/cmake/Qt6"
-        "~/Qt/${QT_TARGET_VERSION}/macos"
-    )
-    foreach(QT_PATH ${QT_PATHS})
-        if(EXISTS "${QT_PATH}")
-            set(CMAKE_PREFIX_PATH "${QT_PATH}")
-            break()
-        endif()
-    endforeach()
-else() # Linux and other Unix-like systems
-    # Try common Linux Qt installation paths
-    set(QT_PATHS
-        "$ENV{QTDIR}"
-        "/home/$ENV{USER}/Qt/Static/v${QT_TARGET_VERSION}/install"
-        "/home/$ENV{USER}/Qt/Shared/v${QT_TARGET_VERSION}/install"
-    )
-    foreach(QT_PATH ${QT_PATHS})
-        if(EXISTS "${QT_PATH}")
-            set(CMAKE_PREFIX_PATH "${QT_PATH}")
-            # Auto-detect whether this Qt is static or shared by checking for static libQt6Core.a
-            if(EXISTS "${QT_PATH}/lib/libQt6Core.a")
-                set(QT_STATIC_BUILD TRUE CACHE BOOL "Qt is built as static library" FORCE)
-                message(STATUS "Detected static Qt at: ${QT_PATH}")
-            endif()
-            break()
-        endif()
-    endforeach()
-endif()
-
-# If no Qt path found, let CMake find it automatically
-if(NOT CMAKE_PREFIX_PATH)
-    message(STATUS "No Qt installation found in common paths. CMake will search automatically.")
-endif()
-
-# Remove legacy deployer variables and complex packaging; we'll keep packaging simple.
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -132,13 +97,8 @@ if(MSVC)
     add_compile_options(/wd4100 /wd4189 /wd4244 /wd4267)
 endif()
 
-# Define simple debugging macros for every build configuration.  `QT_NO_DEBUG_OUTPUT`
-# causes qDebug()/qInfo()/qWarning() etc to be compiled away and is required on
-# platforms (Linux, non‑MSVC Qt builds) where the Qt libraries themselves
-# don’t automatically set it for Release configurations.  The companion
-# `DEBUG` macro makes any existing `#ifdef DEBUG` guards behave sensibly.
-# These definitions are unconditional; the MSVC runtime logic below is a
-# separate concern.
+# Keep qDebug output in Debug and suppress it in optimized builds.
+# qInfo/qWarning remain available; DEBUG supports existing conditional code.
 add_compile_definitions(
     $<$<CONFIG:Debug>:DEBUG>
     $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
@@ -159,68 +119,25 @@ if(ASAN)
     add_link_options(-fsanitize=address)
 endif()
 
-# **IMPORTANT**: Configure MSVC runtime BEFORE fetching dependencies
-# This ensures all dependencies (QSimpleUpdater, SDL2) use the same runtime library
-if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
-    # Check if debug static Qt core library exists
-    set(_qt_debug_core_lib_found FALSE)
-    if(CMAKE_PREFIX_PATH)
-        file(GLOB _qt_core_debug_candidates
-            LIST_DIRECTORIES FALSE
-            "${CMAKE_PREFIX_PATH}/lib/Qt6Cored.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core_debug.lib" "${CMAKE_PREFIX_PATH}/lib/Qt6Core*d.lib")
-        if(_qt_core_debug_candidates)
-            set(_qt_debug_core_lib_found TRUE)
-            message(STATUS "Found debug Qt libraries; using /MDd runtime")
-        endif()
-    endif()
-    if(NOT _qt_debug_core_lib_found)
-        message(STATUS "No debug static Qt core library found. Forcing /MD and _ITERATOR_DEBUG_LEVEL=0 in Debug to match release-only Qt.")
-        # Force multi-threaded DLL runtime (Release) for all configs to match release-only Qt
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "Force Release runtime in Debug config" FORCE)
-        # Disable iterator debugging to match release Qt libs
-        add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
-        # also define a simple DEBUG macro when building in Debug mode so any
-        # legacy #ifdef DEBUG blocks remain active without the user having to
-        # set it manually.  Qt normally defines QT_NO_DEBUG_OUTPUT in non‑debug
-        # builds, but some Qt installations (especially when static or built in
-        # debug mode) do not.  We force the definition ourselves to guarantee
-        # that qDebug()/qWarning() etc. are no‑ops outside of Debug configs.
-        add_compile_definitions(
-            $<$<CONFIG:Debug>:DEBUG>
-            $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
-        )
-    endif()
-endif()
+include(QtSetup)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+include(BuildOptimizations)
 
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Location)
-
-# Fetch QSimpleUpdater for auto-update functionality
 include(FetchContent)
-FetchContent_Declare(
-    QSimpleUpdater
-    GIT_REPOSITORY https://github.com/alex-spataru/QSimpleUpdater.git
-    GIT_TAG        master
-)
-set(QSIMPLEUPDATER_EXAMPLE OFF CACHE BOOL "Do not build QSimpleUpdater examples" FORCE)
-FetchContent_MakeAvailable(QSimpleUpdater)
 
 # Fetch SDL2 for hardware I/O and graphics
 # Configure SDL2 for static compilation BEFORE declaring
 set(SDL_SHARED OFF CACHE BOOL "Build SDL2 as shared library" FORCE)
 set(SDL_STATIC ON CACHE BOOL "Build SDL2 as static library" FORCE)
 set(SDL_TEST OFF CACHE BOOL "Build SDL2 tests" FORCE)
+# Keep SDL audio available alongside controller/haptic support.
+set(SDL_AUDIO ON CACHE BOOL "Enable SDL audio support" FORCE)
 FetchContent_Declare(
     SDL2
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG        release-2.32.10
 )
-FetchContent_Populate(SDL2)
-add_subdirectory(${sdl2_SOURCE_DIR} ${sdl2_BINARY_DIR})
+FetchContent_MakeAvailable(SDL2)
 
 
 # Fetch PX4 ulog_cpp for official ULog writing (optional; guarded)
@@ -248,6 +165,7 @@ set(PROJECT_HEADERS
     # include/cartography.h
     include/default_ui_config.h
     include/update_manager.h
+    include/update_manifest.h
 
     # Logging
     include/logging/log_manager.h
@@ -401,8 +319,6 @@ target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::SerialPort)
 target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Network)
 # target_link_libraries(KGroundControl PRIVATE Qt${QT_VERSION_MAJOR}::Location)
 
-# Link QSimpleUpdater for auto-update functionality
-target_link_libraries(KGroundControl PRIVATE QSimpleUpdater)
 
 # Link all the outside libraries used in this project (from libs folder and FetchContent):
 target_link_libraries(KGroundControl PRIVATE mavlink)
@@ -450,16 +366,12 @@ if(FORCE_QT_STATIC OR QT_STATIC_BUILD)
             # ODBC (for Qt SQL if needed)
             odbc32.lib
             odbccp32.lib
-            # Universal CRT and C runtime (for static linking)
-            msvcrt.lib
-            ucrt.lib
-            vcruntime.lib
         )
     endif()
 endif()
 
 # Include plugins (limit for Linux static builds to avoid pulling in QtPdf, etc.)
-if(UNIX AND (FORCE_QT_STATIC OR QT_STATIC_BUILD))
+if(QT_VERSION_MAJOR EQUAL 6 AND UNIX AND NOT APPLE AND QT_STATIC_BUILD)
     # Disable default plugin auto-imports and include only essential plugins
     # to prevent linking optional plugins such as QtPdf on static builds.
     qt_import_plugins(KGroundControl
@@ -560,13 +472,27 @@ else()
     set(BINARY_EXTENSION "")
 endif()
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" OR CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+    set(ARCH_NAME "arm64")
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(ARCH_NAME "x64")
 elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
     set(ARCH_NAME "x86")
 else()
     set(ARCH_NAME "unknown")
 endif()
+
+if(WIN32)
+    set(_update_platform "windows-${ARCH_NAME}")
+else()
+    string(TOLOWER "${OS_NAME}" _update_os)
+    string(REPLACE "_" "-" _update_os "${_update_os}")
+    set(_update_platform "linux-${_update_os}-${ARCH_NAME}")
+endif()
+target_compile_definitions(KGroundControl PRIVATE
+    APP_UPDATE_PLATFORM="${_update_platform}"
+    APP_UPDATE_ASSET_SUFFIX="${OS_NAME}_${ARCH_NAME}${BINARY_EXTENSION}"
+)
 
 # Versioned binary name: KGroundControl_v1.2.3_Ubuntu_24.04_x64
 set(VERSIONED_BINARY_NAME "KGroundControl_v${PROJECT_VERSION}_${OS_NAME}_${ARCH_NAME}${BINARY_EXTENSION}")
@@ -589,7 +515,7 @@ if(WIN32 AND NOT (FORCE_QT_STATIC OR QT_STATIC_BUILD))
     find_program(WINDEPLOYQT_EXECUTABLE
         NAMES windeployqt.exe windeployqt
         HINTS
-            "${QT_PATH}/bin"
+            "${Qt${QT_VERSION_MAJOR}_DIR}/../../../bin"
             "$ENV{QTDIR}/bin"
     )
     if(WINDEPLOYQT_EXECUTABLE)
@@ -606,34 +532,78 @@ if(WIN32 AND NOT (FORCE_QT_STATIC OR QT_STATIC_BUILD))
     endif()
 endif()
 
-# 2) For Release/MinSizeRel, create a simple DistributionKit layout automatically
-#    Output: <ProjectRoot>/DistributionKit/<CONFIG>/<Static|Shared>
-set(_IS_STATIC_GENEX "$<OR:$<BOOL:${FORCE_QT_STATIC}>,$<BOOL:${QT_STATIC_BUILD}>>")
-set(_STATIC_OR_SHARED "$<IF:${_IS_STATIC_GENEX},Static,Shared>")
-# Determine config name at build time; fall back to CMAKE_BUILD_TYPE for single-config generators
-set(_CONFIG_GENEX "$<IF:$<STREQUAL:$<CONFIG>,>,${CMAKE_BUILD_TYPE},$<CONFIG>>")
-# include OS_NAME so kits built on different OS/distributions do not
-# collide.  the variable is already defined above when we compute
-# VERSIONED_BINARY_NAME, but it may be empty during project configuration
-# if the detection ran later – ensure we compute it first by reusing the
-# logic or simply evaluating the same snippet here.  for simplicity we
-# assume OS_NAME has been set by the earlier section.
-set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/${_CONFIG_GENEX}/${OS_NAME}/${_STATIC_OR_SHARED}")
-
+# Deployment copies are separate from build/debug binaries and previous versions.
+option(KGC_STRIP_DEPLOYMENT "Strip symbols from Linux/MinGW deployment copies" ON)
+set(_kgc_system_runtime_libraries "")
+if(MSVC AND CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+    include(InstallRequiredSystemLibraries)
+    set(_kgc_system_runtime_libraries "${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}")
+endif()
+set(KGC_OPENSSL_RUNTIME_DIR "" CACHE PATH "Directory containing matching Windows OpenSSL runtime DLLs")
+set(KGC_DEPLOY_RUNTIME_FILES "" CACHE STRING "Additional runtime files to include in deployments (semicolon-separated)")
+set(_kgc_extra_runtime_files "${KGC_DEPLOY_RUNTIME_FILES}")
+if(WIN32)
+    set(_kgc_ssl_hints "${KGC_OPENSSL_RUNTIME_DIR}"
+        "${Qt${QT_VERSION_MAJOR}_DIR}/../../../bin"
+        "$ENV{OPENSSL_ROOT_DIR}/bin" "$ENV{ProgramFiles}/OpenSSL-Win64/bin")
+    find_file(_kgc_ssl_dll NAMES libssl-3-x64.dll libssl-3.dll HINTS ${_kgc_ssl_hints} NO_CACHE)
+    find_file(_kgc_crypto_dll NAMES libcrypto-3-x64.dll libcrypto-3.dll HINTS ${_kgc_ssl_hints} NO_CACHE)
+    if(_kgc_ssl_dll AND _kgc_crypto_dll)
+        list(APPEND _kgc_extra_runtime_files "${_kgc_ssl_dll}" "${_kgc_crypto_dll}")
+    else()
+        message(STATUS "OpenSSL DLLs not found for deployment; set KGC_OPENSSL_RUNTIME_DIR to bundle them")
+    endif()
+endif()
+set(_STATIC_OR_SHARED "$<IF:$<BOOL:${QT_STATIC_BUILD}>,Static,Shared>")
+set(_DEST_KIT "${PROJECT_SOURCE_DIR}/DistributionKit/$<CONFIG>/${OS_NAME}/${_STATIC_OR_SHARED}/v${PROJECT_VERSION}")
+set(_kgc_bundle "")
+if(APPLE)
+    set(_kgc_bundle "$<TARGET_BUNDLE_DIR:KGroundControl>")
+endif()
+# A generated input file preserves list arguments and paths containing spaces.
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/deployment-$<CONFIG>.cmake" CONTENT "
+set(PROJECT_SOURCE_DIR [==[${PROJECT_SOURCE_DIR}]==])
+set(TARGET_FILE [==[$<TARGET_FILE:KGroundControl>]==])
+set(APP_BUNDLE_DIR [==[${_kgc_bundle}]==])
+set(DEST_DIR [==[${_DEST_KIT}]==])
+set(CONFIG [==[$<CONFIG>]==])
+set(VERSIONED_BINARY_NAME [==[${VERSIONED_BINARY_NAME}]==])
+set(IS_STATIC [==[${QT_STATIC_BUILD}]==])
+set(IS_WINDOWS [==[${WIN32}]==])
+set(IS_APPLE [==[${APPLE}]==])
+set(IS_MSVC [==[${MSVC}]==])
+set(STRIP_DEPLOYMENT [==[${KGC_STRIP_DEPLOYMENT}]==])
+set(STRIP_EXECUTABLE [==[${CMAKE_STRIP}]==])
+set(WINDEPLOYQT_EXECUTABLE [==[${WINDEPLOYQT_EXECUTABLE}]==])
+set(SYSTEM_RUNTIME_LIBRARIES [==[${_kgc_system_runtime_libraries}]==])
+set(EXTRA_RUNTIME_FILES [==[${_kgc_extra_runtime_files}]==])
+set(BUILD_DESCRIPTION [==[Project: ${PROJECT_NAME} ${PROJECT_VERSION}
+Configuration: $<CONFIG>
+Qt: ${Qt${QT_VERSION_MAJOR}_VERSION}
+Static Qt: ${QT_STATIC_BUILD}
+Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}
+Architecture: ${ARCH_NAME}
+Platform: ${OS_NAME}
+Release C++ flags: ${CMAKE_CXX_FLAGS_RELEASE}
+Minimum Size Release C++ flags: ${CMAKE_CXX_FLAGS_MINSIZEREL}
+Link-time optimization requested: ${KGC_ENABLE_IPO}
+Link-time optimization enabled: $<BOOL:$<TARGET_PROPERTY:KGroundControl,INTERPROCEDURAL_OPTIMIZATION_$<UPPER_CASE:$<CONFIG>>>>
+Strip deployment requested: ${KGC_STRIP_DEPLOYMENT}
+]==])
+")
+set(_kgc_deploy_command "${CMAKE_COMMAND}"
+    "-DDEPLOYMENT_INPUT=${CMAKE_CURRENT_BINARY_DIR}/deployment-$<CONFIG>.cmake"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageDist.cmake")
 add_custom_command(TARGET KGroundControl POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-        -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-        -DTARGET_FILE=$<TARGET_FILE:KGroundControl>
-        -DTARGET_FILE_DIR=$<TARGET_FILE_DIR:KGroundControl>
-        -DDEST_DIR=${_DEST_KIT}
-        -DIS_STATIC=${_IS_STATIC_GENEX}
-        -DIS_WINDOWS=$<IF:$<PLATFORM_ID:Windows>,1,0>
-        -DWINDEPLOYQT_EXECUTABLE=${WINDEPLOYQT_EXECUTABLE}
-        -DCONFIG=${_CONFIG_GENEX}
-        -DVERSIONED_BINARY_NAME=${VERSIONED_BINARY_NAME}
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageDist.cmake
-    COMMENT "Packaging KGroundControl into DistributionKit for Release/MinSizeRel"
+    COMMAND ${_kgc_deploy_command}
+    COMMENT "Preparing deployment for optimized builds"
+    VERBATIM
 )
-
-
-
+# Explicit refresh also updates documentation/manifests when no relink is needed.
+add_custom_target(deployment
+    COMMAND ${_kgc_deploy_command}
+    DEPENDS KGroundControl
+    COMMENT "Refreshing deployment package"
+    VERBATIM
+)

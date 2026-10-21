@@ -1,144 +1,31 @@
 {
     "version": "2.0.0",
     "tasks": [
-        // Windows presets
         {
-            "label": "Configure (Preset) - Debug (Windows)",
+            "label": "CMake: configure active preset",
             "type": "cmake",
             "command": "configure",
-            "preset": "Debug (Windows)"
+            "preset": "${command:cmake.activeConfigurePresetName}",
+            "problemMatcher": []
         },
         {
-            "label": "Build (Preset) - Debug (Windows)",
+            "label": "CMake: build active preset",
             "type": "cmake",
             "command": "build",
-            "preset": "Debug (Windows)",
-            "group": { "kind": "build", "isDefault": false }
+            "preset": "${command:cmake.activeBuildPresetName}",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
         },
         {
-            "label": "Configure+Build (Preset) - Debug (Windows)",
+            "label": "CMake: configure and build active preset",
             "dependsOn": [
-                "Configure (Preset) - Debug (Windows)",
-                "Build (Preset) - Debug (Windows)"
+                "CMake: configure active preset",
+                "CMake: build active preset"
             ],
-            "dependsOrder": "sequence",
-            "group": "build"
-        },
-
-        {
-            "label": "Configure (Preset) - MinSizeRel (Windows)",
-            "type": "cmake",
-            "command": "configure",
-            "preset": "MinSizeRel (Windows)"
-        },
-        {
-            "label": "Build (Preset) - MinSizeRel (Windows)",
-            "type": "cmake",
-            "command": "build",
-            "preset": "MinSizeRel (Windows)",
-            "group": "build"
-        },
-        {
-            "label": "Configure+Build (Preset) - MinSizeRel (Windows)",
-            "dependsOn": [
-                "Configure (Preset) - MinSizeRel (Windows)",
-                "Build (Preset) - MinSizeRel (Windows)"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build"
-        },
-
-        {
-            "label": "Configure (Preset) - Release (Windows)",
-            "type": "cmake",
-            "command": "configure",
-            "preset": "Release (Windows)"
-        },
-        {
-            "label": "Build (Preset) - Release (Windows)",
-            "type": "cmake",
-            "command": "build",
-            "preset": "Release (Windows)",
-            "group": "build"
-        },
-        {
-            "label": "Configure+Build (Preset) - Release (Windows)",
-            "dependsOn": [
-                "Configure (Preset) - Release (Windows)",
-                "Build (Preset) - Release (Windows)"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build"
-        },
-
-        // Linux presets
-        {
-            "label": "Configure (Preset) - Debug (Linux)",
-            "type": "cmake",
-            "command": "configure",
-            "preset": "Debug (Linux)"
-        },
-        {
-            "label": "Build (Preset) - Debug (Linux)",
-            "type": "cmake",
-            "command": "build",
-            "preset": "Debug (Linux)",
-            "group": "build"
-        },
-        {
-            "label": "Configure+Build (Preset) - Debug (Linux)",
-            "dependsOn": [
-                "Configure (Preset) - Debug (Linux)",
-                "Build (Preset) - Debug (Linux)"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build"
-        },
-
-        {
-            "label": "Configure (Preset) - MinSizeRel (Linux)",
-            "type": "cmake",
-            "command": "configure",
-            "preset": "MinSizeRel (Linux)"
-        },
-        {
-            "label": "Build (Preset) - MinSizeRel (Linux)",
-            "type": "cmake",
-            "command": "build",
-            "preset": "MinSizeRel (Linux)",
-            "group": "build"
-        },
-        {
-            "label": "Configure+Build (Preset) - MinSizeRel (Linux)",
-            "dependsOn": [
-                "Configure (Preset) - MinSizeRel (Linux)",
-                "Build (Preset) - MinSizeRel (Linux)"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build"
-        },
-
-        {
-            "label": "Configure (Preset) - Release (Linux)",
-            "type": "cmake",
-            "command": "configure",
-            "preset": "Release (Linux)"
-        },
-        {
-            "label": "Build (Preset) - Release (Linux)",
-            "type": "cmake",
-            "command": "build",
-            "preset": "Release (Linux)",
-            "group": "build"
-        },
-        {
-            "label": "Configure+Build (Preset) - Release (Linux)",
-            "dependsOn": [
-                "Configure (Preset) - Release (Linux)",
-                "Build (Preset) - Release (Linux)"
-            ],
-            "dependsOrder": "sequence",
-            "group": "build"
+            "dependsOrder": "sequence"
         }
     ]
 }

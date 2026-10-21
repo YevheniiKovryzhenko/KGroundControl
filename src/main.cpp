@@ -39,6 +39,7 @@
 #include <QSettings>
 #include <QFont>
 #include <QToolTip>
+#include <iostream>
 
 void configureDarkStyle()
 {
@@ -72,6 +73,12 @@ void configureDarkStyle()
 
 int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--version") == 0) {
+            std::cout << APP_VERSION << std::endl;
+            return 0;
+        }
+    }
     QApplication a(argc, argv);
 
     // ensure QSettings reads from our application namespace even before we
