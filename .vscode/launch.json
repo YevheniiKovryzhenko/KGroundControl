@@ -2,64 +2,24 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run: Debug (Windows)",
+            "name": "KGroundControl (active preset, Linux)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${command:cmake.launchTargetPath}",
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "preLaunchTask": "CMake: configure and build active preset",
+            "MIMode": "gdb",
+            "externalConsole": false,
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/0a6e333661f88d066e3b44188efbaa6e/tonka3000.qtvsctools/qt.natvis.xml"
+        },
+        {
+            "name": "KGroundControl (active preset, Windows)",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - Debug (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Run: MinSizeRel (Windows)",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Run: Release (Windows)",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${command:cmake.launchTargetPath}",
-            "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Configure+Build (Preset) - Release (Windows)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Run: Debug (Linux)",
-            "type": "cppdbg",
-            "request": "launch",
-            "MIMode": "gdb",
-            "program": "${workspaceFolder}/build/Debug/bin/KGroundControl",
-            "cwd": "${workspaceFolder}/build/Debug/bin",
-            "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - Debug (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Run: MinSizeRel (Linux)",
-            "type": "cppdbg",
-            "request": "launch",
-            "MIMode": "gdb",
-            "program": "${workspaceFolder}/build/MinSizeRel/bin/KGroundControl",
-            "cwd": "${workspaceFolder}/build/MinSizeRel/bin",
-            "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - MinSizeRel (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
-        },
-        {
-            "name": "Run: Release (Linux)",
-            "type": "cppdbg",
-            "request": "launch",
-            "MIMode": "gdb",
-            "program": "${workspaceFolder}/build/Release/bin/KGroundControl",
-            "cwd": "${workspaceFolder}/build/Release/bin",
-            "externalConsole": false,
-            "preLaunchTask": "Configure+Build (Preset) - Release (Linux)",
-            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/02cfe60546cd7b38f0fab6d7a584b8c2/tonka3000.qtvsctools/qt.natvis.xml"
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "preLaunchTask": "CMake: configure and build active preset",
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/0a6e333661f88d066e3b44188efbaa6e/tonka3000.qtvsctools/qt.natvis.xml"
         }
     ]
 }

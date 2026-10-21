@@ -20,3 +20,10 @@ CMakeLists.txt.user*
 .vscode/browse.vc.db*
 .vscode/*.log
 libs/SDL/
+
+# Local SDK/toolchain overrides
+CMakeUserPresets.json
+
+# Release feed cache and Python bytecode
+.cache/update-feed/
+__pycache__/

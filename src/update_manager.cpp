@@ -19,7 +19,13 @@
  ****************************************************************************/
 
 #include "update_manager.h"
-#include <QSimpleUpdater.h>
+#include "update_manifest.h"
+#include <QSaveFile>
+#include <QCryptographicHash>
+#include <QTimer>
+#include <QLockFile>
+#include <QtEndian>
+#include <memory>
 #include <QCoreApplication>
 #include <QProcess>
 #include <QDir>
@@ -55,42 +61,57 @@
 // helpers
 //------------------------------------------------------------------------------
 
-QString UpdateManager::computePlatformKey() const
+namespace {
+bool atomicCopy(const QString &source, const QString &target, QString *error,
+                const QByteArray &expectedHash = {}, qint64 expectedSize = -1)
 {
-#ifdef Q_OS_LINUX
-    // start with a generic base; QSimpleUpdater expects keys that match the
-    // names within the JSON updates file.  we'll append distro information if
-    // we can determine it.
-    QString key = "linux";
-
-    QString distro = QSysInfo::productType().toLower();    // e.g. "ubuntu"
-    QString version = QSysInfo::productVersion();          // e.g. "24.04"
-
-    if (!distro.isEmpty()) {
-        // sanitize (replace spaces with '-') just in case
-        distro.replace(' ', '-');
-        key += "-" + distro;
+    QFile input(source);
+    QSaveFile output(target);
+    output.setDirectWriteFallback(false);
+    if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly)) {
+        *error = "Cannot open source or stage replacement: " + target;
+        return false;
     }
-    if (!version.isEmpty()) {
-        // keep the dot separator so the JSON key is human-readable
-        version.replace(' ', '-');
-        key += "-" + version;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    qint64 total = 0;
+    while (!input.atEnd()) {
+        const QByteArray bytes = input.read(1024 * 1024);
+        total += bytes.size();
+        hash.addData(bytes);
+        if (input.error() != QFile::NoError || output.write(bytes) != bytes.size()) {
+            *error = "Cannot copy replacement executable";
+            return false;
+        }
     }
-
-    // examples produced by this code:
-    //   linux-ubuntu-24.04
-    //   linux-debian-11
-
-    return key;
-#else
-    return QString();
-#endif
+    if ((!expectedHash.isEmpty() && hash.result().toHex() != expectedHash) ||
+        (expectedSize >= 0 && total != expectedSize)) {
+        *error = "Replacement changed while staging; current installation retained";
+        return false;
+    }
+    output.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
+                          QFile::ReadGroup | QFile::ExeGroup | QFile::ReadOther | QFile::ExeOther);
+    if (!output.commit()) {
+        *error = "Cannot atomically commit replacement: " + target;
+        return false;
+    }
+    return true;
 }
 
+bool writeVersion(const QString &target, const QString &version)
+{
+    QSaveFile file(target + ".version");
+    return file.open(QIODevice::WriteOnly) && file.write(version.toUtf8()) == version.toUtf8().size() && file.commit();
+}
+}
+
+QString UpdateManager::computePlatformKey() const
+{
+    return QStringLiteral(APP_UPDATE_PLATFORM);
+}
 
 UpdateManager::UpdateManager(QObject *parent)
     : QObject(parent)
-    , m_updater(QSimpleUpdater::getInstance())
+    , m_network(new QNetworkAccessManager(this))
     , m_updateAvailable(false)
     , m_silentCheck(true)
     , m_updateDialog(nullptr)
@@ -98,7 +119,6 @@ UpdateManager::UpdateManager(QObject *parent)
     , m_progressLabel(nullptr)
     , m_progressContainer(nullptr)
     , m_lastBytesReceived(0)
-    , m_didFallback(false)
 {
     // (constructor body left deliberately empty; install check is handled
     // early in main() via installIfNotInUserBin())
@@ -119,11 +139,7 @@ UpdateManager::UpdateManager(QObject *parent)
         }
     }
 
-    // Connect updater signals
-    connect(m_updater, &QSimpleUpdater::downloadFinished,
-            this, &UpdateManager::onDownloadFinishedInternal);
-    connect(m_updater, &QSimpleUpdater::checkingFinished,
-            this, &UpdateManager::onCheckingFinished);
+
 }
 
 UpdateManager::~UpdateManager()
@@ -132,183 +148,125 @@ UpdateManager::~UpdateManager()
 
 void UpdateManager::checkForUpdates(const QString &updateUrl, bool silent)
 {
-    if (updateUrl.isEmpty()) {
-        qDebug() << "[UpdateManager] Update URL is empty, skipping check";
-        return;
-    }
-
+    if (m_checkPending || m_downloadPending || updateUrl.isEmpty()) return;
     m_updateUrl = updateUrl;
     m_silentCheck = silent;
     m_updateAvailable = false;
-    m_requestedPlatformKey.clear();
-    m_didFallback = false;
-    
-    qDebug() << "[UpdateManager] Checking for updates from:" << updateUrl;
-    qDebug() << "[UpdateManager] Current version:" << APP_VERSION;
-    qDebug() << "[UpdateManager] Silent mode:" << silent;
-    
-    emit checkingForUpdates();
-    
-    // Configure updater for SAFETY CRITICAL operation
-    m_updater->setModuleVersion(updateUrl, APP_VERSION);
-    m_updater->setNotifyOnFinish(updateUrl, false);        // We handle notifications
-    m_updater->setNotifyOnUpdate(updateUrl, false);        // We handle dialogs
-    m_updater->setDownloaderEnabled(updateUrl, true);      // Enable downloader
-    m_updater->setMandatoryUpdate(updateUrl, false);       // Never mandatory
-    
-    // Determine and set platform key.  On linux we try to be specific
-    // (distribution + version) but fall back to the old "linux" key if
-    // the JSON doesn't contain a matching entry.  The extra member
-    // variables are used in onCheckingFinished() to detect the need for
-    // a second attempt.
-#ifdef Q_OS_WIN
-    m_requestedPlatformKey = "windows";
-    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
-#elif defined(Q_OS_LINUX)
+    m_checkPending = true;
     m_requestedPlatformKey = computePlatformKey();
-    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
-#elif defined(Q_OS_MAC)
-    m_requestedPlatformKey = "mac";
-    m_updater->setPlatformKey(updateUrl, m_requestedPlatformKey);
-#endif
-    qDebug() << "[UpdateManager] using platform key:" << m_requestedPlatformKey;
-    
-    // Use Downloads folder for safety and user visibility
-    QString downloadPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    m_updater->setDownloadDir(updateUrl, downloadPath);
-    
-    // Start non-blocking check (has built-in timeout)
-    m_updater->checkForUpdates(updateUrl);
+    emit checkingForUpdates();
+    QNetworkRequest request{QUrl(updateUrl)};
+    request.setRawHeader("User-Agent", "KGroundControl/" APP_VERSION);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    request.setTransferTimeout(10000);
+    auto *reply = m_network->get(request);
+    reply->setReadBufferSize(8 * 1024 * 1024 + 1);
+    QTimer::singleShot(10000, reply, [reply]() { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        m_checkPending = false;
+        emit checkFinished();
+        const auto bytes = reply->readAll();
+        const auto networkError = reply->error();
+        const auto networkMessage = reply->errorString();
+        reply->deleteLater();
+        if (networkError != QNetworkReply::NoError) {
+            emit updateError("Update network check failed: " + networkMessage);
+            return;
+        }
+        if (bytes.size() > 8 * 1024 * 1024) {
+            emit updateError("Update feed is too large");
+            return;
+        }
+        UpdateManifest::Candidate candidate;
+        QString error;
+        if (!UpdateManifest::select(QJsonDocument::fromJson(bytes), m_requestedPlatformKey,
+                QStringLiteral(APP_UPDATE_ASSET_SUFFIX), QStringLiteral(APP_VERSION),
+                &candidate, &error, QUrl(m_updateUrl).isLocalFile())) {
+            emit updateError(error);
+            return;
+        }
+        if (candidate.version.isEmpty()) {
+            if (!m_silentCheck) emit noUpdatesAvailable();
+            return;
+        }
+        m_latestVersion = candidate.version;
+        m_changelog = candidate.changelog;
+        m_assetUrl = candidate.url;
+        m_expectedSha256 = candidate.sha256;
+        m_expectedSize = candidate.size;
+        m_updateAvailable = true;
+        emit updateAvailable(m_latestVersion, m_changelog);
+    });
 }
 
 void UpdateManager::downloadUpdate()
 {
-    if (!m_updateAvailable) {
-        qWarning() << "[UpdateManager] No update available to download";
-        emit updateError("No update available");
+    if (m_downloadPending) return;
+    if (!m_updateAvailable || m_assetUrl.isEmpty() || m_expectedSha256.isEmpty()) {
+        emit updateError("No verified compatible update is available");
         return;
     }
-    
-    if (m_updateUrl.isEmpty()) {
-        qWarning() << "[UpdateManager] Update URL not set";
-        emit updateError("Update URL not configured");
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/updates";
+    if (!QDir().mkpath(directory)) {
+        emit updateError("Cannot create update cache");
         return;
     }
-    
-    qDebug() << "[UpdateManager] Starting manual download of update";
-    
-    // Get download URL from updater
-    QString downloadUrl = m_updater->getDownloadUrl(m_updateUrl);
-    if (downloadUrl.isEmpty()) {
-        qWarning() << "[UpdateManager] No download URL available";
-        emit updateError("Download URL not found");
-        return;
-    }
-    
-    qDebug() << "[UpdateManager] Download URL:" << downloadUrl;
-    
-    // Check if it's a local file:// URL (for testing)
-    if (downloadUrl.startsWith("file://")) {
-        // Local file - just copy it
-        QString localPath = QUrl(downloadUrl).toLocalFile();
-        
-        // Determine download file path
-        QString downloadPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-        QString fileName = "KGroundControl_update";
 #ifdef Q_OS_WIN
-        fileName += ".exe";
+    const QString filename = "KGroundControl-update.exe";
+#else
+    const QString filename = "KGroundControl-update";
 #endif
-        m_downloadFilePath = downloadPath + "/" + fileName;
-        
-        qDebug() << "[UpdateManager] Local file detected, copying from:" << localPath;
-        qDebug() << "[UpdateManager] Copying to:" << m_downloadFilePath;
-        
-        emit downloadStarted();
-        
-        // Remove old download if exists
-        if (QFile::exists(m_downloadFilePath)) {
-            QFile::remove(m_downloadFilePath);
-        }
-        
-        // Copy the file
-        if (QFile::copy(localPath, m_downloadFilePath)) {
-            // Set executable permissions
-#ifdef Q_OS_LINUX
-            QFile file(m_downloadFilePath);
-            file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
-                               QFile::ReadGroup | QFile::ExeGroup |
-                               QFile::ReadOther | QFile::ExeOther);
-#endif
-            
-            qDebug() << "[UpdateManager] File copied successfully";
-            QFileInfo info(m_downloadFilePath);
-            emit downloadProgress(info.size(), info.size());  // 100% progress
-            emit downloadFinished(m_downloadFilePath);
-        } else {
-            qWarning() << "[UpdateManager] Failed to copy file";
-            emit updateError("Failed to copy update file");
-        }
+    m_downloadFilePath = directory + "/" + filename;
+    struct Transfer {
+        QSaveFile file;
+        QCryptographicHash hash{QCryptographicHash::Sha256};
+        qint64 received = 0;
+        QString error;
+        explicit Transfer(const QString &path) : file(path) {}
+    };
+    auto transfer = std::make_shared<Transfer>(m_downloadFilePath);
+    // Never fall back to truncating a completed cached update.
+    transfer->file.setDirectWriteFallback(false);
+    if (!transfer->file.open(QIODevice::WriteOnly)) {
+        emit updateError("Cannot write update cache");
         return;
     }
-    
-    // Network download - use QNetworkAccessManager
-    // Determine download file path
-    QString downloadPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    QString fileName = QFileInfo(QUrl(downloadUrl).path()).fileName();
-    if (fileName.isEmpty()) {
-        fileName = "KGroundControl_update";
-#ifdef Q_OS_WIN
-        fileName += ".exe";
-#endif
-    }
-    m_downloadFilePath = downloadPath + "/" + fileName;
-    
-    qDebug() << "[UpdateManager] Download URL:" << downloadUrl;
-    qDebug() << "[UpdateManager] Saving to:" << m_downloadFilePath;
-    
+    m_downloadPending = true;
     emit downloadStarted();
-    
-    // Start manual download with QNetworkAccessManager
-    QNetworkAccessManager *nam = new QNetworkAccessManager(this);
-    QNetworkRequest request(downloadUrl);
-    QNetworkReply *reply = nam->get(request);
-    
-    // Connect progress signal
-    connect(reply, &QNetworkReply::downloadProgress,
-            this, &UpdateManager::downloadProgress);
-    
-    // Handle download completion
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "[UpdateManager] Download error:" << reply->errorString();
-            emit updateError("Download failed: " + reply->errorString());
-            reply->deleteLater();
+    QNetworkRequest request(m_assetUrl);
+    request.setTransferTimeout(60000);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto *reply = m_network->get(request);
+    reply->setReadBufferSize(256 * 1024);
+    const auto consume = [this, reply, transfer]() {
+        const auto chunk = reply->readAll();
+        transfer->received += chunk.size();
+        if (transfer->received > m_expectedSize || transfer->file.write(chunk) != chunk.size()) {
+            transfer->error = "Update size exceeds manifest or cache write failed";
+            reply->abort();
             return;
         }
-        
-        // Save downloaded data to file
-        QFile file(m_downloadFilePath);
-        if (!file.open(QIODevice::WriteOnly)) {
-            qWarning() << "[UpdateManager] Cannot write to file:" << m_downloadFilePath;
-            emit updateError("Cannot save update file");
-            reply->deleteLater();
-            return;
-        }
-        
-        file.write(reply->readAll());
-        file.close();
-        
-        // Make executable on Linux
-#ifdef Q_OS_LINUX
-        file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
-                           QFile::ReadGroup | QFile::ExeGroup |
-                           QFile::ReadOther | QFile::ExeOther);
-#endif
-        
-        qDebug() << "[UpdateManager] Download complete:" << m_downloadFilePath;
-        emit downloadFinished(m_downloadFilePath);
-        
+        transfer->hash.addData(chunk);
+    };
+    connect(reply, &QNetworkReply::readyRead, this, consume);
+    connect(reply, &QNetworkReply::downloadProgress, this, &UpdateManager::downloadProgress);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, transfer, consume]() {
+        consume();
+        m_downloadPending = false;
+        QString error = transfer->error;
+        if (error.isEmpty() && reply->error() != QNetworkReply::NoError)
+            error = "Download failed: " + reply->errorString();
+        if (error.isEmpty() && (transfer->received != m_expectedSize ||
+                transfer->hash.result().toHex() != m_expectedSha256))
+            error = "Downloaded update checksum or size does not match";
+        if (error.isEmpty() && !transfer->file.commit()) error = "Cannot save verified update";
         reply->deleteLater();
+        if (!error.isEmpty()) {
+            transfer->file.cancelWriting();
+            emit updateError(error);
+            return;
+        }
+        emit downloadFinished(m_downloadFilePath);
     });
 }
 
@@ -324,96 +282,49 @@ bool UpdateManager::isUpdateAvailable() const
 
 bool UpdateManager::applyUpdate(const QString &downloadedFilePath, bool restartApp)
 {
-    if (downloadedFilePath.isEmpty() || !QFile::exists(downloadedFilePath)) {
-        qWarning() << "[UpdateManager] Invalid or missing update file:" << downloadedFilePath;
-        emit updateError("Update file not found");
+    if (m_installPending) return true;
+    QFile file(downloadedFilePath);
+    if (downloadedFilePath != m_downloadFilePath || !file.open(QIODevice::ReadOnly) ||
+        file.size() != m_expectedSize) {
+        emit updateError("No complete verified update is staged");
         return false;
     }
-    
-    qDebug() << "[UpdateManager] User confirmed update application";
-    qDebug() << "[UpdateManager] Restart after update:" << restartApp;
-    return performBinarySwap(downloadedFilePath, restartApp);
-}
-
-void UpdateManager::onCheckingFinished(const QString &url)
-{
-    if (url != m_updateUrl) {
-        return;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file) || hash.result().toHex() != m_expectedSha256) {
+        emit updateError("Staged update checksum changed; refusing installation");
+        return false;
     }
-    
-    // Debug: check what version we got
-    QString fetchedVersion = m_updater->getLatestVersion(url);
-    qDebug() << "[UpdateManager] Fetched version:" << fetchedVersion;
-    if (fetchedVersion.isEmpty()) {
-        qDebug() << "[UpdateManager] fetchedVersion is empty - network lookup failed";
+    file.seek(0);
+    const QByteArray header = file.read(64);
+#ifdef Q_OS_WIN
+    if (header.size() < 64 || !header.startsWith("MZ")) {
+        emit updateError("Update is not a Windows executable");
+        return false;
     }
-    qDebug() << "[UpdateManager] Current version:" << APP_VERSION;
-    
-    bool updateAvailableFlag = m_updater->getUpdateAvailable(url);
-    qDebug() << "[UpdateManager] Update available flag:" << updateAvailableFlag;
-    
-    if (updateAvailableFlag) {
-        m_latestVersion = fetchedVersion;
-        m_changelog = m_updater->getChangelog(url);
-        m_updateAvailable = true;
-        
-        qDebug() << "[UpdateManager] Update available! Latest version:" << m_latestVersion;
-        qDebug() << "[UpdateManager] Changelog:" << m_changelog;
-        
-        // Emit signal for UI to handle (non-intrusive)
-        emit updateAvailable(m_latestVersion, m_changelog);
-    } else {
-        // Only fall back to the generic "linux" key if the platform-specific
-        // entry doesn't exist at all.  If the key is present but simply
-        // doesn't have a newer version, we should not retry; doing so would
-        // cause a downgrade to whatever the generic entry contains.
-        if (!m_didFallback && !m_requestedPlatformKey.isEmpty() &&
-            m_requestedPlatformKey != "linux") {
-            QString downloadUrl = m_updater->getDownloadUrl(url);
-            if (downloadUrl.isEmpty()) {
-                // no asset present for the specific key; fall back once to
-                // the generic linux entry and update our record so future
-                // messaging reflects the actual query.
-                qDebug() << "[UpdateManager] no asset for" << m_requestedPlatformKey
-                         << ", retrying with generic linux key";
-                m_didFallback = true;
-                m_requestedPlatformKey = "linux";              // record change
-                m_updater->setPlatformKey(url, "linux");
-                m_updater->checkForUpdates(url);
-                return; // wait for second callback
-            }
-        }
-
-        qDebug() << "[UpdateManager] No updates available. You have the latest version.";
-        m_updateAvailable = false;
-        
-        // Only notify if not silent (e.g., manual check by user)
-        if (!m_silentCheck) {
-            emit noUpdatesAvailable();
-        }
+    const auto peOffset = qFromLittleEndian<quint32>(header.constData() + 60);
+    if (peOffset > file.size() - 6 || !file.seek(peOffset)) return false;
+    const auto pe = file.read(6);
+    const quint16 expectedMachine = QStringLiteral(APP_UPDATE_ASSET_SUFFIX).contains("arm64") ? 0xaa64 :
+        (sizeof(void *) == 8 ? 0x8664 : 0x14c);
+    if (!pe.startsWith(QByteArray("PE\0\0", 4)) || qFromLittleEndian<quint16>(pe.constData() + 4) != expectedMachine) {
+        emit updateError("Update Windows architecture does not match");
+        return false;
     }
-}
-
-void UpdateManager::onDownloadFinishedInternal(const QString &url, const QString &filepath)
-{
-    if (url != m_updateUrl) {
-        return;
+#else
+    const quint16 expectedMachine = QStringLiteral(APP_UPDATE_ASSET_SUFFIX).contains("arm64") ? 183 :
+        (sizeof(void *) == 8 ? 62 : 3);
+    if (header.size() < 20 || !header.startsWith(QByteArray("\x7f" "ELF", 4)) ||
+        header[5] != 1 || qFromLittleEndian<quint16>(header.constData() + 18) != expectedMachine) {
+        emit updateError("Update ELF architecture does not match");
+        return false;
     }
-    
-    qDebug() << "[UpdateManager] Download finished:" << filepath;
-    
-    if (!QFile::exists(filepath)) {
-        QString error = "Downloaded file not found: " + filepath;
-        qWarning() << "[UpdateManager]" << error;
-        emit updateError(error);
-        return;
-    }
-    
-    // Notify that download is complete
-    emit downloadFinished(filepath);
-    
-    // Do NOT automatically apply update - wait for user confirmation via UI
-    qDebug() << "[UpdateManager] Update ready. Waiting for user to apply.";
+#endif
+    file.close();
+    // Mark before swap: a restart can synchronously enter closeEvent again.
+    m_installPending = true;
+    const bool applied = performBinarySwap(downloadedFilePath, restartApp);
+    if (!applied) m_installPending = false;
+    return applied;
 }
 
 bool UpdateManager::performBinarySwap(const QString &newBinaryPath, bool restartApp)
@@ -433,188 +344,128 @@ bool UpdateManager::performBinarySwap(const QString &newBinaryPath, bool restart
 
 bool UpdateManager::performLinuxSwap(const QString &newBinaryPath, bool restartApp)
 {
-    // If the running binary is not already in the per‑user bin directory,
-    // treat this as a one‑time install rather than a simple swap.  The
-    // new location is ~/.local/bin/KGroundControl which is writable by the
-    // user and recognised by desktop environments when a corresponding
-    // .desktop file exists.
-    QString currentApp = QCoreApplication::applicationFilePath();
-    QString userBin = QDir::homePath() + "/.local/bin";
-    if (!currentApp.startsWith(userBin + "/")) {
-        qDebug() << "[UpdateManager] Current binary not in user bin, performing user install";
-        return performLinuxUserInstall(newBinaryPath, restartApp);
-    }
-
-    qDebug() << "[UpdateManager] Linux swap:";
-    qDebug() << "  Current binary:" << currentApp;
-    qDebug() << "  New binary:" << newBinaryPath;
-    qDebug() << "  Restart after swap:" << restartApp;
-    
-    // Set executable permissions on the new binary
-    QFile newFile(newBinaryPath);
-    if (!newFile.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                                 QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                                 QFileDevice::ReadOther | QFileDevice::ExeOther)) {
-        qWarning() << "[UpdateManager] Failed to set execute permissions on new binary";
-        emit updateError("Failed to set executable permissions");
+    const QString current = QCoreApplication::applicationFilePath();
+    const QString userBin = QDir::homePath() + "/.local/bin";
+    const QString target = current.startsWith(userBin + "/") ? current : userBin + "/KGroundControl";
+    QDir().mkpath(QFileInfo(target).absolutePath());
+    QLockFile lock(target + ".install.lock");
+    if (!lock.tryLock(0)) {
+        emit updateError("Another KGC installation is in progress");
         return false;
     }
-
-    // remove current binary and replace it
-    if (QFile::exists(currentApp)) {
-        QFile::remove(currentApp);
+    // Check loader dependencies before replacing an otherwise working installation.
+    QProcess loaderCheck;
+    loaderCheck.start("ldd", {newBinaryPath});
+    if (!loaderCheck.waitForFinished(10000) || loaderCheck.exitCode() != 0 ||
+        loaderCheck.readAllStandardOutput().contains("not found")) {
+        loaderCheck.kill();
+        emit updateError("Update needs missing or incompatible system libraries; install the release runtime prerequisites first");
+        return false;
     }
-
-    if (QFile::rename(newBinaryPath, currentApp)) {
-        qDebug() << "[UpdateManager] Binary replaced successfully.";
-
-        if (restartApp) {
-            qDebug() << "[UpdateManager] Restarting application...";
-            QStringList args;
-            if (QProcess::startDetached(currentApp, args)) {
-                qDebug() << "[UpdateManager] Restart command issued successfully";
-            } else {
-                qWarning() << "[UpdateManager] Failed to start detached process";
-            }
-            QCoreApplication::quit();
-        } else {
-            qDebug() << "[UpdateManager] Update installed, will be active on next launch.";
+    QString error;
+    const QString backup = target + ".previous";
+    if (QFile::exists(target) && !atomicCopy(target, backup, &error)) {
+        emit updateError(error);
+        return false;
+    }
+    if (!atomicCopy(newBinaryPath, target, &error, m_expectedSha256, m_expectedSize)) {
+        emit updateError(error);
+        return false;
+    }
+    writeVersion(target, m_latestVersion);
+    writeDesktopEntry(target);
+    ensureIconCurrent();
+    if (restartApp && !QProcess::startDetached(target, QCoreApplication::arguments().mid(1), QDir::homePath())) {
+        if (QFile::exists(backup)) {
+            atomicCopy(backup, target, &error);
+            writeVersion(target, QStringLiteral(APP_VERSION));
         }
-        return true;
-    } else {
-        qWarning() << "[UpdateManager] Failed to move new binary to application location";
-        emit updateError("Failed to replace binary. Check file permissions.");
+        emit updateError("Cannot restart updated application; retained rollback copy");
         return false;
     }
+    QFile::remove(newBinaryPath);
+    if (restartApp) QCoreApplication::quit();
+    return true;
 }
 
 bool UpdateManager::performWindowsSwap(const QString &newBinaryPath, bool restartApp)
 {
-    // Get the path to the currently running executable
-    QString currentApp = QCoreApplication::applicationFilePath();
-    
-    qDebug() << "[UpdateManager] Windows swap:";
-    qDebug() << "  Current binary:" << currentApp;
-    qDebug() << "  New binary:" << newBinaryPath;
-    qDebug() << "  Restart after swap:" << restartApp;
-    
-    // Create batch script in Downloads folder (not system temp for transparency)
-    QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    QString batchPath = QDir(downloadsPath).absoluteFilePath("kgroundcontrol_updater.bat");
-    
-    QFile batch(batchPath);
-    if (!batch.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qWarning() << "[UpdateManager] Failed to create update batch script";
-        emit updateError("Failed to create update script");
+    const QString target = QCoreApplication::applicationFilePath();
+    const QString id = QString::number(QCoreApplication::applicationPid());
+    const QString next = target + ".update-" + id;
+    QString error;
+    if (!atomicCopy(newBinaryPath, next, &error, m_expectedSha256, m_expectedSize)) {
+        emit updateError(error);
         return false;
     }
-    
-    QTextStream out(&batch);
-    out << "@echo off\n";
-    out << "REM KGroundControl Auto-Update Script\n";
-    out << "REM This script will replace the old executable with the new one\n";
-    out << "echo Waiting for application to close...\n";
-    out << "timeout /t 1 /nobreak > NUL\n";
-    out << "echo Updating KGroundControl...\n";
-    out << "del /f \"" << QDir::toNativeSeparators(currentApp) << "\"\n";
-    out << "move /y \"" << QDir::toNativeSeparators(newBinaryPath) << "\" \"" << QDir::toNativeSeparators(currentApp) << "\"\n";
-    out << "if errorlevel 1 (\n";
-    out << "    echo Update failed! Press any key to exit.\n";
-    out << "    pause > NUL\n";
-    out << "    exit /b 1\n";
-    out << ")\n";
-    out << "echo Update successful!\n";
-    
-    if (restartApp) {
-        out << "start \"\" \"" << QDir::toNativeSeparators(currentApp) << "\"\n";
-        out << "timeout /t 1 /nobreak > NUL\n";
-    }
-    
-    out << "del \"%~f0\"\n"; // Self-delete the batch file
-    batch.close();
-    
-    qDebug() << "[UpdateManager] Created update script:" << batchPath;
-    
-    // Start the batch script detached and quit the application
-    bool started = QProcess::startDetached("cmd.exe", QStringList() << "/c" << QDir::toNativeSeparators(batchPath));
-    
-    if (started) {
-        qDebug() << "[UpdateManager] Update script started. Application will quit.";
-        QCoreApplication::quit();
-        return true;
-    } else {
-        qWarning() << "[UpdateManager] Failed to start update script";
-        emit updateError("Failed to start update process");
+    const QString directory = QFileInfo(newBinaryPath).absolutePath();
+    const QString scriptPath = directory + "/install-update-" + id + ".ps1";
+    const QString configPath = directory + "/install-update-" + id + ".json";
+    QFile script(scriptPath);
+    if (!script.open(QIODevice::WriteOnly)) {
+        emit updateError("Cannot stage Windows update helper");
         return false;
     }
+    script.write(R"PS(param([string]$Config)
+$ErrorActionPreference = 'Stop'
+$c = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
+$backup = $c.target + '.previous'
+$replaced = $false
+$lock = $null
+$errorPath = Join-Path ([System.IO.Path]::GetDirectoryName($Config)) 'last-update-error.txt'
+try {
+    $lock = [System.IO.File]::Open($c.target + '.install.lock', 'OpenOrCreate', 'ReadWrite', 'None')
+    $process = Get-Process -Id $c.pid -ErrorAction SilentlyContinue
+    if ($process -and -not $process.WaitForExit(120000)) { throw 'Application did not exit; update left staged' }
+    if ((Get-FileHash -LiteralPath $c.next -Algorithm SHA256).Hash.ToLower() -ne $c.sha256) { throw 'Staged update checksum mismatch' }
+    if (Test-Path -LiteralPath $c.target) {
+        if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
+        [System.IO.File]::Replace($c.next, $c.target, $backup)
+    } else { [System.IO.File]::Move($c.next, $c.target) }
+    $replaced = $true
+    [System.IO.File]::WriteAllText($c.target + '.version', $c.version)
+    if ($c.restart) { Start-Process -FilePath $c.target -WorkingDirectory ([System.IO.Path]::GetDirectoryName($c.target)) }
+    Remove-Item -LiteralPath $c.download -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
+} catch {
+    if ($replaced -and (Test-Path -LiteralPath $backup)) {
+        [System.IO.File]::Copy($backup, $c.target, $true)
+        [System.IO.File]::WriteAllText($c.target + '.version', $c.oldVersion)
+    }
+    [System.IO.File]::WriteAllText($errorPath, $_.Exception.Message)
+} finally {
+    if ($lock) { $lock.Dispose() }
+    Remove-Item -LiteralPath $c.next -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Config -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
-// new helper for user‑level installation
+)PS");
+    script.close();
+    QJsonObject configuration{
+        {"target", target}, {"next", next}, {"download", newBinaryPath},
+        {"sha256", QString::fromLatin1(m_expectedSha256)}, {"version", m_latestVersion},
+        {"oldVersion", QStringLiteral(APP_VERSION)},
+        {"pid", QCoreApplication::applicationPid()}, {"restart", restartApp}
+    };
+    QSaveFile config(configPath);
+    if (!config.open(QIODevice::WriteOnly) ||
+        config.write(QJsonDocument(configuration).toJson()) < 0 || !config.commit()) {
+        emit updateError("Cannot write Windows update configuration");
+        return false;
+    }
+    const bool started = QProcess::startDetached("powershell.exe", {
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Config", configPath});
+    if (!started) {
+        emit updateError("Cannot start Windows update helper; current executable is unchanged");
+        return false;
+    }
+    if (restartApp) QCoreApplication::quit();
+    return true;
+}
+
 bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool restartApp)
 {
-    QString userBin = QDir::homePath() + "/.local/bin";
-    QDir().mkpath(userBin);
-    QString installPath = userBin + "/KGroundControl";   // uppercase keeps original name
-
-    qDebug() << "[UpdateManager] Installing to" << installPath;
-
-    // remove old installs (both cases) if present so we don't leave stray copies
-    QString altLower = userBin + "/kgroundcontrol";
-    if (QFile::exists(installPath)) {
-        QFile::remove(installPath);
-    }
-    if (QFile::exists(altLower)) {
-        QFile::remove(altLower);
-    }
-
-    if (!QFile::copy(newBinaryPath, installPath)) {
-        qWarning() << "[UpdateManager] Failed to copy new binary to" << installPath;
-        emit updateError("Failed to install update");
-        return false;
-    }
-
-    QFile::setPermissions(installPath,
-                          QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                          QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                          QFileDevice::ReadOther | QFileDevice::ExeOther);
-
-    // create desktop entry and install icon so the app appears in
-    // the system menu (and can show up in Settings/Software).  the
-    // downloaded update contains only the executable; we ship a standard
-    // PNG in the repo which we copy into the hicolor icon tree.  note
-    // the entry points at installPath so launcher upgrades correctly.
-    QString appsDir = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
-    if (!appsDir.isEmpty()) {
-        QDir().mkpath(appsDir);
-        QString desktopFile = appsDir + "/kgroundcontrol.desktop";
-        QFile df(desktopFile);
-        if (df.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&df);
-            out << "[Desktop Entry]\n";
-            out << "Name=KGroundControl\n";
-            out << "Exec=" << installPath << "\n";
-            // use theme name; ensureIconCurrent will place PNG in hicolor tree
-            out << "Icon=KGroundControl\n";
-            out << "Type=Application\n";
-            out << "Categories=Utility;Network;\n";
-            out << "Terminal=false\n";
-            df.close();
-        }
-        // make sure icon file exists too
-        UpdateManager::ensureIconCurrent();
-    }
-
-
-    if (restartApp) {
-        qDebug() << "[UpdateManager] Restarting installed app";
-        QStringList args;
-        if (QProcess::startDetached(installPath, args)) {
-            qDebug() << "[UpdateManager] Restart command issued successfully";
-        } else {
-            qWarning() << "[UpdateManager] Failed to start detached process";
-        }
-        QCoreApplication::quit();
-    }
-    return true;
+    return performLinuxSwap(newBinaryPath, restartApp);
 }
 
 // make sure a copy of the embedded icon lives in the user's theme
@@ -666,28 +517,32 @@ bool UpdateManager::installIfNotInUserBin(bool respectUserSetting)
             != QFileInfo(target).canonicalFilePath()) {
         qDebug() << "[UpdateManager] Self-install required, copying to" << target;
         QDir().mkpath(userBin);
-        // clean up any lowercase stray binary first
-        QString altLower = userBin + "/kgroundcontrol";
-        if (QFile::exists(target)) {
-            QFile::remove(target);
+        if (respectUserSetting && QFileInfo::exists(QFileInfo(current).absolutePath() + "/../CMakeCache.txt")) {
+            return false; // Running from a build tree is a development session.
         }
-        if (QFile::exists(altLower)) {
-            QFile::remove(altLower);
+        QLockFile lock(target + ".install.lock");
+        if (!lock.tryLock(0)) return false;
+        QFile installedVersion(target + ".version");
+        if (installedVersion.open(QIODevice::ReadOnly)) {
+            QVersionNumber installed, incoming;
+            if (UpdateManifest::stableVersion(QString::fromUtf8(installedVersion.readAll()).trimmed(), &installed) &&
+                UpdateManifest::stableVersion(QStringLiteral(APP_VERSION), &incoming) &&
+                QVersionNumber::compare(installed, incoming) > 0) {
+                return false;
+            }
         }
-        if (!QFile::copy(current, target)) {
-            qWarning() << "[UpdateManager] Self-install copy failed";
+        QString error;
+        if (!atomicCopy(current, target, &error)) {
+            qWarning() << error;
             return false;
         }
-        QFile::setPermissions(target,
-                              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                              QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                              QFileDevice::ReadOther | QFileDevice::ExeOther);
+        writeVersion(target, QStringLiteral(APP_VERSION));
         // write desktop entry pointing at installed location.  use the
         // shared helper so it respects all known locations and logs output.
         writeDesktopEntry(target);
         // ensure theme icon is present
         UpdateManager::ensureIconCurrent();
-        QProcess::startDetached(target);
+        if (!QProcess::startDetached(target, QCoreApplication::arguments().mid(1), QDir::homePath())) return false;
         qDebug() << "[UpdateManager] Launched installed copy, exiting old process";
         QCoreApplication::exit(0);
         return true;
@@ -754,7 +609,7 @@ void UpdateManager::ensureDesktopEntryCurrent()
             needRewrite = true;
             break;
         }
-        if (foundExec != exePath) {
+        if (foundExec != exePath && foundExec != "\"" + exePath + "\"") {
             qDebug() << "[UpdateManager] Desktop entry Exec path changed in" << desktopFile
                      << "from" << foundExec << "to" << exePath;
             needRewrite = true;
@@ -790,7 +645,9 @@ void UpdateManager::writeDesktopEntry(const QString &exePath)
             QTextStream out(&df);
             out << "[Desktop Entry]\n";
             out << "Name=KGroundControl\n";
-            out << "Exec=" << exePath << "\n";
+            QString escapedPath = exePath;
+            escapedPath.replace("\\", "\\\\").replace("\"", "\\\"").replace("`", "\\`").replace("$", "\\$");
+            out << "Exec=\"" << escapedPath << "\"\n";
             // use the themed icon name; ensureIconCurrent() guarantees the
             // PNG is present in the hicolor tree so the theme lookup succeeds.
             out << "Icon=KGroundControl\n";
@@ -836,31 +693,6 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     // Version info
     QLabel* versionLabel = new QLabel(QString("Current version: v%1").arg(currentVersion));
     layout->addWidget(versionLabel);
-
-    // Distribution warning/info (Linux only when update does not match host)
-    QString hostKey = computePlatformKey();
-    if (!hostKey.isEmpty() &&                        // only Linux
-        !m_requestedPlatformKey.isEmpty() &&
-        m_requestedPlatformKey != hostKey) {
-        QString distroMsg;
-        if (m_requestedPlatformKey == "linux") {
-            distroMsg = QString("This update is a generic linux build. "
-                                 "You are currently running %1, so it will work but may "
-                                 "lack some distro-specific addons and latest features. "
-                                 "You may wish to wait until a build for your distro is uploaded.")
-                           .arg(hostKey);
-        } else {
-            distroMsg = QString("This update is for %1. You are currently "
-                                 "operating %2, so it will work but may lack some "
-                                 "distro-specific addons and latest features. You may "
-                                 "want to consider waiting until your distro-specific "
-                                 "build is available.")
-                           .arg(m_requestedPlatformKey, hostKey);
-        }
-        QLabel* distroLabel = new QLabel(distroMsg);
-        distroLabel->setWordWrap(true);
-        layout->addWidget(distroLabel);
-    }
 
     // Changelog section
     QLabel* changelogLabel = new QLabel("What's new:");    
@@ -927,7 +759,9 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     });
     
     // Clean up pointer when dialog closes or is destroyed
-    connect(m_updateDialog, &QDialog::destroyed, this, [this]() {
+    QDialog *dialog = m_updateDialog;
+    connect(dialog, &QDialog::destroyed, this, [this, dialog]() {
+        if (m_updateDialog != dialog) return;
         m_updateDialog = nullptr;
         m_progressBar = nullptr;
         m_progressLabel = nullptr;
@@ -937,12 +771,9 @@ void UpdateManager::showUpdateDialog(const QString &currentVersion, QWidget* par
     
     // Also emit dialogClosed when user manually closes the dialog (X button)
     // This is important for re-enabling the "Check for Updates" button
-    connect(m_updateDialog, &QDialog::finished, this, [this](int result) {
+    connect(dialog, &QDialog::finished, this, [dialog](int result) {
         Q_UNUSED(result);
-        if (m_updateDialog) {
-            // Dialog was closed, clean it up
-            m_updateDialog->deleteLater();
-        }
+        dialog->deleteLater();
     });
     
     m_updateDialog->show();

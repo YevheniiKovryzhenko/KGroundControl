@@ -164,6 +164,15 @@ KGroundControl::KGroundControl(QWidget *parent)
     // the current binary, so launches alone are enough to keep the
     // launcher icon up‑to‑date.
     update_manager_ = new UpdateManager(this);
+    connect(update_manager_, &UpdateManager::checkingForUpdates, this, [this]() {
+        ui->btn_check_updates->setEnabled(false);
+    });
+    connect(update_manager_, &UpdateManager::checkFinished, this, [this]() {
+        if (!update_manager_->isUpdateDialogOpen()) {
+            ui->btn_check_updates->setEnabled(true);
+            ui->btn_check_updates->setDown(false);
+        }
+    });
     connect(update_manager_, &UpdateManager::updateAvailable,
             this, &KGroundControl::onUpdateAvailable);
     connect(update_manager_, &UpdateManager::noUpdatesAvailable,
@@ -369,7 +378,7 @@ KGroundControl::KGroundControl(QWidget *parent)
         QString updateUrl;
         
         // Production URL (GitHub Pages) - default for releases:
-        updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
+        updateUrl = UpdateManager::defaultFeedUrl();
         
         // For LOCAL TESTING, uncomment this and comment the line above:
         // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -464,17 +473,6 @@ void KGroundControl::closeEvent(QCloseEvent *event)
 {
     emit about2close();
 
-    // Check if we should install update on exit
-    if (install_update_on_exit_ && !pending_update_filepath_.isEmpty()) {
-        qDebug() << "[KGroundControl] Installing update on exit...";
-        // Perform the binary swap without restarting
-        if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
-            qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
-        } else {
-            qWarning() << "[KGroundControl] Failed to install update on exit";
-        }
-    }
-
     // save current state of the app:
     save_settings();
 
@@ -535,6 +533,18 @@ void KGroundControl::closeEvent(QCloseEvent *event)
     //close all other active ports:
     connection_manager_->remove_all(false);
     log_manager::instance().shutdown();
+
+    // Check if we should install update on exit
+    if (install_update_on_exit_ && !pending_update_filepath_.isEmpty()) {
+        qDebug() << "[KGroundControl] Installing update on exit...";
+        // Perform the binary swap without restarting
+        if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
+            qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
+        } else {
+            qWarning() << "[KGroundControl] Failed to install update on exit";
+        }
+    }
+
     event->accept();
 }
 
@@ -1239,22 +1249,7 @@ void KGroundControl::on_btn_check_updates_clicked()
     QString updateUrl;
     
     // Production URL (GitHub Pages) - default for releases:
-    updateUrl = "https://yevheniikovryzhenko.github.io/KGroundControl/updates.json";
-    
-    // For LOCAL TESTING, uncomment these lines and comment the line above:
-    // NOTE: To properly test version updates, you need a binary with a DIFFERENT version.
-    // The version is defined in CMakeLists.txt line 8: project(KGroundControl VERSION 1.2.3 ...)
-    // Steps to test proper version update:
-    //   1. Build current version (e.g., 1.2.3)
-    //   2. Edit CMakeLists.txt to version 1.2.4
-    //   3. Rebuild: cmake --build build/Debug
-    //   4. Copy new binary: cp build/Debug/bin/KGroundControl ~/Downloads/KGroundControl_new
-    //   5. Edit CMakeLists.txt back to version 1.2.3
-    //   6. Rebuild: cmake --build build/Debug
-    //   7. Create ~/Downloads/updates.json with version "1.2.4" and file:// URL to KGroundControl_new
-    //   8. Run the app and test update - after install it should show v1.2.4 in title
-    // QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    // updateUrl = QString("file://%1/updates.json").arg(downloadsPath);
+    updateUrl = UpdateManager::defaultFeedUrl();
     
     qDebug() << "[KGroundControl] Checking for updates from:" << updateUrl;
     
@@ -1315,7 +1310,7 @@ void KGroundControl::onNoUpdatesAvailable()
     qDebug() << "[KGroundControl] No updates available";
     
     QMessageBox::information(this, "No Updates",
-                            QString("You are running the latest version (%1) of KGroundControl.")
+                            QString("No newer compatible release is available for this installation (%1).")
                                 .arg(APP_VERSION),
                             QMessageBox::Ok);
 }
@@ -1350,6 +1345,7 @@ void KGroundControl::onDownloadFinished(const QString &filepath)
 {
     qDebug() << "[KGroundControl] Update downloaded:" << filepath;
     pending_update_filepath_ = filepath;
+    install_update_on_exit_ = false;
     
     // Close the update dialog
     update_manager_->closeUpdateDialog();
@@ -1418,23 +1414,10 @@ void KGroundControl::onDownloadFinished(const QString &filepath)
 
 void KGroundControl::onUpdateError(const QString &error)
 {
-    // Silent error logging - don't bother user unless they manually checked
     qWarning() << "[KGroundControl] Update error:" << error;
-    
-    // Only show error if it's not a network/offline issue
-    if (!error.contains("network", Qt::CaseInsensitive) &&
-        !error.contains("offline", Qt::CaseInsensitive) &&
-        !error.contains("timeout", Qt::CaseInsensitive)) {
-        
-        {
-            QMessageBox box(this);
-            box.setWindowTitle("Update Check Failed");
-            box.setIcon(QMessageBox::Warning);
-            box.setText("Could not check for updates: " + error);
-            box.setStandardButtons(QMessageBox::Ok);
-            box.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
-            box.exec();
-        }
-    }
+    ui->btn_check_updates->setEnabled(true);
+    ui->btn_check_updates->setDown(false);
+    if (update_manager_->isSilentCheck()) return;
+    QMessageBox::warning(this, "Update Failed", error);
 }
 

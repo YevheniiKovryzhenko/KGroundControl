@@ -4,6 +4,14 @@
     "cmake.configureOnEdit": true,
     "cmake.buildBeforeRun": true,
     "cmake.buildArgs": [],
+    "cmake.options.statusBarVisibility": "visible",
+    "cmake.options.advanced": {
+        "configurePreset": { "statusBarVisibility": "visible" },
+        "buildPreset": { "statusBarVisibility": "visible" },
+        "testPreset": { "statusBarVisibility": "hidden" },
+        "kit": { "statusBarVisibility": "hidden" },
+        "variant": { "statusBarVisibility": "hidden" }
+    },
     // Keep editor niceties
     "files.associations": {
         "*.cpp": "cpp",
