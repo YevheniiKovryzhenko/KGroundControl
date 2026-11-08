@@ -190,7 +190,7 @@ cmake --build --preset "Release (Linux)" --target deployment
 
 Use the corresponding preset for Minimum Size Release or Windows. A failed packaging run preserves the previous deployment package.
 
-For shared Qt on Windows, packaging uses the selected SDK's `windeployqt`. MSVC runtime files are included when needed; keep the application and its dependencies compatible with the Qt SDK's compiler runtime. Set `KGC_OPENSSL_RUNTIME_DIR` if OpenSSL DLLs are installed outside the standard locations, or `KGC_DEPLOY_RUNTIME_FILES` for additional runtime files as a semicolon-separated list. Linux shared Qt builds require the matching Qt runtime and plugins on the target system.
+For shared Qt on Windows, packaging uses `windeployqt`. MSVC runtime files are included when needed. For Qt SDKs with an OpenSSL backend, packaging looks for a matching OpenSSL DLL pair in the SDK's bin directory or under `OPENSSL_ROOT_DIR`. Set `KGC_OPENSSL_RUNTIME_DIR` to select a specific directory. Use `KGC_DEPLOY_RUNTIME_FILES` for other runtime files as a semicolon-separated list. Linux shared Qt builds require the matching Qt runtime and plugins on the target system.
 
 Optional CMake settings include `ASAN=OFF` to disable Linux Debug AddressSanitizer, `KGC_ENABLE_IPO=OFF` to disable release link-time optimization, `FORCE_QT_STATIC=ON` to require a static Qt SDK, and `KGC_STRIP_DEPLOYMENT=OFF` to retain symbols in Linux/MinGW deployment copies.
 

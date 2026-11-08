@@ -51,6 +51,9 @@
 #include <QFont>
 #include <QSysInfo> // used for distro/version detection on linux
 #include <QSettings>
+#ifdef Q_OS_WIN
+#include <QtCore/qt_windows.h>
+#endif
 
 // Ensure APP_VERSION is defined in CMakeLists.txt
 #ifndef APP_VERSION
@@ -388,8 +391,28 @@ bool UpdateManager::performLinuxSwap(const QString &newBinaryPath, bool restartA
     return true;
 }
 
+#ifdef Q_OS_WIN
+QString UpdateManager::takeWindowsUpdateError()
+{
+    QFile errorFile(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+                    "/updates/last-update-error.txt");
+    if (!errorFile.open(QIODevice::ReadOnly)) return {};
+    const QString error = QString::fromUtf8(errorFile.readAll()).trimmed();
+    errorFile.close();
+    errorFile.remove();
+    return error;
+}
+
 bool UpdateManager::performWindowsSwap(const QString &newBinaryPath, bool restartApp)
 {
+    wchar_t systemDirectory[MAX_PATH];
+    const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) {
+        emit updateError("Cannot locate the Windows system directory");
+        return false;
+    }
+    const QString powershell = QDir(QString::fromWCharArray(systemDirectory, length))
+        .filePath("WindowsPowerShell/v1.0/powershell.exe");
     const QString target = QCoreApplication::applicationFilePath();
     const QString id = QString::number(QCoreApplication::applicationPid());
     const QString next = target + ".update-" + id;
@@ -401,19 +424,21 @@ bool UpdateManager::performWindowsSwap(const QString &newBinaryPath, bool restar
     const QString directory = QFileInfo(newBinaryPath).absolutePath();
     const QString scriptPath = directory + "/install-update-" + id + ".ps1";
     const QString configPath = directory + "/install-update-" + id + ".json";
-    QFile script(scriptPath);
-    if (!script.open(QIODevice::WriteOnly)) {
-        emit updateError("Cannot stage Windows update helper");
-        return false;
-    }
-    script.write(R"PS(param([string]$Config)
+    const auto discardStaging = [&]() {
+        QFile::remove(next);
+        QFile::remove(scriptPath);
+        QFile::remove(configPath);
+    };
+    const QByteArray scriptContents = R"PS(param([string]$Config)
 $ErrorActionPreference = 'Stop'
-$c = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
-$backup = $c.target + '.previous'
+$c = $null
 $replaced = $false
 $lock = $null
+$exitCode = 0
 $errorPath = Join-Path ([System.IO.Path]::GetDirectoryName($Config)) 'last-update-error.txt'
 try {
+    $c = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+    $backup = $c.target + '.previous'
     $lock = [System.IO.File]::Open($c.target + '.install.lock', 'OpenOrCreate', 'ReadWrite', 'None')
     $process = Get-Process -Id $c.pid -ErrorAction SilentlyContinue
     if ($process -and -not $process.WaitForExit(120000)) { throw 'Application did not exit; update left staged' }
@@ -428,19 +453,32 @@ try {
     Remove-Item -LiteralPath $c.download -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
 } catch {
-    if ($replaced -and (Test-Path -LiteralPath $backup)) {
-        [System.IO.File]::Copy($backup, $c.target, $true)
-        [System.IO.File]::WriteAllText($c.target + '.version', $c.oldVersion)
+    $exitCode = 1
+    $failure = $_.Exception.Message
+    try {
+        if ($replaced -and (Test-Path -LiteralPath $backup)) {
+            [System.IO.File]::Copy($backup, $c.target, $true)
+            [System.IO.File]::WriteAllText($c.target + '.version', $c.oldVersion)
+        }
+    } catch {
+        $failure += " Rollback failed: " + $_.Exception.Message
     }
-    [System.IO.File]::WriteAllText($errorPath, $_.Exception.Message)
+    [System.IO.File]::WriteAllText($errorPath, $failure)
 } finally {
     if ($lock) { $lock.Dispose() }
-    Remove-Item -LiteralPath $c.next -Force -ErrorAction SilentlyContinue
+    if ($c -and $c.next) { Remove-Item -LiteralPath $c.next -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $Config -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
-)PS");
-    script.close();
+exit $exitCode
+)PS";
+    QSaveFile script(scriptPath);
+    if (!script.open(QIODevice::WriteOnly) ||
+        script.write(scriptContents) != scriptContents.size() || !script.commit()) {
+        discardStaging();
+        emit updateError("Cannot stage Windows update helper");
+        return false;
+    }
     QJsonObject configuration{
         {"target", target}, {"next", next}, {"download", newBinaryPath},
         {"sha256", QString::fromLatin1(m_expectedSha256)}, {"version", m_latestVersion},
@@ -448,20 +486,24 @@ try {
         {"pid", QCoreApplication::applicationPid()}, {"restart", restartApp}
     };
     QSaveFile config(configPath);
+    const QByteArray configContents = QJsonDocument(configuration).toJson();
     if (!config.open(QIODevice::WriteOnly) ||
-        config.write(QJsonDocument(configuration).toJson()) < 0 || !config.commit()) {
+        config.write(configContents) != configContents.size() || !config.commit()) {
+        discardStaging();
         emit updateError("Cannot write Windows update configuration");
         return false;
     }
-    const bool started = QProcess::startDetached("powershell.exe", {
+    const bool started = QProcess::startDetached(powershell, {
         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Config", configPath});
     if (!started) {
+        discardStaging();
         emit updateError("Cannot start Windows update helper; current executable is unchanged");
         return false;
     }
     if (restartApp) QCoreApplication::quit();
     return true;
 }
+#endif
 
 bool UpdateManager::performLinuxUserInstall(const QString &newBinaryPath, bool restartApp)
 {

@@ -87,6 +87,10 @@ public:
      */
     bool applyUpdate(const QString &downloadedFilePath, bool restartApp = true);
 
+#ifdef Q_OS_WIN
+    static QString takeWindowsUpdateError();
+#endif
+
     /**
      * @brief Show the update dialog with changelog and download progress
      * @param currentVersion Current application version string
