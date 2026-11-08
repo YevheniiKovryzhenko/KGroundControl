@@ -1,583 +1,478 @@
-# PowerShell script to install Qt from source for static (release) build on Windows
-#
-# Parameters:
-#   -SkipPrompts   : Skip all user prompts (useful for automated builds)
-#   -SkipClone    : Skip cloning and initialization (assumes source already exists)
-
+<#
+.SYNOPSIS
+Builds a native MSVC x64 Qt SDK from a release tag.
+.DESCRIPTION
+Installs missing build tools using WinGet. The default is Qt 6.12.0 static
+release. After verification, interactive runs ask whether to remove build
+and source separately. Press Enter to delete or enter N to keep a directory.
+Unattended runs remove both after verification.
+See the Windows Qt README for prerequisites and consumer build commands.
+.PARAMETER AcceptLicense
+Passes -confirm-license to Qt and skips the interactive cleanup prompts.
+.PARAMETER SkipPrompts
+Requires explicit license acceptance for unattended use.
+.PARAMETER SkipClone
+Uses a previously initialized source checkout without fetching submodules.
+.PARAMETER Jobs
+Parallel build jobs. Defaults to the available logical processor count.
+.PARAMETER ConfigureArgs
+Additional Qt configure arguments as an array, including '--' before CMake options.
+#>
+[CmdletBinding()]
 param(
+    [ValidatePattern('^v?6\.[0-9]+\.[0-9]+$')]
+    [string]$Version = '6.12.0',
+    [string]$Root = 'C:\Qt',
+    [ValidateRange(1, 1024)]
+    [int]$Jobs = [Environment]::ProcessorCount,
+    [switch]$Shared,
+    [switch]$WithWebEngine,
+    [switch]$AcceptLicense,
     [switch]$SkipPrompts,
-    [switch]$SkipClone
+    [switch]$SkipClone,
+    [string[]]$ConfigureArgs = @()
 )
 
-# Helper: prompt a yes/no question with immediate single-keypress response (y/Y or n/N).
-# Default is used when -SkipPrompts is set or when Enter is pressed without a key.
-# Returns $true for yes, $false for no.
-function Read-YesNo {
+$ErrorActionPreference = 'Stop'
+
+function Invoke-Checked {
+    param([string]$Executable, [string[]]$Arguments)
+    & $Executable @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Executable failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Test-SdkCleanupPath {
     param(
-        [string]$Prompt,
-        [bool]$Default = $false
+        [string]$SdkDir,
+        [ValidateSet('build', 'src')]
+        [string]$Directory
     )
-    if ($SkipPrompts) { return $Default }
-    $defaultHint = if ($Default) { "[Y/n]" } else { "[y/N]" }
-    Write-Host -NoNewline "$Prompt $defaultHint "
-    while ($true) {
-        $key = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        $ch  = $key.Character.ToString().ToLower()
-        if ($ch -eq 'y') { Write-Host "y"; return $true  }
-        if ($ch -eq 'n') { Write-Host "n"; return $false }
-        # Enter key (char 13) → use default
-        if ($key.VirtualKeyCode -eq 13) {
-            Write-Host $(if ($Default) { "y" } else { "n" })
-            return $Default
+    $target = Join-Path $SdkDir $Directory
+    try {
+        $item = Get-Item -LiteralPath $target -Force
+        if (-not $item.PSIsContainer -or $item.FullName -ine $target -or
+            $item.Parent.FullName -ine $SdkDir) {
+            throw 'The cleanup target is not the expected SDK subdirectory.'
         }
-    }
-}
-
-# Ensure scripts can run by checking and setting execution policy if needed
-$executionPolicy = Get-ExecutionPolicy -Scope CurrentUser
-if ($executionPolicy -eq "Restricted") {
-    Write-Host "Setting execution policy to RemoteSigned for current user..."
-    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-}
-
-# Capture the original working directory to restore at the end
-$OriginalLocation = Get-Location
-
-# Helper function to check for missing executables and add their install directory to PATH
-function Add-ExecutableToPath {
-    param(
-        [string]$ExeName,
-        [string[]]$CommonDirs
-    )
-    if (-not (Get-Command $ExeName -ErrorAction SilentlyContinue)) {
-        foreach ($dir in $CommonDirs) {
-            $exePath = Get-ChildItem -Path $dir -Filter $ExeName -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($exePath) {
-                $env:Path += ";$($exePath.DirectoryName)"
-                Write-Host "Added $ExeName to PATH: $($exePath.DirectoryName)"
-                break
+        for ($parent = $item; $parent; $parent = $parent.Parent) {
+            if ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Cleanup path contains a reparse point: $($parent.FullName)"
             }
         }
-        if (-not (Get-Command $ExeName -ErrorAction SilentlyContinue)) {
-            Write-Host "WARNING: $ExeName not found in PATH or common install locations."
+        if (Get-ChildItem -LiteralPath $target -Force -Recurse -Attributes ReparsePoint | Select-Object -First 1) {
+            throw 'The cleanup directory contains a reparse point.'
         }
+        return $true
+    } catch {
+        Write-Warning "Keeping ${target}: $_"
+        return $false
     }
 }
 
-# Function to restore original location and exit
-function Exit-WithCleanup {
-    param([int]$ExitCode = 0)
-    Set-Location $OriginalLocation
-    exit $ExitCode
+# Keep the developer environment local to this installer invocation.
+$savedEnvironment = @{}
+function Set-BuildEnvironment {
+    param([string]$Name, [string]$Value)
+    if (-not $savedEnvironment.ContainsKey($Name)) {
+        $savedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    }
+    [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
 }
 
-# Set up trap to ensure directory is restored on any error or interruption
-trap {
-    Write-Host "Script interrupted or error occurred. Returning to original directory..."
-    Write-Host "Error details: $_"
-    Set-Location $OriginalLocation
-    break
+function Update-BuildPath {
+    $entries = @($env:Path)
+    foreach ($scope in 'Machine', 'User') {
+        $entries += [Environment]::GetEnvironmentVariable('Path', $scope)
+    }
+    $entries += "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+    $entries += Join-Path $env:ProgramFiles 'WinGet\Links'
+    if ($env:VSINSTALLDIR) {
+        $cmakeTools = Join-Path $env:VSINSTALLDIR 'Common7\IDE\CommonExtensions\Microsoft\CMake'
+        $entries += (Join-Path $cmakeTools 'CMake\bin'), (Join-Path $cmakeTools 'Ninja')
+    }
+    Set-BuildEnvironment Path (($entries -split ';' | Where-Object { $_ } |
+        ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) } |
+        Select-Object -Unique) -join ';')
 }
 
-#--------------------------------------------------------------
-# Step 0: Check if running as administrator
-#--------------------------------------------------------------
-if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "ERROR: This script should not be run as an administrator. Please run it as a normal user."
-    Exit-WithCleanup 1
+function Find-BuildTool {
+    param([string]$Name)
+    $candidates = @((Get-Command "$Name.exe" -CommandType Application -All -ErrorAction SilentlyContinue).Source)
+    if ($Name -eq 'cmake') {
+        foreach ($hive in 'HKCU:', 'HKLM:') {
+            $key = "$hive\Software\Microsoft\Windows\CurrentVersion\App Paths\cmake.exe"
+            $registration = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+            if ($registration) { $candidates += $registration.GetValue('') }
+        }
+        foreach ($base in $env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") {
+            if ($base) { $candidates += Join-Path $base 'CMake\bin\cmake.exe' }
+        }
+    }
+    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        if ($Name -eq 'cmake') {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $banner = @(& $candidate --version 2>$null)[0]
+            if ($LASTEXITCODE -ne 0 -or $banner -notmatch '^cmake version (\d+\.\d+\.\d+)' -or
+                [version]$Matches[1] -lt [version]'3.25') { continue }
+        }
+        if ($Name -eq 'python') {
+            # Avoid launching the Store placeholder when Python is absent.
+            if ($candidate -like '*\Microsoft\WindowsApps\*') { continue }
+            & $candidate -c 'import sys; sys.exit(sys.version_info.major != 3)' 2>$null
+            if ($LASTEXITCODE -ne 0) { continue }
+        }
+        return $candidate
+    }
 }
 
-#--------------------------------------------------------------
-# Step 0b: Upfront questions — gather all decisions before any long work begins
-#--------------------------------------------------------------
-# Hardcoded parameters (adjust here):
-$QtVersion = "v6.10.2"           # Tag/branch to use
-$BuildType = "Static"           # Options: "Static" (default) or "Shared"
-
-switch ($BuildType) {
-  'Static' { $qtSubdir = 'Qt\Static'; $configureFlags = '-static -release' }
-  'Shared' { $qtSubdir = 'Qt\Shared'; $configureFlags = '-debug' }
-  default  { Write-Host "ERROR: Unknown BuildType='$BuildType'. Use 'Static' or 'Shared'."; Exit-WithCleanup 1 }
+function Install-BuildPackage {
+    param([string]$Id, [string[]]$Options = @())
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "WinGet is required to install $Id. Install or update Microsoft's App Installer and rerun."
+    }
+    Write-Host "Installing $Id"
+    $arguments = @('install', '--id', $Id, '--exact', '--source', 'winget', '--silent',
+        '--disable-interactivity', '--accept-source-agreements', '--accept-package-agreements') + $Options
+    $PSNativeCommandUseErrorActionPreference = $false
+    & $winget.Source @arguments
+    # WinGet can recognize a package that is missing from PATH. The caller rechecks usability.
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
+        throw "WinGet failed to install $Id (exit code $LASTEXITCODE)."
+    }
+    Update-BuildPath
 }
-$QtRootDir = "C:\$qtSubdir\$QtVersion"
 
-Write-Host ""
-Write-Host "==============================================="
-Write-Host " Qt $QtVersion $BuildType build"
-Write-Host " Install path: $QtRootDir"
-Write-Host "==============================================="
+function Get-VsInstallation {
+    param([string[]]$Options)
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere) {
+        Invoke-Checked $vswhere (@('-version', '[17.0,18.0)', '-property', 'installationPath') + $Options)
+    }
+}
 
-# Decision: reclone if the root dir already exists
-$doReclone = $false
-if (-not $SkipClone) {
-    if (Test-Path $QtRootDir) {
-        $doReclone = Read-YesNo "$QtRootDir already exists. Delete and re-clone?" -Default $false
-        if ($doReclone) {
-            Write-Host "Will delete $QtRootDir and clone fresh."
+function Import-VsEnvironment {
+    if ($env:VisualStudioVersion -eq '17.0' -and $env:VSCMD_ARG_TGT_ARCH -eq 'x64' -and
+        $env:WindowsSdkDir -and (Find-BuildTool cl)) { return $true }
+
+    $installations = Get-VsInstallation @('-products', '*', '-requires',
+        'Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
+    foreach ($installation in $installations) {
+        $devCmd = Join-Path $installation 'Common7\Tools\VsDevCmd.bat'
+        if (-not (Test-Path -LiteralPath $devCmd)) { continue }
+        # Pass cmd's quoted command line directly, bypassing PowerShell's native argument quoting.
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $env:ComSpec
+        $startInfo.Arguments = '/d /s /c ""{0}" -arch=x64 -host_arch=x64 >nul && set"' -f $devCmd
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $process = [Diagnostics.Process]::Start($startInfo)
+        try {
+            $settings = $process.StandardOutput.ReadToEnd() -split '\r?\n'
+            $process.WaitForExit()
+            if ($process.ExitCode -ne 0) { continue }
+        } finally {
+            $process.Dispose()
+        }
+        $environment = @{}
+        foreach ($entry in $settings) {
+            if ($entry -match '^([^=]+)=(.*)$') { $environment[$Matches[1]] = $Matches[2] }
+        }
+        if (-not ($environment.WindowsSdkDir -and $environment.VCToolsInstallDir -and
+            $environment.VSCMD_ARG_TGT_ARCH -eq 'x64')) { continue }
+        foreach ($key in $environment.Keys) {
+            if ([Environment]::GetEnvironmentVariable($key, 'Process') -cne $environment[$key]) {
+                Set-BuildEnvironment $key $environment[$key]
+            }
+        }
+        return $true
+    }
+    return $false
+}
+
+function Test-VsAtl {
+    $env:VCToolsInstallDir -and
+        (Test-Path -LiteralPath (Join-Path $env:VCToolsInstallDir 'atlmfc\include\atlbase.h')) -and
+        (Test-Path -LiteralPath (Join-Path $env:VCToolsInstallDir 'atlmfc\lib\x64\atls.lib'))
+}
+
+function Initialize-BuildTools {
+    Update-BuildPath
+    $hasToolchain = Import-VsEnvironment
+    if (-not $hasToolchain -or -not (Test-VsAtl)) {
+        $components = '--add Microsoft.VisualStudio.Component.VC.ATL'
+        if ($hasToolchain) {
+            # Repair the selected installation, including a full Visual Studio IDE.
+            $existing = $env:VSINSTALLDIR.TrimEnd('\')
         } else {
-            Write-Host "Will keep existing source."
+            $components += ' --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100'
+            $existing = Get-VsInstallation @('-products', 'Microsoft.VisualStudio.Product.BuildTools', '-latest')
+        }
+        if ($existing) {
+            Write-Host 'Installing missing Visual Studio 2022 C++ components'
+            $setup = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'
+            $process = Start-Process -FilePath $setup -ArgumentList "modify --installPath `"$existing`" --quiet --norestart $components" -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+            if ($process.ExitCode -eq 3010) { throw 'Restart Windows to finish setting up Visual Studio, then rerun.' }
+            if ($process.ExitCode -ne 0) { throw "Visual Studio setup failed with exit code $($process.ExitCode)." }
+        } else {
+            Install-BuildPackage 'Microsoft.VisualStudio.2022.BuildTools' @('--override', "--quiet --wait --norestart $components") | Out-Host
+        }
+        if (-not (Import-VsEnvironment)) {
+            throw 'Visual Studio setup did not yield an x64 compiler and Windows SDK. Check Visual Studio Installer for pending changes or a required reboot.'
+        }
+        if (-not (Test-VsAtl)) {
+            throw 'ATL is missing from the active x64 MSVC toolset. Check Visual Studio Installer for the matching v143 ATL component or a pending reboot.'
         }
     }
+    # An already open developer shell may predate the ATL installation.
+    $atlInclude = Join-Path $env:VCToolsInstallDir 'atlmfc\include'
+    $atlLib = Join-Path $env:VCToolsInstallDir 'atlmfc\lib\x64'
+    if (($env:INCLUDE -split ';') -notcontains $atlInclude) {
+        Set-BuildEnvironment INCLUDE "$env:INCLUDE;$atlInclude"
+    }
+    if (($env:LIB -split ';') -notcontains $atlLib) {
+        Set-BuildEnvironment LIB "$env:LIB;$atlLib"
+    }
+    Update-BuildPath
+
+    $packages = [ordered]@{
+        git = 'Git.Git'
+        cmake = 'Kitware.CMake'
+        ninja = 'Ninja-build.Ninja'
+        python = 'Python.Python.3.13'
+    }
+    $tools = @{ cl = Find-BuildTool cl }
+    if (-not $tools.cl) { throw 'cl.exe is missing after loading the Visual Studio x64 developer environment.' }
+    foreach ($name in $packages.Keys) {
+        $tool = Find-BuildTool $name
+        if (-not $tool) {
+            Install-BuildPackage $packages[$name] | Out-Host
+            $tool = Find-BuildTool $name
+            if (-not $tool) {
+                throw "WinGet finished, but no usable $name.exe was found. Check the $($packages[$name]) installation and add its executable directory to PATH."
+            }
+        }
+        $tools[$name] = $tool
+        # Qt's batch scripts resolve tools from PATH themselves.
+        $directory = Split-Path -Parent $tool
+        Set-BuildEnvironment Path "$directory;$env:Path"
+    }
+    return $tools
 }
 
-# Decision: delete build dir automatically after successful install (saves disk space)
-$deleteBuildAfter = Read-YesNo "Delete build directory automatically after successful install?" -Default $true
+if ($WithWebEngine -and -not $Shared) {
+    throw 'Qt WebEngine requires a shared build. Use -Shared -WithWebEngine.'
+}
+if ($SkipPrompts -and -not $AcceptLicense) {
+    throw 'Use -AcceptLicense for unattended builds after reviewing the Qt licenses.'
+}
+# Qt's batch wrappers expand arguments through cmd.exe.
+if ($Root -notmatch '^[A-Za-z]:[\\/][A-Za-z0-9_.\\/-]+$' -or
+    $ConfigureArgs -match '[%!"&|<>^()\r\n]') {
+    throw 'Use a short absolute drive path without spaces for -Root and omit cmd.exe metacharacters from -ConfigureArgs.'
+}
 
-# Decision: delete src dir after successful install (can always re-clone later)
-$deleteSrcAfter = Read-YesNo "Delete source directory after successful install? (keep by default)" -Default $false
+$versionNumber = $Version.TrimStart('v')
+$tag = "v$versionNumber"
+$kind = if ($Shared) { 'Shared' } else { 'Static' }
+$sdkDir = Join-Path ([IO.Path]::GetFullPath($Root)) "$kind\$tag"
+$sourceDir = Join-Path $sdkDir 'src'
+$buildDir = Join-Path $sdkDir 'build'
+$installDir = Join-Path $sdkDir 'install'
+$verifyDir = Join-Path $sdkDir 'verify'
+$logDir = Join-Path $sdkDir 'logs'
+$subset = if ($WithWebEngine) { 'all' } else { 'all,-qtwebengine' }
 
-Write-Host ""
+New-Item -ItemType Directory -Path $sdkDir -Force | Out-Null
+try {
+    $lock = [IO.File]::Open((Join-Path $sdkDir '.installer.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+} catch {
+    throw "Could not lock $sdkDir. Check write access and whether another installer is running. $_"
+}
 
-#--------------------------------------------------------------
-# Step 1: Install Required Packages
-#--------------------------------------------------------------
-Write-Host "==============================================="
-Write-Host "Installing required packages..."
-Write-Host "==============================================="
+$transcribing = $false
+try {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    Start-Transcript -Path (Join-Path $logDir "install-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff').log") | Out-Null
+    $transcribing = $true
+    $tools = Initialize-BuildTools
+    $cmakeVersion = @(Invoke-Checked $tools.cmake @('--version'))[0]
+    $ninjaVersion = Invoke-Checked $tools.ninja @('--version')
+    Write-Host "Qt $versionNumber $kind release, $Jobs parallel jobs, prefix $installDir"
 
-# Check if winget is available
-if (Get-Command winget -ErrorAction SilentlyContinue) {
-    # Add GnuWin32 bin to PATH if exists
-    $gnuWin32Bin = "C:\Program Files (x86)\GnuWin32\bin"
-    if (Test-Path $gnuWin32Bin) {
-        $env:Path += ";$gnuWin32Bin"
+    if (-not (Test-Path -LiteralPath $sourceDir)) {
+        if ($SkipClone) { throw "No checkout at $sourceDir for -SkipClone." }
+        Invoke-Checked $tools.git @('clone', '--branch', $tag, '--single-branch',
+            'https://code.qt.io/qt/qt5.git', $sourceDir)
     }
-    # Check and install CMake
-    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        winget install --id Kitware.CMake --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        Add-ExecutableToPath "cmake.exe" @("C:\Program Files\CMake\bin", "C:\Program Files (x86)\CMake\bin")
-    } else {
-        Write-Host "CMake already installed"
+
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceDir '.git'))) {
+        throw "Expected a Qt Git checkout at $sourceDir."
     }
-    
-    # Check and install Git
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        winget install --id Git.Git --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        Add-ExecutableToPath "git.exe" @("C:\Program Files\Git\bin", "C:\Program Files (x86)\Git\bin")
-    } else {
-        Write-Host "Git already installed"
+    $gitArgs = @('-C', $sourceDir)
+    $commit = Invoke-Checked $tools.git ($gitArgs + @('rev-parse', 'HEAD'))
+    $tagCommit = Invoke-Checked $tools.git ($gitArgs + @('rev-parse', "refs/tags/$tag^{commit}"))
+    if ($commit -ne $tagCommit) { throw "Source HEAD differs from $tag. Use a separate -Root." }
+
+    $trackedChanges = Invoke-Checked $tools.git ($gitArgs + @('status', '--porcelain',
+        '--untracked-files=no', '--ignore-submodules=all'))
+    $moduleChanges = Invoke-Checked $tools.git ($gitArgs + @('submodule', 'foreach', '--quiet',
+        '--recursive', 'git status --porcelain --untracked-files=no --ignore-submodules=all'))
+    $moduleStatus = @(Invoke-Checked $tools.git ($gitArgs + @('submodule', 'status', '--recursive')))
+    if ($trackedChanges -or $moduleChanges -or ($moduleStatus -match '^[+U]')) {
+        throw 'Qt sources contain tracked changes, conflicting submodules, or mismatched commits.'
     }
-    
-    # Check and install Python - must validate it's real Python, not Windows App Store stub
-    $pythonValid = $false
-    
-    # First, check standard installation directories directly (doesn't rely on PATH)
-    $pythonDirectories = @(
-        "C:\Users\$env:USERNAME\AppData\Local\Programs\Python",
-        "C:\Python*",
-        "C:\Program Files\Python*"
-    )
-    
-    foreach ($searchDir in $pythonDirectories) {
-        if (Test-Path $searchDir) {
-            $pythonExes = @(Get-ChildItem -Path "$searchDir\python.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 5)
-            if ($pythonExes.Count -gt 0) {
-                foreach ($pyExe in $pythonExes) {
-                    try {
-                        $pythonPath = $pyExe.FullName
-                        $output = & $pythonPath --version 2>&1
-                        if ($output -match "Python") {
-                            Write-Host "Found valid Python: $pythonPath"
-                            $pythonValid = $true
-                            break
-                        }
-                    } catch {
-                        # Continue to next Python
-                    }
-                }
-                if ($pythonValid) { break }
-            }
+
+    $flags = @('-release', '-opensource', '-prefix', $installDir, '-cmake-generator', 'Ninja',
+        '-nomake', 'examples', '-nomake', 'tests', '-schannel')
+    $flags += if ($Shared) { '-shared' } else { '-static' }
+    if ($AcceptLicense) { $flags += '-confirm-license' }
+    if (-not $WithWebEngine) { $flags += @('-skip', 'qtwebengine') }
+    $flags += $ConfigureArgs
+
+    $requestFile = Join-Path $buildDir '.installer-request'
+    $installedRequest = Join-Path $sdkDir '.installed-request'
+    $atlInclude = Join-Path $env:VCToolsInstallDir 'atlmfc\include'
+    $atlLib = Join-Path $env:VCToolsInstallDir 'atlmfc\lib\x64'
+    $includePaths = (($env:INCLUDE -split ';') -ne $atlInclude) -join ';'
+    $libraryPaths = (($env:LIB -split ';') -ne $atlLib) -join ';'
+    # License confirmation controls the prompt only. It is safe to change it on retry.
+    $request = [ordered]@{
+        Schema = 1
+        Commit = $commit
+        ModuleSubset = $subset
+        Configure = @($flags | Where-Object { $_ -ne '-confirm-license' })
+        Tools = @($tools.git, $tools.cmake, $tools.ninja, $tools.cl, $tools.python,
+            $cmakeVersion, $ninjaVersion, (Get-Item -LiteralPath $tools.cl).VersionInfo.FileVersion)
+        Environment = @($includePaths, $libraryPaths, $env:WindowsSDKVersion,
+            $env:CC, $env:CXX, $env:CFLAGS, $env:CXXFLAGS, $env:LDFLAGS, $env:CL, $env:_CL_,
+            $env:LINK, $env:CMAKE_PREFIX_PATH, $env:CMAKE_TOOLCHAIN_FILE, $env:CMAKE_GENERATOR)
+    } | ConvertTo-Json -Depth 4 -Compress
+    if (Test-Path -LiteralPath $requestFile) {
+        if ((Get-Content -LiteralPath $requestFile -Raw).TrimEnd() -cne $request) {
+            throw 'The SDK build inputs changed. Use a fresh -Root or relocate build and install together.'
+        }
+    } elseif ((Test-Path -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) -or
+              ((Test-Path -LiteralPath $installDir) -and
+               (-not (Test-Path -LiteralPath $installedRequest) -or
+                (Get-Content -LiteralPath $installedRequest -Raw).TrimEnd() -cne $request))) {
+        throw 'An existing SDK has no matching installer record. Use a fresh -Root or relocate build and install together.'
+    }
+
+    if (-not $SkipClone) {
+        Push-Location -LiteralPath $sourceDir
+        try {
+            Invoke-Checked (Join-Path $sourceDir 'init-repository.bat') @('-f', "--module-subset=$subset")
+        } finally {
+            Pop-Location
+        }
+        $moduleStatus = @(Invoke-Checked $tools.git ($gitArgs + @('submodule', 'status', '--recursive')))
+    }
+    $moduleStatus | Set-Content -LiteralPath (Join-Path $sdkDir 'source-modules.txt')
+    if ($moduleStatus -match '^[+U]') { throw 'Inspect source-modules.txt for mismatched submodules.' }
+    foreach ($module in 'qtbase', 'qtserialport', 'qtlocation') {
+        if (-not (Test-Path -LiteralPath (Join-Path $sourceDir "$module\CMakeLists.txt"))) {
+            throw "Missing $module sources. Run without -SkipClone to initialize the checkout."
         }
     }
-    
-    # If no valid Python found in directories, check PATH as fallback
-    if (-not $pythonValid) {
-        $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-        if ($pythonCmd) {
-            $pythonPath = $pythonCmd.Source
-            # Reject Windows App Store stub (located in WindowsApps)
-            if ($pythonPath -notlike "*WindowsApps*") {
-                try {
-                    $output = & python --version 2>&1
-                    if ($output -match "Python") {
-                        $pythonValid = $true
-                        Write-Host "Found valid Python in PATH: $pythonPath"
-                    }
-                } catch {
-                    Write-Host "Python command in PATH failed validation, will reinstall"
-                }
-            }
+
+    New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+    $request | Set-Content -LiteralPath $requestFile -Encoding UTF8
+    $configured = Join-Path $buildDir '.installer-configured'
+    if (-not (Test-Path -LiteralPath $configured) -or
+        -not (Test-Path -LiteralPath (Join-Path $buildDir 'build.ninja'))) {
+        Push-Location -LiteralPath $buildDir
+        try {
+            Invoke-Checked (Join-Path $sourceDir 'configure.bat') $flags
+        } finally {
+            Pop-Location
         }
+        New-Item -ItemType File -Path $configured -Force | Out-Null
     }
-    
-    if (-not $pythonValid) {
-        Write-Host "Installing real Python via winget..."
-        $wingetSuccess = $false
-        
-        # Try multiple Python package IDs in winget
-        $pythonPackageIds = @("Python.Python.3", "Python.Python.3.12", "Python.Python.3.11")
-        foreach ($packageId in $pythonPackageIds) {
-            Write-Host "Trying package: $packageId"
-            winget install --id $packageId --accept-source-agreements --accept-package-agreements 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                $wingetSuccess = $true
-                break
-            }
-        }
-        
-        if ($wingetSuccess) {
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-            Add-ExecutableToPath "python.exe" @("C:\Python39", "C:\Python310", "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python39", "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python310")
-            Start-Sleep -Seconds 2
-        } else {
-            Write-Host "Warning: winget Python installation failed. Will attempt direct download from python.org..."
-            # Fallback: Try to download Python directly if winget fails
-            $pythonDownloadUrl = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
-            $pythonInstaller = "$env:TEMP\python-3.12.0-amd64.exe"
-            Write-Host "Downloading Python from $pythonDownloadUrl..."
+    Invoke-Checked $tools.cmake @('--build', $buildDir, '--parallel', "$Jobs")
+    Invoke-Checked $tools.cmake @('--install', $buildDir, '--config', 'Release')
+
+    # Configure and link through the public SDK, then initialize the platform and TLS plugins.
+    New-Item -ItemType Directory -Path $verifyDir -Force | Out-Null
+    @'
+cmake_minimum_required(VERSION 3.25)
+project(QtSdkCheck LANGUAGES CXX)
+find_package(Qt6 ${EXPECTED_VERSION} EXACT REQUIRED COMPONENTS Core Gui Widgets Network SerialPort Location
+    PATHS "${SDK_PREFIX}" NO_DEFAULT_PATH)
+if(MSVC AND QT_FEATURE_static_runtime)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+endif()
+get_target_property(core_type Qt6::Core TYPE)
+if(NOT core_type STREQUAL EXPECTED_CORE_TYPE)
+    message(FATAL_ERROR "Expected ${EXPECTED_CORE_TYPE}, got ${core_type}")
+endif()
+qt_add_executable(qt-sdk-check main.cpp)
+target_link_libraries(qt-sdk-check PRIVATE Qt6::Widgets Qt6::Network Qt6::SerialPort Qt6::Location)
+'@ | Set-Content -LiteralPath (Join-Path $verifyDir 'CMakeLists.txt') -Encoding ASCII
+    @'
+#include <QApplication>
+#include <QSerialPort>
+#include <QSslSocket>
+#include <QStringList>
+
+int main(int argc, char **argv)
+{
+    QApplication app(argc, argv);
+    QSerialPort port;
+    return app.platformName() == QStringLiteral("windows")
+        && QSslSocket::setActiveBackend(QStringLiteral("schannel"))
+        && QSslSocket::supportsSsl() ? 0 : 1;
+}
+'@ | Set-Content -LiteralPath (Join-Path $verifyDir 'main.cpp') -Encoding ASCII
+    $expectedCore = if ($Shared) { 'SHARED_LIBRARY' } else { 'STATIC_LIBRARY' }
+    $verifyBuild = Join-Path $verifyDir 'build'
+    Invoke-Checked $tools.cmake @('--fresh', '-S', $verifyDir, '-B', $verifyBuild, '-G', 'Ninja',
+        '-DCMAKE_BUILD_TYPE=Release', "-DSDK_PREFIX=$installDir",
+        "-DQt6_DIR=$installDir/lib/cmake/Qt6", "-DEXPECTED_VERSION=$versionNumber",
+        "-DEXPECTED_CORE_TYPE=$expectedCore")
+    Invoke-Checked $tools.cmake @('--build', $verifyBuild, '--parallel', "$Jobs")
+    Set-BuildEnvironment Path "$installDir\bin;$env:Path"
+    Invoke-Checked (Join-Path $verifyBuild 'qt-sdk-check.exe') @('-platform', 'windows')
+
+    Get-ChildItem -LiteralPath (Join-Path $installDir 'lib\cmake') -Recurse -Filter 'Qt6*Config.cmake' |
+        Select-Object -ExpandProperty FullName | Sort-Object |
+        Set-Content -LiteralPath (Join-Path $sdkDir 'installed-modules.txt')
+    Write-Host "SDK installed and consumer verified: $installDir"
+    Write-Host "See $sdkDir\installed-modules.txt and $buildDir\config.summary for module and feature coverage."
+    $promptForCleanup = -not $AcceptLicense -and $Host.Name -eq 'ConsoleHost' -and
+        -not [Console]::IsInputRedirected
+    foreach ($directory in 'build', 'src') {
+        $target = Join-Path $sdkDir $directory
+        if ($promptForCleanup) {
             try {
-                $ProgressPreference = 'SilentlyContinue'
-                Invoke-WebRequest -Uri $pythonDownloadUrl -OutFile $pythonInstaller
-                Write-Host "Installing Python..."
-                & $pythonInstaller /quiet PrependPath=1
-                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-                Start-Sleep -Seconds 3
-                Remove-Item $pythonInstaller -Force -ErrorAction SilentlyContinue
-            } catch {
-                Write-Host "Warning: Direct Python download also failed. Python will not be available."
+                $answer = Read-Host "Delete $target? [Y/n]"
+                if ($null -eq $answer -or $answer -notmatch '^\s*(y(es)?)?\s*$') { continue }
+            } catch [System.Management.Automation.PSInvalidOperationException] {
+                # A noninteractive console host can reject Read-Host.
+                $promptForCleanup = $false
             }
         }
-    }
-    
-    # Check and install Bison
-    if (-not (Get-Command bison -ErrorAction SilentlyContinue)) {
-        winget install --id GnuWin32.Bison --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        Add-ExecutableToPath "bison.exe" @("C:\Program Files (x86)\GnuWin32\bin")
-    } else {
-        Write-Host "Bison already installed"
-    }
-    
-    # Check and install Flex
-    if (-not (Get-Command flex -ErrorAction SilentlyContinue)) {
-        winget install --id GnuWin32.Flex --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        Add-ExecutableToPath "flex.exe" @("C:\Program Files (x86)\GnuWin32\bin")
-    } else {
-        Write-Host "Flex already installed"
-    }
-    
-    # Check and install Ninja
-    if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
-        winget install --id Ninja-build.Ninja --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        # Add Ninja path explicitly to override pyenv
-        $env:PATH = "C:\Program Files\Ninja\bin;" + $env:PATH
-        Add-ExecutableToPath "ninja.exe" @("C:\Program Files\Ninja\bin", "C:\Program Files (x86)\Ninja\bin")
-    } else {
-        Write-Host "Ninja already installed"
-    }
-    
-    # Check and install Visual Studio Build Tools if compiler not found
-    if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
-        $setupExePath = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe"
-        if (Test-Path $setupExePath) {
-            Write-Host "Visual Studio Installer found. Installing Desktop C++ workload and required components..."
-            Start-Process -FilePath $setupExePath -ArgumentList "modify --installPath `"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`" --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows10SDK.19041 --passive --norestart" -Verb RunAs -Wait
-            # Wait a moment for installer to finish cleanup
-            Start-Sleep -Seconds 5
-        } else {
-            Write-Host "Installing Visual Studio Build Tools with Desktop C++ workload and required components..."
-            winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows10SDK.19041 --passive --norestart" --accept-source-agreements --accept-package-agreements
-            Start-Sleep -Seconds 5
-        }
-        # Always check for cl.exe in common locations and add to PATH if found
-        $clPath = Get-ChildItem -Path "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools" -Recurse -Filter cl.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $clPath) {
-            $clPath = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022\BuildTools" -Recurse -Filter cl.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-        }
-            # Also check other common Visual Studio editions
-            if (-not $clPath) {
-                $vsEditions = @("Community", "Professional", "Enterprise")
-                foreach ($edition in $vsEditions) {
-                    $clPath = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022\$edition" -Recurse -Filter cl.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if ($clPath) { break }
-                }
+        if (-not (Test-SdkCleanupPath $sdkDir $directory)) { continue }
+        try {
+            if ($directory -eq 'build') {
+                Copy-Item -LiteralPath $requestFile -Destination $installedRequest
             }
-        if ($clPath) {
-            $clDir = Split-Path $clPath.FullName
-            if ($env:Path -notlike "*$clDir*") {
-                $env:Path += ";$clDir"
-                Write-Host "Added cl.exe directory to PATH: $clDir"
-                    # Persistently add to user PATH
-                    $currentUserPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
-                    if ($currentUserPath -notlike "*$clDir*") {
-                        [Environment]::SetEnvironmentVariable("Path", "$currentUserPath;$clDir", "User")
-                        Write-Host "Persistently added cl.exe directory to user PATH. Restart your terminal to apply changes."
-                    }
-            }
-        } else {
-            Write-Host "WARNING: cl.exe not found immediately after install. It may still be installing in the background."
-            Write-Host "Please wait 1-2 minutes and restart your terminal, or manually open Visual Studio Installer to verify Desktop C++ workload was added."
-        }
-    } else {
-        Write-Host "Visual Studio compiler found"
-    }
-} else {
-    Write-Host "ERROR: winget not found. Please install winget first from https://github.com/microsoft/winget-cli/releases"
-    Exit-WithCleanup 1
-}
-
-#--------------------------------------------------------------
-# Step 2: Setup Qt Directory and Clone Source
-#--------------------------------------------------------------
-Write-Host "==============================================="
-Write-Host "Setting up Qt $QtVersion installation directory in $QtRootDir..."
-Write-Host "==============================================="
-
-if ($SkipClone) {
-    Write-Host "Skipping clone - using existing source at $QtRootDir\src"
-    # Ensure root dir exists even when skipping clone (path may differ from old install)
-    if (-not (Test-Path $QtRootDir)) {
-        New-Item -ItemType Directory -Path $QtRootDir -Force | Out-Null
-        Write-Host "Created directory: $QtRootDir"
-    }
-    if (-not (Test-Path "$QtRootDir\src")) {
-        Write-Host "ERROR: Source directory not found at $QtRootDir\src. Cannot use -SkipClone without existing source."
-        Exit-WithCleanup 1
-    }
-} elseif ($doReclone) {
-    Write-Host "Deleting $QtRootDir..."
-    cmd /c "rmdir /s /q `"$QtRootDir`"" 2>&1 | Out-Null
-    Start-Sleep -Milliseconds 500
-    New-Item -ItemType Directory -Path $QtRootDir -Force | Out-Null
-    Write-Host "Cloning Qt into $QtRootDir\src"
-    git clone https://code.qt.io/qt/qt5.git "$QtRootDir\src"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Git clone failed."; Exit-WithCleanup 1 }
-    Set-Location "$QtRootDir\src"
-    git checkout $QtVersion
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Git checkout failed."; Exit-WithCleanup 1 }
-    & "C:\Program Files\Git\bin\bash.exe" .\init-repository --module-subset=default,-qtwebengine
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Init repository failed."; Exit-WithCleanup 1 }
-    Set-Location $QtRootDir
-} elseif (-not (Test-Path $QtRootDir)) {
-    New-Item -ItemType Directory -Path $QtRootDir -Force
-    Write-Host "Created directory: $QtRootDir"
-    Write-Host "Cloning Qt into $QtRootDir\src"
-    git clone https://code.qt.io/qt/qt5.git "$QtRootDir\src"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Git clone failed."; Exit-WithCleanup 1 }
-    Set-Location "$QtRootDir\src"
-    git checkout $QtVersion
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Git checkout failed."; Exit-WithCleanup 1 }
-    & "C:\Program Files\Git\bin\bash.exe" .\init-repository --module-subset=default,-qtwebengine
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Init repository failed."; Exit-WithCleanup 1 }
-    Set-Location $QtRootDir
-} else {
-    Write-Host "Using existing source at $QtRootDir\src"
-}
-
-#--------------------------------------------------------------
-# Step 3: Clean Existing Build Files and Start Build Process
-#--------------------------------------------------------------
-Set-Location $QtRootDir
-
-# Only clean build files if not skipping clone (i.e., doing fresh build)
-if ($SkipClone) {
-    Write-Host "Skipping build/install folder cleanup - continuing from previous build..."
-} else {
-    # Clean build directory and install directory for fresh build
-    if (Test-Path "$QtRootDir\build") {
-        Write-Host "==============================================="
-        Write-Host "Cleaning existing build directory..."
-        Write-Host "==============================================="
-        cmd /c "rmdir /s /q `"$QtRootDir\build`"" 2>&1 | Out-Null
-    }
-
-    if (Test-Path "$QtRootDir\install") {
-        Write-Host "==============================================="
-        Write-Host "Deleting existing install folder..."
-        Write-Host "==============================================="
-        cmd /c "rmdir /s /q `"$QtRootDir\install`"" 2>&1 | Out-Null
-    }
-}
-
-# Step 4: Configure the Build
-Write-Host "==============================================="
-Write-Host "Configuring build settings..."
-Write-Host "==============================================="
-
-# Always clean build folder before configuring to prevent stale PCH (precompiled header) files
-# This is necessary even when resuming failed builds, as stale PCH files cause compilation failures
-$BuildDir = "$QtRootDir\build"
-if (Test-Path $BuildDir) {
-    Write-Host "Cleaning existing build directory to prevent stale precompiled headers..."
-    cmd /c "rmdir /s /q `"$BuildDir`"" 2>&1 | Out-Null
-    Start-Sleep -Milliseconds 500
-}
-
-# Create fresh build directory
-if (-not (Test-Path $BuildDir)) {
-    New-Item -ItemType Directory -Path $BuildDir -Force
-}
-Set-Location $BuildDir
-
-# Check for configure.bat in the source directory before running configure
-if (-not (Test-Path "$QtRootDir\src\configure.bat")) {
-    Write-Host "ERROR: Qt source directory or configure.bat is missing!"
-    Write-Host "Please ensure the repository is properly cloned and initialized at $QtRootDir\src."
-    Write-Host "You may need to delete $QtRootDir and allow the script to re-clone."
-    Exit-WithCleanup 1
-}
-
-# Locate Visual Studio vcvarsall.bat dynamically
-$vcVarsCandidates = @(
-    'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat',
-    'C:\Program Files\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat'
-)
-$vcVars = $vcVarsCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $vcVars) {
-    Write-Host "ERROR: Could not find vcvarsall.bat. Ensure Visual Studio Build Tools (or VS with C++ workload) is installed."
-    Exit-WithCleanup 1
-}
-
-# Determine Ninja path if available for CMake
-$NinjaExe = (Get-Command ninja -ErrorAction SilentlyContinue).Source
-if (-not $NinjaExe) {
-    foreach ($p in @('C:\Program Files\Ninja\bin\ninja.exe','C:\Program Files (x86)\Ninja\bin\ninja.exe')) {
-        if (Test-Path $p) { $NinjaExe = $p; break }
-    }
-}
-$cmakeMakeArg = ''
-if ($NinjaExe) { $cmakeMakeArg = " -- -DCMAKE_MAKE_PROGRAM=`"$NinjaExe`"" }
-
-# Clean PATH and configure Qt with Visual Studio environment
-$env:Path = $env:Path -replace 'C:\\Users\\[^;]*\\.pyenv[^;]*;?', ''
-$env:Path = $env:Path -replace 'C:\\Qt[^;]*;?', ''
-
-# Explicitly detect Python and add to temp environment for configure
-$pythonExe = $null
-
-# Search for real Python installations in standard locations (NOT from PATH which can be a stub)
-$pythonSearchDirs = @(
-    "C:\Users\$env:USERNAME\AppData\Local\Programs\Python",
-    "C:\Python*",
-    "C:\Program Files\Python*"
-)
-
-foreach ($dir in $pythonSearchDirs) {
-    if (Test-Path $dir) {
-        $pythonFiles = @(Get-ChildItem -Path "$dir\python.exe" -Recurse -ErrorAction SilentlyContinue)
-        if ($pythonFiles.Count -gt 0) {
-            # Use the first valid Python found
-            foreach ($py in $pythonFiles) {
-                $version = & "$($py.FullName)" --version 2>&1
-                if ($version -match "Python" -and $version -notmatch "stub") {
-                    $pythonExe = $py.FullName
-                    Write-Host "Found real Python: $pythonExe ($version)"
-                    break
-                }
-            }
-            if ($pythonExe) { break }
+            Remove-Item -LiteralPath $target -Recurse -Force
+            Write-Host "Removed $target"
+        } catch {
+            Write-Warning "Could not finish removing $directory. The SDK is installed. $_"
         }
     }
-}
-
-# If still not found, skip qtdeclarative (requires Python)
-if (-not $pythonExe) {
-    Write-Host "WARNING: No real Python installation found at standard locations."
-    Write-Host "qtdeclarative requires Python and will be skipped."
-}
-
-# Use cmd to ensure proper Visual Studio environment setup and configure from build directory
-$pythonArg = ""
-# Skip modules with genuine build failures on Windows static builds:
-# - qtwebengine: requires Chromium, too complex
-# - qtwayland: Linux-only compositor protocol
-# - qtspeech: optional TTS module
-# - qtconnectivity: WinRT GUID/winrt::guid type mismatch in Qt 6.10.2 with Windows SDK 10.0.19041+
-#   (qlowenergycontroller_winrt.cpp: cannot convert GUID to winrt::guid)
-$skipModules = "qtwebengine,qtwayland,qtspeech,qtconnectivity"
-
-if ($pythonExe) {
-    $pythonArg = " -DPython_EXECUTABLE=`"$pythonExe`""
-    Write-Host "CMake will use Python: $pythonExe"
-} else {
-    Write-Host "WARNING: Python not found. qtdeclarative and dependent modules will be skipped."
-    $skipModules += ",qtdeclarative,qtquicktimeline,qtquick3d,qtquickeffectmaker,qtquick3dphysics,qtgraphs,qtlottie,qtscxml,qtremoteobjects"
-}
-
-cmd /c "`"$vcVars`" x64 && cd /d `"$BuildDir`" && `"$QtRootDir\src\configure.bat`" $configureFlags -opensource -prefix `"$QtRootDir\install`" -nomake examples -nomake tests -no-feature-accessibility -skip $skipModules$cmakeMakeArg$pythonArg"
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Qt configure failed."
-    Exit-WithCleanup 1
-}
-
-#--------------------------------------------------------------
-# Step 5: Compile Qt
-#--------------------------------------------------------------
-Write-Host "==============================================="
-Write-Host "Compiling $QtVersion..."
-Write-Host "==============================================="
-# Build from the dedicated build directory
-Set-Location $BuildDir
-cmd /c "`"$vcVars`" x64 && cd /d `"$BuildDir`" && cmake --build . --parallel"
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Qt compilation failed."
-    Exit-WithCleanup 1
-}
-
-#--------------------------------------------------------------
-# Step 6: Install Qt
-#--------------------------------------------------------------
-Write-Host "==============================================="
-Write-Host "Installing $QtVersion..."
-Write-Host "==============================================="
-# Install from the dedicated build directory where build files are located
-$BuildDir = "$QtRootDir\build"
-Set-Location $BuildDir
-cmd /c "`"$vcVars`" x64 && cd /d `"$BuildDir`" && cmake --install ."
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Qt installation failed."
-    Exit-WithCleanup 1
-}
-
-#--------------------------------------------------------------
-# Final Step: Completion Message and Cleanup
-#--------------------------------------------------------------
-Write-Host "==============================================="
-Write-Host "Qt $QtVersion installation and setup completed successfully!"
-Write-Host "Installed to: $QtRootDir\install"
-Write-Host "==============================================="
-
-# Delete build directory (large, not needed after install)
-if ($deleteBuildAfter) {
-    if (Test-Path "$QtRootDir\build") {
-        Write-Host "Deleting build directory to free disk space..."
-        cmd /c "rmdir /s /q `"$QtRootDir\build`"" 2>&1 | Out-Null
-        Write-Host "Build directory deleted."
+} finally {
+    foreach ($key in $savedEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($key, $savedEnvironment[$key], 'Process')
+    }
+    try {
+        if ($transcribing) { Stop-Transcript | Out-Null }
+    } finally {
+        $lock.Dispose()
     }
 }
-
-# Optionally delete source directory
-if ($deleteSrcAfter) {
-    if (Test-Path "$QtRootDir\src") {
-        Write-Host "Deleting source directory..."
-        cmd /c "rmdir /s /q `"$QtRootDir\src`"" 2>&1 | Out-Null
-        Write-Host "Source directory deleted."
-    }
-}
-
-# Restore original working directory and exit cleanly
-Exit-WithCleanup 0

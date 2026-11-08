@@ -185,6 +185,12 @@ KGroundControl::KGroundControl(QWidget *parent)
             this, &KGroundControl::onDownloadFinished);
     connect(update_manager_, &UpdateManager::updateError,
             this, &KGroundControl::onUpdateError);
+#ifdef Q_OS_WIN
+    QTimer::singleShot(0, this, [this]() {
+        const QString error = UpdateManager::takeWindowsUpdateError();
+        if (!error.isEmpty()) QMessageBox::warning(this, "Previous Update Failed", error);
+    });
+#endif
     connect(update_manager_, &UpdateManager::updateDeclined,
             this, [this](const QString &version) {
                 declined_update_version_ = version;
@@ -539,7 +545,11 @@ void KGroundControl::closeEvent(QCloseEvent *event)
         qDebug() << "[KGroundControl] Installing update on exit...";
         // Perform the binary swap without restarting
         if (update_manager_->applyUpdate(pending_update_filepath_, false)) {
+#ifdef Q_OS_WIN
+            qDebug() << "[KGroundControl] Windows update scheduled to run after exit.";
+#else
             qDebug() << "[KGroundControl] Update installed successfully. Will be active on next launch.";
+#endif
         } else {
             qWarning() << "[KGroundControl] Failed to install update on exit";
         }

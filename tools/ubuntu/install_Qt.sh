@@ -19,13 +19,14 @@ Usage: install.sh [options] [-- extra Qt configure arguments]
   --version VERSION     Qt 6 release tag (default: 6.12.0; optional v prefix)
   --shared              Build shared release libraries instead of static
   --root PATH           SDK parent (default: $HOME/Qt)
-  --jobs N              Parallel jobs (default: min(CPUs, available RAM / 3 GiB))
+  --jobs N              Parallel jobs (default: all available logical CPUs)
   --no-deps             Do not run apt (dependencies must already be installed)
   --creator             Also install Ubuntu's Qt Creator package
   --with-webengine      Include WebEngine/PDF sources (shared builds only)
   -y, --accept-license  Accept Qt's open-source license without configure prompt
   -h, --help            Show help
-Existing sources/builds are retained for incremental retries. No automatic deletion.
+After verification, interactive runs offer to delete build and source separately.
+Press Enter to delete or enter N to keep a directory. Unattended runs delete both.
 Changed configuration requires a new --root or manual relocation of the old build.
 HELP
 }
@@ -102,9 +103,7 @@ for tool in cmake ninja git perl python3 pkg-config c++; do
     command -v "$tool" >/dev/null || die "Missing build tool: $tool"
 done
 if [[ -z $jobs ]]; then
-    cpu_jobs=$(getconf _NPROCESSORS_ONLN)
-    memory_jobs=$(awk '/MemAvailable:/ {n=int($2/3145728); print (n>0?n:1)}' /proc/meminfo)
-    jobs=$((cpu_jobs < memory_jobs ? cpu_jobs : memory_jobs))
+    jobs=$(nproc)
 fi
 sdk_root="$qt_root/$build_type/v$version"
 mkdir -p "$sdk_root"
@@ -158,9 +157,12 @@ request=$(printf '%s\n' 'installer-schema=2' "$actual_commit" "$subset" "${flags
     "CC=${CC:-}" "CXX=${CXX:-}" "CFLAGS=${CFLAGS:-}" "CXXFLAGS=${CXXFLAGS:-}" \
     "LDFLAGS=${LDFLAGS:-}" "PATH=$PATH" "CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH:-}" \
     "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}" "$(cmake --version)" "$(c++ --version)" | sha256sum)
-if [[ -f $build_dir/CMakeCache.txt ]]; then
+if [[ -f $build_dir/CMakeCache.txt || -f $build_dir/.installer-request ]]; then
     [[ -f $build_dir/.installer-request && $(cat "$build_dir/.installer-request") = "$request" ]] ||
         die "Build configuration changed or cache is from an older installer. Relocate $build_dir (and use a fresh install prefix) or choose another --root."
+elif [[ -e $install_dir ]]; then
+    [[ -f $sdk_root/.installed-request && $(cat "$sdk_root/.installed-request") = "$request" ]] ||
+        die 'Existing install has no matching build record. Choose another --root or relocate the old install.'
 fi
 # Always configure/build/install: CMake/Ninja handle incremental work and interrupted runs.
 printf '%s\n' "$request" > "$build_dir/.installer-request"
@@ -200,3 +202,30 @@ cmake --build "$sdk_root/verify/build" --parallel "$jobs"
 find "$install_dir" -name 'Qt6*Config.cmake' -print | sort > "$sdk_root/installed-modules.txt"
 printf '\nSDK installed and consumer link verified: %s\nModule inventory: %s\n' "$install_dir" "$sdk_root/installed-modules.txt"
 printf 'Review %s/config.summary for optional features disabled by dependency detection.\n' "$build_dir"
+
+for directory in build src; do
+    target="$sdk_root/$directory"
+    if ! $accept_license && [[ -t 0 ]]; then
+        printf 'Delete %s? [Y/n] ' "$target"
+        if ! read -r answer; then break; fi
+        case $answer in
+            ''|[Yy]|[Yy][Ee][Ss]) ;;
+            *) continue ;;
+        esac
+    fi
+    if [[ ! -d $target || -L $target || $(cd -- "$target" && pwd -P) != "$target" ]] ||
+        mountpoint -q -- "$target"; then
+        printf 'WARNING: Keeping %s because it is not the expected SDK subdirectory.\n' "$target" >&2
+        continue
+    fi
+    if [[ $directory == build ]] &&
+        ! cp --remove-destination -- "$build_dir/.installer-request" "$sdk_root/.installed-request"; then
+        printf 'WARNING: Keeping %s because its build record could not be saved.\n' "$target" >&2
+        continue
+    fi
+    if rm -rf --one-file-system -- "$target"; then
+        printf 'Removed %s\n' "$target"
+    else
+        printf 'WARNING: Could not finish removing %s. The SDK is installed.\n' "$target" >&2
+    fi
+done

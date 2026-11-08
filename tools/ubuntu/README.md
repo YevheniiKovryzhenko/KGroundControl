@@ -3,12 +3,15 @@
 `install_Qt.sh` defaults to Qt **6.12.0**, static release libraries, and `$HOME/Qt/Static/v6.12.0/install`. Run as your normal user:
 
 ```bash
-./install_Qt.sh --jobs 8
+./install_Qt.sh
 # For unattended use, after reviewing Qt's open-source license terms:
-./install_Qt.sh -y --jobs 8
+./install_Qt.sh -y
 # An older Qt 6 release uses a separate version directory:
 ./install_Qt.sh --version 6.10.2
 ```
+
+The build uses all available logical CPUs by default. Set `--jobs 8` or the
+`JOBS` environment variable to limit parallelism if memory is tight.
 
 The package list targets Ubuntu 24.04. Other Ubuntu releases may need different package names or newer tools. Apt installs dependencies, without upgrading the whole system. Some packages require Ubuntu's Universe repository to be enabled. `--no-deps` uses an already prepared machine. `--creator` installs Ubuntu's Qt Creator separately; Qt Creator is not part of the Qt SDK build. `--help` lists options. Additional Qt configure arguments follow `--`.
 
@@ -26,7 +29,11 @@ A static Qt SDK does **not** produce a fully static Linux executable: system lib
 
 ## Retries and existing installations
 
-Sources, builds and installs are retained, with no automatic `rm`, reset or clean. Re-running with identical settings reconfigures and performs an incremental build/install, even after interruption. A lock prevents concurrent runs on the same SDK. The script checks source release commits and tracked modifications, retains logs and a source commit inventory, and refuses an incompatible existing CMake cache. Do not run it concurrently with manual edits/builds of the same SDK.
+After verification, interactive runs offer to delete `build` and `src`
+separately. Press Enter to delete or enter `n` to keep a directory.
+Unattended runs delete both after verification. Failed installs keep both.
+
+Re-running with identical settings reconfigures and performs an incremental build/install, even after interruption. A lock prevents concurrent runs on the same SDK. The script checks source release commits and tracked modifications, retains logs and a source commit inventory, and refuses an incompatible existing CMake cache. Do not run it concurrently with manual edits/builds of the same SDK.
 
 If configuration inputs change or a build came from the previous installer, use a fresh `--root /absolute/path` or manually relocate the old `build` **and** `install` directories first. Do not overlay a changed module selection onto an old install prefix: removed modules could leave stale package files. Package/compiler upgrades can also warrant a fresh build. No checkpoint can prove that every external dependency is unchanged.
 
