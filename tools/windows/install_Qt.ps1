@@ -153,9 +153,22 @@ function Get-VsInstallation {
     }
 }
 
+function Test-WindowsSdk {
+    param([string]$Directory, [string]$Version)
+    $sdkVersion = $null
+    $Version = $Version.TrimEnd('\')
+    # Qt's modern Windows style uses DWM declarations introduced in SDK 22000.
+    $Directory -and [version]::TryParse($Version, [ref]$sdkVersion) -and
+        $sdkVersion -ge [version]'10.0.22000.0' -and
+        (Test-Path -LiteralPath (Join-Path $Directory "Include\$Version\um\dwmapi.h") -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $Directory "Lib\$Version\um\x64\dwmapi.lib") -PathType Leaf)
+}
+
 function Import-VsEnvironment {
+    param([switch]$Reload)
     if ($env:VisualStudioVersion -eq '17.0' -and $env:VSCMD_ARG_TGT_ARCH -eq 'x64' -and
-        $env:WindowsSdkDir -and (Find-BuildTool cl)) { return $true }
+        -not $Reload -and $env:VCToolsInstallDir -and (Find-BuildTool cl) -and
+        (Test-WindowsSdk $env:WindowsSdkDir $env:WindowsSDKVersion)) { return $true }
 
     $installations = Get-VsInstallation @('-products', '*', '-requires',
         'Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
@@ -169,6 +182,8 @@ function Import-VsEnvironment {
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true
         $startInfo.RedirectStandardOutput = $true
+        # An existing developer shell can pin the SDK passed to VsDevCmd.
+        $startInfo.EnvironmentVariables.Remove('VSCMD_ARG_WINSDK')
         $process = [Diagnostics.Process]::Start($startInfo)
         try {
             $settings = $process.StandardOutput.ReadToEnd() -split '\r?\n'
@@ -181,8 +196,8 @@ function Import-VsEnvironment {
         foreach ($entry in $settings) {
             if ($entry -match '^([^=]+)=(.*)$') { $environment[$Matches[1]] = $Matches[2] }
         }
-        if (-not ($environment.WindowsSdkDir -and $environment.VCToolsInstallDir -and
-            $environment.VSCMD_ARG_TGT_ARCH -eq 'x64')) { continue }
+        if (-not ($environment.VCToolsInstallDir -and $environment.VSCMD_ARG_TGT_ARCH -eq 'x64' -and
+            (Test-WindowsSdk $environment.WindowsSdkDir $environment.WindowsSDKVersion))) { continue }
         foreach ($key in $environment.Keys) {
             if ([Environment]::GetEnvironmentVariable($key, 'Process') -cne $environment[$key]) {
                 Set-BuildEnvironment $key $environment[$key]
@@ -209,7 +224,11 @@ function Initialize-BuildTools {
             $existing = $env:VSINSTALLDIR.TrimEnd('\')
         } else {
             $components += ' --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100'
-            $existing = Get-VsInstallation @('-products', 'Microsoft.VisualStudio.Product.BuildTools', '-latest')
+            $existing = Get-VsInstallation @('-products', '*', '-requires',
+                'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-latest')
+            if (-not $existing) {
+                $existing = Get-VsInstallation @('-products', 'Microsoft.VisualStudio.Product.BuildTools', '-latest')
+            }
         }
         if ($existing) {
             Write-Host 'Installing missing Visual Studio 2022 C++ components'
@@ -220,8 +239,8 @@ function Initialize-BuildTools {
         } else {
             Install-BuildPackage 'Microsoft.VisualStudio.2022.BuildTools' @('--override', "--quiet --wait --norestart $components") | Out-Host
         }
-        if (-not (Import-VsEnvironment)) {
-            throw 'Visual Studio setup did not yield an x64 compiler and Windows SDK. Check Visual Studio Installer for pending changes or a required reboot.'
+        if (-not (Import-VsEnvironment -Reload)) {
+            throw 'Visual Studio setup did not yield an x64 compiler with Windows SDK 10.0.22000.0 or newer. Check Visual Studio Installer for pending changes or a required reboot.'
         }
         if (-not (Test-VsAtl)) {
             throw 'ATL is missing from the active x64 MSVC toolset. Check Visual Studio Installer for the matching v143 ATL component or a pending reboot.'
@@ -301,7 +320,7 @@ try {
     $tools = Initialize-BuildTools
     $cmakeVersion = @(Invoke-Checked $tools.cmake @('--version'))[0]
     $ninjaVersion = Invoke-Checked $tools.ninja @('--version')
-    Write-Host "Qt $versionNumber $kind release, $Jobs parallel jobs, prefix $installDir"
+    Write-Host "Qt $versionNumber $kind release, Windows SDK $($env:WindowsSDKVersion.TrimEnd('\')), $Jobs parallel jobs, prefix $installDir"
 
     if (-not (Test-Path -LiteralPath $sourceDir)) {
         if ($SkipClone) { throw "No checkout at $sourceDir for -SkipClone." }
@@ -353,7 +372,16 @@ try {
     } | ConvertTo-Json -Depth 4 -Compress
     if (Test-Path -LiteralPath $requestFile) {
         if ((Get-Content -LiteralPath $requestFile -Raw).TrimEnd() -cne $request) {
-            throw 'The SDK build inputs changed. Use a fresh -Root or relocate build and install together.'
+            if (Test-Path -LiteralPath $installDir) {
+                throw 'The SDK build inputs changed and an install already exists. Use a fresh -Root or relocate build and install together.'
+            }
+            if (-not (Test-SdkCleanupPath $sdkDir 'build')) {
+                throw "Could not safely move the outdated build at $buildDir. Use a fresh -Root."
+            }
+            # A fresh CMake cache alone does not invalidate every object built with the old SDK.
+            $backupName = "build-previous-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')"
+            Rename-Item -LiteralPath $buildDir -NewName $backupName
+            Write-Host "Build inputs changed. Saved the previous build as $backupName and will configure from scratch."
         }
     } elseif ((Test-Path -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) -or
               ((Test-Path -LiteralPath $installDir) -and
@@ -383,6 +411,7 @@ try {
     $request | Set-Content -LiteralPath $requestFile -Encoding UTF8
     $configured = Join-Path $buildDir '.installer-configured'
     if (-not (Test-Path -LiteralPath $configured) -or
+        -not (Test-Path -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) -or
         -not (Test-Path -LiteralPath (Join-Path $buildDir 'build.ninja'))) {
         Push-Location -LiteralPath $buildDir
         try {

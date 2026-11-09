@@ -1,17 +1,17 @@
 # Native Qt SDK for Ubuntu
 
-`install_Qt.sh` defaults to Qt **6.12.0**, static release libraries, and `$HOME/Qt/Static/v6.12.0/install`. Run as your normal user:
+The installer defaults to Qt **6.12.0**, static release libraries, and `$HOME/Qt/Static/v6.12.0/install`. Run from the directory containing the script as your normal user.
 
 ```bash
-./install_Qt.sh
+installer=./install.sh # Use ./install_Qt.sh in KGroundControl.
+bash "$installer"
 # For unattended use, after reviewing Qt's open-source license terms:
-./install_Qt.sh -y
+bash "$installer" -y
 # An older Qt 6 release uses a separate version directory:
-./install_Qt.sh --version 6.10.2
+bash "$installer" --version 6.10.2
 ```
 
-The build uses all available logical CPUs by default. Set `--jobs 8` or the
-`JOBS` environment variable to limit parallelism if memory is tight.
+The build uses all available logical CPUs by default. Set `--jobs 8` or the `JOBS` environment variable to limit parallelism if memory is tight.
 
 The package list targets Ubuntu 24.04. Other Ubuntu releases may need different package names or newer tools. Apt installs dependencies, without upgrading the whole system. Some packages require Ubuntu's Universe repository to be enabled. `--no-deps` uses an already prepared machine. `--creator` installs Ubuntu's Qt Creator separately; Qt Creator is not part of the Qt SDK build. `--help` lists options. Additional Qt configure arguments follow `--`.
 
@@ -20,7 +20,7 @@ The script initializes **all** release submodules rather than the smaller `defau
 **WebEngine exception:** static Qt WebEngine is unsupported. The default excludes the `qtwebengine` repository, which also contains Qt PDF. To include those sources in a separate shared SDK, use:
 
 ```bash
-./install_Qt.sh --shared --with-webengine
+bash "$installer" --shared --with-webengine
 ```
 
 WebEngine has additional release-specific compiler, Python, Node.js and RAM requirements. This is a much larger build; consult the selected release's [platform notes](https://doc.qt.io/qt-6/qtwebengine-platform-notes.html).
@@ -29,9 +29,7 @@ A static Qt SDK does **not** produce a fully static Linux executable: system lib
 
 ## Retries and existing installations
 
-After verification, interactive runs offer to delete `build` and `src`
-separately. Press Enter to delete or enter `n` to keep a directory.
-Unattended runs delete both after verification. Failed installs keep both.
+After verification, interactive runs ask separately whether to delete `build` and `src`. Press Enter to delete or enter `n` to keep a directory. Unattended runs with `--accept-license` delete both after verification. A failed install keeps both. Cleanup preserves the installed SDK, logs, and module inventory.
 
 Re-running with identical settings reconfigures and performs an incremental build/install, even after interruption. A lock prevents concurrent runs on the same SDK. The script checks source release commits and tracked modifications, retains logs and a source commit inventory, and refuses an incompatible existing CMake cache. Do not run it concurrently with manual edits/builds of the same SDK.
 
