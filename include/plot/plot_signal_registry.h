@@ -19,6 +19,7 @@ struct PlotSignalSample {
 struct PlotSignalDef {
     QString id;       // unique key (e.g., "source/sysid/compid/name/field")
     QString label;    // human readable label
+    QString displayLabel() const { return label.isEmpty() ? id : label; }
 };
 
 class PlotSignalRegistry : public QObject {
@@ -31,6 +32,8 @@ public:
     void untagSignal(const QString& id);
     void setTagged(const PlotSignalDef& def, bool enabled);
     bool isTagged(const QString& id) const;
+    QString displayLabel(const QString& id) const;
+    void updateLabel(const QString& id, const QString& label);
     QSet<QString> taggedIds() const;
     QSet<QString> taggedIdsByPrefix(const QString& prefix) const;
 

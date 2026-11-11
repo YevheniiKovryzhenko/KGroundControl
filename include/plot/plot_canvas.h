@@ -1,4 +1,5 @@
 #pragma once
+#include "plot/plot_signal_registry.h"
 #include <QWidget>
 #include <QHash>
 #include <QVector>
@@ -278,6 +279,9 @@ private:
     QString legendTextFor(const QString& id) const;  // label or equation if enabled
     QString formatNumber(double v, int maxPrec = 3) const;
     bool transformValue(const QString& id, double x, double& yOut) const; // returns true if valid
+    struct GroupSample { qint64 t_ns; QVector3D position; };
+    QVector<GroupSample> groupSamples(const Plot3DGroup& group) const;
+    QVector<PlotSignalSample> transformedSamples(const QString& id) const;
     void render3D(QPainter& p, const QRect& rect);
 
     // visuals

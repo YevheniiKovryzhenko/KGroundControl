@@ -42,6 +42,8 @@
 #include <QQueue>
 #include <QShortcut>
 #include <QHash>
+#include <QMap>
+
 
 #define MAVLINK_USE_MESSAGE_INFO
 #include "all/mavlink.h"
@@ -98,6 +100,13 @@ private:
     QMutex* mutex = NULL;
 };
 
+struct DebugArraySnapshot
+{
+    mavlink_message_t message{};
+    QVector<qint64> timestamps;
+};
+using DebugArraySnapshots = QMap<uint16_t, DebugArraySnapshot>;
+
 class mavlink_data_aggregator : public QObject
 {
     Q_OBJECT
@@ -137,8 +146,10 @@ public slots:
     bool get_all(QVector<mavlink_message_t*> &msgs_out, QVector<CQueue<qint64>*> &timestamps_out);
 
     void clear(void);
+    DebugArraySnapshots get_debug_arrays();
 
 private:
+    DebugArraySnapshots debug_arrays;
 
     QVector<QString> names;
     QVector<mavlink_message_t*> msgs;
@@ -163,6 +174,7 @@ public slots:
     bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
 
     bool get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, void *msg_out, CQueue<qint64> &timestamps_out);
+    DebugArraySnapshots get_debug_arrays(uint8_t sysid, mavlink_enums::mavlink_component_id compid);
 
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
     void clear(void);
@@ -299,6 +311,8 @@ signals:
     bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
 
     bool request_get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name_, void *msg_, CQueue<qint64> &timestamps_out);
+
+    DebugArraySnapshots request_debug_arrays(uint8_t sysid, mavlink_enums::mavlink_component_id compid);
 
     void heartbeat_updated(void);
     void request_update_msg_browser(QString txt_in);

@@ -283,6 +283,7 @@ void mavlink_data_aggregator::clear(void)
     while (msgs.count()) delete msgs.takeLast();
     while (timestamps.count()) delete timestamps.takeLast();
     names.clear();
+    debug_arrays.clear();
     mutex->unlock();
 }
 
@@ -293,6 +294,15 @@ bool mavlink_data_aggregator::update(void *new_msg_in, qint64 msg_time_stamp)
     mavlink_message_t* msg_cast_ = static_cast<mavlink_message_t*>(new_msg_in);
 
     if (!print_name(name, msg_cast_)) return false; //invaid message
+
+    if (msg_cast_->msgid == MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY) {
+        QMutexLocker lock(mutex);
+        auto& instance = debug_arrays[mavlink_msg_debug_float_array_get_array_id(msg_cast_)];
+        instance.message = *msg_cast_;
+        instance.timestamps.append(msg_time_stamp);
+        if (instance.timestamps.size() > static_cast<int>(time_buffer_size)) instance.timestamps.removeFirst();
+    }
+
 
 
     if (msgs.count() < 1)
@@ -340,6 +350,45 @@ bool mavlink_data_aggregator::update(void *new_msg_in, qint64 msg_time_stamp)
         }
     }
     return false;
+}
+
+DebugArraySnapshots mavlink_data_aggregator::get_debug_arrays()
+{
+    QMutexLocker lock(mutex);
+    return debug_arrays;
+}
+
+DebugArraySnapshots mavlink_manager::get_debug_arrays(uint8_t sysid, mavlink_enums::mavlink_component_id compid)
+{
+    unsigned int i;
+    if (!get_ind(i, sysid, compid)) return {};
+    QMutexLocker lock(mutex);
+    return msgs[i]->get_debug_arrays();
+}
+
+// Include the array ID in every plot key; names are display labels only.
+static QString mavlinkPlotPrefix(const mavlink_message_t& msg)
+{
+    QString prefix = QString("mavlink/%1/%2/%3/").arg(msg.sysid).arg(msg.compid).arg(msg.msgid);
+    if (msg.msgid == MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY)
+        prefix += QString("array/%1/").arg(mavlink_msg_debug_float_array_get_array_id(&msg));
+    return prefix;
+}
+
+static PlotSignalDef mavlinkPlotDefinition(const mavlink_message_t& msg, const QString& fieldPath)
+{
+    const auto* info = mavlink_get_message_info(&msg);
+    QString name = info ? QString::fromLatin1(info->name) : QString::number(msg.msgid);
+    if (msg.msgid == MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY) {
+        mavlink_debug_float_array_t array{};
+        mavlink_msg_debug_float_array_decode(&msg, &array);
+        int length = 0;
+        while (length < int(sizeof(array.name)) && array.name[length]) ++length;
+        const QString arrayName = QString::fromLatin1(array.name, length);
+        name += QString("[%1%2]").arg(array.array_id).arg(arrayName.isEmpty() ? QString() : ": " + arrayName);
+    }
+    return {mavlinkPlotPrefix(msg) + fieldPath,
+            QString("MAVLink | %1/%2 %3.%4").arg(msg.sysid).arg(msg.compid).arg(name, fieldPath)};
 }
 
 bool mavlink_data_aggregator::get_msg(QString msg_name, void *msg_out, CQueue<qint64> &timestamps_out)
@@ -454,10 +503,7 @@ static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 
     const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(msg));
     if (!mi) return;
 
-    const QString base = QString("mavlink/%1/%2/%3/")
-            .arg(msg->sysid)
-            .arg(msg->compid)
-            .arg(msg->msgid);
+    const QString base = mavlinkPlotPrefix(*msg);
 
     const auto taggedIds = PlotSignalRegistry::instance().taggedIdsByPrefix(base);
     if (taggedIds.isEmpty()) return;
@@ -465,6 +511,8 @@ static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 
     for (const auto& id : taggedIds)
     {
         const QString fieldPath = id.mid(base.size()); // e.g., "x" or "x[2]"
+        const auto definition = mavlinkPlotDefinition(*msg, fieldPath);
+        PlotSignalRegistry::instance().updateLabel(id, definition.label);
 
         // Parse name and optional index
         QString fieldName = fieldPath;
@@ -820,7 +868,7 @@ static QString itemPath(QTreeWidgetItem* item)
 {
     QStringList parts;
     for (QTreeWidgetItem* it = item; it; it = it->parent()) {
-        parts.prepend(it->text(0));
+        parts.prepend(it->data(0, Qt::UserRole).isValid() ? it->data(0, Qt::UserRole).toString() : it->text(0));
     }
     return parts.join("/");
 }
@@ -875,13 +923,26 @@ static inline bool isNumericMavType(uint8_t t)
     }
 }
 
+static QList<QTreeWidgetItem*> detailMessageRoots(QTreeWidget* tree)
+{
+    QList<QTreeWidgetItem*> roots;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        auto* root = tree->topLevelItem(i);
+        if (root->text(0) == "DEBUG_FLOAT_ARRAY") {
+            for (int j = 0; j < root->childCount(); ++j) roots.append(root->child(j));
+        } else roots.append(root);
+    }
+    return roots;
+}
+
 // Fast path: update only Value cells, keep Plot checkbox widgets intact
 static void updateDetailTreeValues(QTreeWidget* tree, const QVector<QPair<QString, mavlink_message_t>>& entries)
 {
     if (!tree) return;
-    if (tree->topLevelItemCount() != entries.size()) return;
+    const auto roots = detailMessageRoots(tree);
+    if (roots.size() != entries.size()) return;
     for (int mIdx = 0; mIdx < entries.size(); ++mIdx) {
-        QTreeWidgetItem* root = tree->topLevelItem(mIdx);
+        QTreeWidgetItem* root = roots[mIdx];
         if (!root) continue;
         const mavlink_message_t& m = entries[mIdx].second;
         const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(&m));
@@ -910,7 +971,7 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
 {
     if (!tree) return;
     // If titles match, only update Value cells and return (preserve checkboxes & scroll)
-    QStringList oldTitles; for (int i = 0; i < tree->topLevelItemCount(); ++i) oldTitles << tree->topLevelItem(i)->text(0);
+    QStringList oldTitles; for (auto* root : detailMessageRoots(tree)) oldTitles << root->text(0);
     QStringList newTitles; for (const auto& p : entries) newTitles << p.first;
     if (!oldTitles.isEmpty() && oldTitles == newTitles) { updateDetailTreeValues(tree, entries); return; }
 
@@ -930,13 +991,21 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
     const QPalette pal = tree->palette();
     const QBrush headerBrush = pal.alternateBase();
 
+    QTreeWidgetItem* debugRoot = nullptr;
     auto addMessage = [&](const QString& title, const mavlink_message_t& m) {
         const mavlink_message_info_t* mi = mavlink_get_message_info(const_cast<mavlink_message_t*>(&m));
         if (!mi) return;
         QTreeWidgetItem* root = nullptr;
         // Always create a header item for consistency (even single message)
-        root = new QTreeWidgetItem(tree);
+        if (m.msgid == MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY) {
+            if (!debugRoot) {
+                debugRoot = new QTreeWidgetItem(tree);
+                debugRoot->setText(0, "DEBUG_FLOAT_ARRAY");
+            }
+            root = new QTreeWidgetItem(debugRoot);
+        } else root = new QTreeWidgetItem(tree);
         root->setText(0, title);
+        root->setData(0, Qt::UserRole, mavlinkPlotPrefix(m));
         QTreeWidget* parentTree = tree;
         QTreeWidgetItem* parentItem = root;
 
@@ -954,17 +1023,8 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                 // Add checkbox for numeric scalars via widget for reliable interaction
                 if (isNumericMavType(f->type)) {
                     const QString fieldPath = QString::fromLatin1(f->name);
-                    const QString id = QString("mavlink/%1/%2/%3/%4")
-                            .arg(m.sysid)
-                            .arg(m.compid)
-                            .arg(m.msgid)
-                            .arg(fieldPath);
-                    const QString label = QString("MAVLink | %1/%2 %3.%4")
-                        .arg(m.sysid)
-                        .arg(m.compid)
-                        .arg(QString::fromLatin1(mi->name))
-                        .arg(fieldPath);
-                    QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, id, label);
+                    const auto definition = mavlinkPlotDefinition(m, fieldPath);
+                    QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, definition.id, definition.label);
                     tree->setItemWidget(item, 2, cb);
                 }
             }
@@ -979,17 +1039,8 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
                     child->setText(1, v);
                     if (isNumericMavType(f->type)) {
                         const QString fieldPath = QString::fromLatin1(f->name) + QString("[%1]").arg(idx);
-                        const QString id = QString("mavlink/%1/%2/%3/%4")
-                                .arg(m.sysid)
-                                .arg(m.compid)
-                                .arg(m.msgid)
-                                .arg(fieldPath);
-                        const QString label = QString("MAVLink | %1/%2 %3.%4")
-                            .arg(m.sysid)
-                            .arg(m.compid)
-                            .arg(QString::fromLatin1(mi->name))
-                            .arg(fieldPath);
-                        QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, id, label);
+                        const auto definition = mavlinkPlotDefinition(m, fieldPath);
+                        QCheckBox* cb = plot_signal_ui_helpers::createPlotCheckBox(tree, definition.id, definition.label);
                         tree->setItemWidget(child, 2, cb);
                     }
                 }
@@ -1004,7 +1055,7 @@ static void fillDetailTree(QTreeWidget* tree, const QVector<QPair<QString, mavli
         // Build subtree
         addMessage(p.first, p.second);
         // Color header row gray (always present now)
-        QTreeWidgetItem* root = tree->topLevelItem(tree->topLevelItemCount() - 1);
+        QTreeWidgetItem* root = detailMessageRoots(tree).last();
         if (root) {
             const int cols = tree->columnCount();
             for (int c = 0; c < cols; ++c) root->setBackground(c, headerBrush);
@@ -1407,7 +1458,20 @@ bool MavlinkInspector::update_msg_list_visuals(void)
         {
             detailed_data_printed = true;
             mavlink_message_t mcache; item->get_msg(&mcache);
-            detail_entries.append(qMakePair(item->name, mcache));
+            if (mcache.msgid == MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY) {
+                const auto arrays = emit request_debug_arrays(item->sysid, item->compid);
+                for (auto it = arrays.cbegin(); it != arrays.cend(); ++it) {
+                    char name[10]{};
+                    mavlink_msg_debug_float_array_get_name(&it->message, name);
+                    int length = 0;
+                    while (length < 10 && name[length] != '\0') ++length;
+                    const QString label = QString::fromLatin1(name, length);
+                    const QString title = QString::number(it.key()) + (label.isEmpty() ? QString() : ": " + label);
+                    detail_entries.append(qMakePair(title, it->message));
+                }
+            } else {
+                detail_entries.append(qMakePair(item->name, mcache));
+            }
         }
     }
     mutex->unlock();

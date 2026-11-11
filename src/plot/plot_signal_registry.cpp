@@ -17,7 +17,26 @@ void PlotSignalRegistry::tagSignal(const PlotSignalDef& def) {
         order_.push_back(def.id);
         guard.unlock();
         emit signalsChanged();
+    } else if (defs_[def.id].label != def.label) {
+        defs_[def.id].label = def.label;
+        guard.unlock();
+        emit signalsChanged();
     }
+}
+
+QString PlotSignalRegistry::displayLabel(const QString& id) const {
+    QReadLocker guard(&lock_);
+    const auto it = defs_.constFind(id);
+    return it == defs_.cend() ? id : it->displayLabel();
+}
+
+void PlotSignalRegistry::updateLabel(const QString& id, const QString& label) {
+    QWriteLocker guard(&lock_);
+    auto it = defs_.find(id);
+    if (it == defs_.end() || it->label == label) return;
+    it->label = label;
+    guard.unlock();
+    emit signalsChanged();
 }
 
 void PlotSignalRegistry::untagSignal(const QString& id) {

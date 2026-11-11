@@ -8,6 +8,23 @@ namespace plot_signal_ui_helpers {
 
 static constexpr const char* kPlotBindingConnected = "_plotBindingConnected";
 
+void populateSignalCombo(QComboBox* combo, const QVector<PlotSignalDef>& definitions)
+{
+    if (!combo) return;
+    const QString selected = combo->currentData().toString();
+    QSignalBlocker blocker(combo);
+    combo->clear();
+    for (const auto& signal : definitions) {
+        combo->addItem(signal.displayLabel(), signal.id);
+        combo->setItemData(combo->count() - 1, signal.id, Qt::ToolTipRole);
+    }
+    const int index = combo->findData(selected);
+    if (!selected.isEmpty()) combo->setCurrentIndex(index);
+    combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    combo->setMinimumContentsLength(25);
+    combo->setMaxVisibleItems(20);
+}
+
 void bindPlotCheckBox(QCheckBox* cb, const QString& id, const QString& label)
 {
     if (!cb) return;
@@ -16,6 +33,7 @@ void bindPlotCheckBox(QCheckBox* cb, const QString& id, const QString& label)
     cb->setProperty(kPlotIdProperty, id);
     cb->setProperty(kPlotLabelProperty, label);
     cb->setEnabled(!id.isEmpty());
+    PlotSignalRegistry::instance().updateLabel(id, label);
 
     if (!cb->property(kPlotBindingConnected).toBool()) {
         QObject::connect(cb, &QCheckBox::toggled, cb, [cb](bool on){

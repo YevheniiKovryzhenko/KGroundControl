@@ -770,6 +770,7 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     connect(mavlink_manager_, &mavlink_manager::write_message, connection_manager_, &connection_manager::write_mavlink_msg_2port, Qt::DirectConnection);
 
     connect(mavlink_inpector_, &MavlinkInspector::request_get_msg, mavlink_manager_, &mavlink_manager::get_msg, Qt::DirectConnection);
+    connect(mavlink_inpector_, &MavlinkInspector::request_debug_arrays, mavlink_manager_, &mavlink_manager::get_debug_arrays, Qt::DirectConnection);
     connect(mavlink_inpector_, &MavlinkInspector::clear_mav_manager, mavlink_manager_, &mavlink_manager::clear);
     connect(mavlink_inpector_, &MavlinkInspector::get_port_names, connection_manager_, &connection_manager::get_names, Qt::DirectConnection);
     connect(mavlink_inpector_, &MavlinkInspector::toggle_arm_state, mavlink_manager_, &mavlink_manager::toggle_arm_state);

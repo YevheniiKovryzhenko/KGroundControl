@@ -178,14 +178,7 @@ void PlottingManager::setup3DGroupsTree() {
 
     // Connect add group button
     connect(btnAddGroup, &QToolButton::clicked, this, [this]{
-        // Get available signals for the dialog (use registry IDs so selections map to stored samples)
-        QVector<QString> availableSignals;
-        for (const auto& signal : registry_->listSignals()) {
-            availableSignals.append(signal.id);
-        }
-
-        // Show dialog to create new 3D group
-        Create3DGroupDialog dialog(availableSignals, this);
+        Create3DGroupDialog dialog(registry_->listSignals(), this);
         // Compute a unique default group name like "Group 1", "Group 2", ...
         int idx = 1;
         auto nameInUse = [this](const QString& name){
@@ -1933,6 +1926,39 @@ void PlottingManager::refreshSignalList() {
     QSet<QString> seen;
     // On first build, seed signalOrder_ from registry list order
     const auto defsAll = registry_->listSignals();
+    auto refreshGroupLabels = [this] {
+        // Refresh every 3D binding through the same label resolver as the 2D list.
+        if (ui->tree3DGroups) {
+            for (int i = 0; i < ui->tree3DGroups->topLevelItemCount(); ++i) {
+                auto* group = ui->tree3DGroups->topLevelItem(i);
+                for (int j = 0; j < group->childCount(); ++j) {
+                    auto* binding = group->child(j);
+                    const QString id = binding->data(0, Qt::UserRole + 1).toString();
+                    binding->setText(0, binding->data(0, Qt::UserRole + 2).toString() + ": " + registry_->displayLabel(id));
+                    binding->setToolTip(0, id);
+                }
+            }
+        }
+    };
+    // Metadata updates must preserve selection, enabled state, order and widgets.
+    if (tree && tree->topLevelItemCount() == defsAll.size()) {
+        bool sameIds = true;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            const QString id = tree->topLevelItem(i)->data(0, Qt::UserRole).toString();
+            if (std::none_of(defsAll.cbegin(), defsAll.cend(), [&](const auto& def) { return def.id == id; })) {
+                sameIds = false; break;
+            }
+        }
+        if (sameIds) {
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                auto* row = tree->topLevelItem(i);
+                row->setText(0, registry_->displayLabel(row->data(0, Qt::UserRole).toString()));
+            }
+            refreshGroupLabels();
+            return;
+        }
+    }
+
     if (signalOrder_.isEmpty()) {
         for (const auto& d : defsAll) signalOrder_.push_back(d.id);
     } else {
@@ -2146,7 +2172,8 @@ void PlottingManager::refreshSignalList() {
         if (it == defsAll.end()) continue;
         const auto& d = *it;
         auto* row = new QTreeWidgetItem(tree);
-        row->setText(0, d.label);
+        row->setText(0, registry_->displayLabel(d.id));
+        row->setToolTip(0, d.id);
         row->setData(0, Qt::UserRole, d.id);
         row->setFlags(row->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
         // Keep previously checked items checked
@@ -2176,7 +2203,7 @@ void PlottingManager::refreshSignalList() {
             enabledOrdered_.push_back(row->data(0, Qt::UserRole).toString());
     }
     ui->plotCanvas->setEnabledSignals(enabledOrdered_);
-    // Column behavior already set: first stretches
+    refreshGroupLabels();
 }
 
 void PlottingManager::onSignalSelectionChanged() {
@@ -2440,6 +2467,25 @@ void PlottingManager::updateGroups3DList(QTreeWidget* tree) {
         it->setData(0, Qt::UserRole, i);
         it->setFlags(it->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         it->setCheckState(1, g.enabled ? Qt::Checked : Qt::Unchecked);
+        auto addBinding = [&](const QString& axis, const QString& id) {
+            if (id.isEmpty()) return;
+            auto* child = new QTreeWidgetItem(it);
+            child->setText(0, axis + ": " + registry_->displayLabel(id));
+            child->setToolTip(0, id);
+            child->setData(0, Qt::UserRole, i);
+            child->setData(0, Qt::UserRole + 1, id);
+            child->setData(0, Qt::UserRole + 2, axis);
+            child->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        };
+        const QStringList axes{"X", "Y", "Z"};
+        for (int j = 0; j < qMin(3, int(g.signalIds.size())); ++j) addBinding(axes[j], g.signalIds[j]);
+        if (g.attitudeMode == "Euler") {
+            addBinding("Roll", g.rollSignal); addBinding("Pitch", g.pitchSignal); addBinding("Yaw", g.yawSignal);
+        } else if (g.attitudeMode == "Quaternion") {
+            addBinding("qx", g.qxSignal); addBinding("qy", g.qySignal);
+            addBinding("qz", g.qzSignal); addBinding("qw", g.qwSignal);
+        }
+
 
         // Delete checkbox in column 2
         auto* chkDel = new QCheckBox(tree);
@@ -2457,7 +2503,7 @@ void PlottingManager::updateGroups3DList(QTreeWidget* tree) {
     // When enable checkbox changes, update the model
     connect(tree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* it, int col){
         if (!it) return;
-        if (col != 1) return;
+        if (col != 1 || it->parent()) return;
         int idx = it->data(0, Qt::UserRole).toInt();
         if (idx < 0 || idx >= groups3D_.size()) return;
         groups3D_[idx].enabled = (it->checkState(1) == Qt::Checked);

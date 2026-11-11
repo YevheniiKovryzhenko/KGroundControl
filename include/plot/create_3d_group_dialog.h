@@ -3,6 +3,7 @@
 #include <QVector>
 #include <QString>
 #include <QPushButton>
+#include "plot/plot_signal_registry.h"
 
 namespace Ui { class Create3DGroupDialog; }
 
@@ -10,7 +11,7 @@ class Create3DGroupDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit Create3DGroupDialog(const QVector<QString>& availableSignals, QWidget* parent = nullptr);
+    explicit Create3DGroupDialog(const QVector<PlotSignalDef>& availableSignals, QWidget* parent = nullptr);
     ~Create3DGroupDialog();
 
     QString getGroupName() const;
@@ -34,5 +35,5 @@ private slots:
 
 private:
     Ui::Create3DGroupDialog* ui;
-    QVector<QString> availableSignals_;
+
 };

@@ -2,25 +2,24 @@
 #include "ui_create_3d_group_dialog.h"
 
 #include <QMessageBox>
+#include "plot/plot_signal_ui_helpers.h"
 
-Create3DGroupDialog::Create3DGroupDialog(const QVector<QString>& availableSignals, QWidget* parent)
-    : QDialog(parent), ui(new Ui::Create3DGroupDialog), availableSignals_(availableSignals) {
+Create3DGroupDialog::Create3DGroupDialog(const QVector<PlotSignalDef>& availableSignals, QWidget* parent)
+    : QDialog(parent), ui(new Ui::Create3DGroupDialog) {
     ui->setupUi(this);
 
-    // Populate signal combo boxes
-    for (const QString& signal : availableSignals_) {
-        ui->cmbXSignal->addItem(signal);
-        ui->cmbYSignal->addItem(signal);
-        ui->cmbZSignal->addItem(signal);
-        // populate additional attitude selectors (if present in UI)
-        if (ui->cmbRollSignal) ui->cmbRollSignal->addItem(signal);
-        if (ui->cmbPitchSignal) ui->cmbPitchSignal->addItem(signal);
-        if (ui->cmbYawSignal) ui->cmbYawSignal->addItem(signal);
-        if (ui->cmbQxSignal) ui->cmbQxSignal->addItem(signal);
-        if (ui->cmbQySignal) ui->cmbQySignal->addItem(signal);
-        if (ui->cmbQzSignal) ui->cmbQzSignal->addItem(signal);
-        if (ui->cmbQwSignal) ui->cmbQwSignal->addItem(signal);
-    }
+    auto refreshSignals = [this](const QVector<PlotSignalDef>& definitions) {
+        for (auto* combo : {ui->cmbXSignal, ui->cmbYSignal, ui->cmbZSignal,
+                           ui->cmbRollSignal, ui->cmbPitchSignal, ui->cmbYawSignal,
+                           ui->cmbQxSignal, ui->cmbQySignal, ui->cmbQzSignal, ui->cmbQwSignal})
+            plot_signal_ui_helpers::populateSignalCombo(combo, definitions);
+    };
+    refreshSignals(availableSignals);
+    connect(&PlotSignalRegistry::instance(), &PlotSignalRegistry::signalsChanged, this, [refreshSignals] {
+        refreshSignals(PlotSignalRegistry::instance().listSignals());
+    });
+    if (availableSignals.size() > 1) ui->cmbYSignal->setCurrentIndex(1);
+    if (availableSignals.size() > 2) ui->cmbZSignal->setCurrentIndex(2);
 
     // Set default group name
     ui->txtGroupName->setText(QString("Group %1").arg(1));
@@ -79,15 +78,15 @@ QString Create3DGroupDialog::getGroupName() const {
 }
 
 QString Create3DGroupDialog::getXSignal() const {
-    return ui->cmbXSignal->currentText();
+    return ui->cmbXSignal->currentData().toString();
 }
 
 QString Create3DGroupDialog::getYSignal() const {
-    return ui->cmbYSignal->currentText();
+    return ui->cmbYSignal->currentData().toString();
 }
 
 QString Create3DGroupDialog::getZSignal() const {
-    return ui->cmbZSignal->currentText();
+    return ui->cmbZSignal->currentData().toString();
 }
 
 void Create3DGroupDialog::validateAndAccept() {
@@ -100,6 +99,11 @@ void Create3DGroupDialog::validateAndAccept() {
         return;
     }
 
+    if (xSig.isEmpty() || ySig.isEmpty() || zSig.isEmpty()) {
+        QMessageBox::warning(this, "Invalid Input", "Tag signals in an inspector and select all three position axes.");
+        return;
+    }
+
     if (xSig == ySig || xSig == zSig || ySig == zSig) {
         QMessageBox::warning(this, "Invalid Input", "All three signals must be different.");
         return;
@@ -109,11 +113,15 @@ void Create3DGroupDialog::validateAndAccept() {
     if (ui->cmbAttitude) att = ui->cmbAttitude->currentText();
 
     if (att == "Euler") {
-        QString r = ui->cmbRollSignal ? ui->cmbRollSignal->currentText() : QString();
-        QString p = ui->cmbPitchSignal ? ui->cmbPitchSignal->currentText() : QString();
-        QString y = ui->cmbYawSignal ? ui->cmbYawSignal->currentText() : QString();
+        QString r = ui->cmbRollSignal ? ui->cmbRollSignal->currentData().toString() : QString();
+        QString p = ui->cmbPitchSignal ? ui->cmbPitchSignal->currentData().toString() : QString();
+        QString y = ui->cmbYawSignal ? ui->cmbYawSignal->currentData().toString() : QString();
         if (r.isEmpty() || p.isEmpty() || y.isEmpty()) {
             QMessageBox::warning(this, "Invalid Input", "Select roll, pitch and yaw signals.");
+            return;
+        }
+        if (r == p || r == y || p == y) {
+            QMessageBox::warning(this, "Invalid Input", "Select distinct roll, pitch and yaw signals.");
             return;
         }
         // ensure attitude signals are not the same as axes
@@ -123,15 +131,19 @@ void Create3DGroupDialog::validateAndAccept() {
         }
     }
     else if (att == "Quaternion") {
-        QString qx = ui->cmbQxSignal ? ui->cmbQxSignal->currentText() : QString();
-        QString qy = ui->cmbQySignal ? ui->cmbQySignal->currentText() : QString();
-        QString qz = ui->cmbQzSignal ? ui->cmbQzSignal->currentText() : QString();
-        QString qw = ui->cmbQwSignal ? ui->cmbQwSignal->currentText() : QString();
+        QString qx = ui->cmbQxSignal ? ui->cmbQxSignal->currentData().toString() : QString();
+        QString qy = ui->cmbQySignal ? ui->cmbQySignal->currentData().toString() : QString();
+        QString qz = ui->cmbQzSignal ? ui->cmbQzSignal->currentData().toString() : QString();
+        QString qw = ui->cmbQwSignal ? ui->cmbQwSignal->currentData().toString() : QString();
         if (qx.isEmpty() || qy.isEmpty() || qz.isEmpty() || qw.isEmpty()) {
             QMessageBox::warning(this, "Invalid Input", "Select four quaternion signals.");
             return;
         }
         QVector<QString> qlist{qx,qy,qz,qw};
+        if (QSet<QString>(qlist.cbegin(), qlist.cend()).size() != 4) {
+            QMessageBox::warning(this, "Invalid Input", "Select four distinct quaternion signals.");
+            return;
+        }
         for (const QString& q : qlist) {
             if (q == xSig || q == ySig || q == zSig) {
                 QMessageBox::warning(this, "Invalid Input", "Attitude signals must be different from position axes.");
@@ -144,13 +156,13 @@ void Create3DGroupDialog::validateAndAccept() {
 }
 
 QString Create3DGroupDialog::getAttitudeMode() const { return ui->cmbAttitude ? ui->cmbAttitude->currentText() : QString("None"); }
-QString Create3DGroupDialog::getRollSignal() const { return ui->cmbRollSignal ? ui->cmbRollSignal->currentText() : QString(); }
-QString Create3DGroupDialog::getPitchSignal() const { return ui->cmbPitchSignal ? ui->cmbPitchSignal->currentText() : QString(); }
-QString Create3DGroupDialog::getYawSignal() const { return ui->cmbYawSignal ? ui->cmbYawSignal->currentText() : QString(); }
-QString Create3DGroupDialog::getQxSignal() const { return ui->cmbQxSignal ? ui->cmbQxSignal->currentText() : QString(); }
-QString Create3DGroupDialog::getQySignal() const { return ui->cmbQySignal ? ui->cmbQySignal->currentText() : QString(); }
-QString Create3DGroupDialog::getQzSignal() const { return ui->cmbQzSignal ? ui->cmbQzSignal->currentText() : QString(); }
-QString Create3DGroupDialog::getQwSignal() const { return ui->cmbQwSignal ? ui->cmbQwSignal->currentText() : QString(); }
+QString Create3DGroupDialog::getRollSignal() const { return ui->cmbRollSignal ? ui->cmbRollSignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getPitchSignal() const { return ui->cmbPitchSignal ? ui->cmbPitchSignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getYawSignal() const { return ui->cmbYawSignal ? ui->cmbYawSignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getQxSignal() const { return ui->cmbQxSignal ? ui->cmbQxSignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getQySignal() const { return ui->cmbQySignal ? ui->cmbQySignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getQzSignal() const { return ui->cmbQzSignal ? ui->cmbQzSignal->currentData().toString() : QString(); }
+QString Create3DGroupDialog::getQwSignal() const { return ui->cmbQwSignal ? ui->cmbQwSignal->currentData().toString() : QString(); }
 
 void Create3DGroupDialog::setGroupName(const QString& name) {
     ui->txtGroupName->setText(name);

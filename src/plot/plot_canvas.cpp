@@ -57,6 +57,7 @@ void PlotCanvas::setArcballSensitivity(double s) {
 PlotCanvas::~PlotCanvas() = default;
 
 void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
+    if (registry_) disconnect(registry_, nullptr, this, nullptr);
     registry_ = reg;
     if (registry_) {
         // Only repaint on data for signals that are currently enabled (visible)
@@ -64,9 +65,15 @@ void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
             // If data-driven repaints are disabled, ignore sample events; the force timer drives repaints
             if (!dataDrivenRepaint_) return;
             if (mode_ == Mode3D) {
-                // Only request a repaint if there is at least one enabled 3D group
                 bool anyGroupEnabled = false;
-                for (const auto& g : groups3D_) { if (g.enabled) { anyGroupEnabled = true; break; } }
+                for (const auto& g : groups3D_) {
+                    if (!g.enabled) continue;
+                    if (g.signalIds.contains(id) ||
+                        (g.attitudeMode == "Euler" && (g.rollSignal == id || g.pitchSignal == id || g.yawSignal == id)) ||
+                        (g.attitudeMode == "Quaternion" && (g.qxSignal == id || g.qySignal == id || g.qzSignal == id || g.qwSignal == id))) {
+                        anyGroupEnabled = true; break;
+                    }
+                }
                 if (anyGroupEnabled) {
                     // Use requestRepaint so pause and max-rate throttling are respected
                     requestRepaint();
@@ -76,6 +83,7 @@ void PlotCanvas::setRegistry(PlotSignalRegistry* reg) {
             // In 2D, only request repaint if the appended sample belongs to an enabled signal
             if (!enabledIds_.isEmpty() && enabledIds_.contains(id)) requestRepaint();
         });
+        connect(registry_, &PlotSignalRegistry::signalsChanged, this, [this]{ requestRepaint(); });
         connect(registry_, &PlotSignalRegistry::samplesCleared, this, [this]{ legendTopLeft_ = QPoint(-1,-1); update(); });
         connect(registry_, &PlotSignalRegistry::epochChanged, this, [this](qint64){ update(); });
     }
@@ -226,6 +234,54 @@ void PlotCanvas::resetCamera() {
     emit cameraChanged(cameraOrientation_, cameraDistance_);
 }
 
+QVector<PlotSignalSample> PlotCanvas::transformedSamples(const QString& id) const
+{
+    QVector<PlotSignalSample> result;
+    if (!registry_) return result;
+    const auto samples = registry_->getSamples(id);
+    for (const auto& sample : samples) {
+        if (paused_ && sample.t_ns > pausedTimeNs_) continue;
+        double value;
+        if (transformValue(id, sample.value, value)) result.append({sample.t_ns, value});
+    }
+    return result;
+}
+
+// Use X sample times within the shared history, holding the latest Y/Z value
+// at or before each time. Never fabricate missing axes or extrapolate history.
+QVector<PlotCanvas::GroupSample> PlotCanvas::groupSamples(const Plot3DGroup& group) const
+{
+    QVector<GroupSample> result;
+    if (!registry_ || group.signalIds.size() != 3) return result;
+    QVector<QVector<PlotSignalSample>> axes;
+    qint64 start = std::numeric_limits<qint64>::min();
+    qint64 end = std::numeric_limits<qint64>::max();
+    for (const auto& id : group.signalIds) {
+        auto samples = registry_->getSamples(id);
+        if (samples.isEmpty()) return result;
+        start = qMax(start, samples.first().t_ns);
+        end = qMin(end, samples.last().t_ns);
+        axes.append(std::move(samples));
+    }
+    const qint64 now = paused_ ? pausedTimeNs_ : QDateTime::currentMSecsSinceEpoch() * 1000000LL;
+    end = qMin(end, now);
+    if (group.tailEnabled && group.tailTimeSpanSec > 0)
+        start = qMax(start, now - qint64(group.tailTimeSpanSec * 1e9));
+    qsizetype indices[3] = {0, 0, 0};
+    for (const auto& sample : axes[0]) {
+        if (sample.t_ns < start || sample.t_ns > end) continue;
+        double values[3];
+        bool valid = true;
+        for (int i = 0; i < 3; ++i) {
+            const auto& axis = axes[i];
+            while (indices[i] + 1 < axis.size() && axis[indices[i] + 1].t_ns <= sample.t_ns) ++indices[i];
+            if (!transformValue(group.signalIds[i], axis[indices[i]].value, values[i])) { valid = false; break; }
+        }
+        if (valid) result.append({sample.t_ns, QVector3D(values[0], values[1], values[2])});
+    }
+    return result;
+}
+
 bool PlotCanvas::autoRangeCamera() {
     if (!registry_ || groups3D_.isEmpty()) return false;
 
@@ -236,17 +292,12 @@ bool PlotCanvas::autoRangeCamera() {
     bool anyData = false;
     for (const auto& group : groups3D_) {
         if (!group.enabled) continue;
-        for (int idx = 0; idx < group.signalIds.size(); ++idx) {
-            const QString& signalId = group.signalIds.at(idx);
-            const auto samples = registry_->getSamples(signalId);
-            if (samples.isEmpty()) continue;
+        for (const auto& sample : groupSamples(group)) {
+            const auto& v = sample.position;
             anyData = true;
-            double localMin = std::numeric_limits<double>::infinity();
-            double localMax = -std::numeric_limits<double>::infinity();
-            for (const auto& s : samples) { localMin = qMin(localMin, s.value); localMax = qMax(localMax, s.value); }
-            if (idx == 0) { minX = qMin(minX, localMin); maxX = qMax(maxX, localMax); }
-            else if (idx == 1) { minY = qMin(minY, localMin); maxY = qMax(maxY, localMax); }
-            else if (idx == 2) { minZ = qMin(minZ, localMin); maxZ = qMax(maxZ, localMax); }
+            minX = qMin(minX, double(v.x())); maxX = qMax(maxX, double(v.x()));
+            minY = qMin(minY, double(v.y())); maxY = qMax(maxY, double(v.y()));
+            minZ = qMin(minZ, double(v.z())); maxZ = qMax(maxZ, double(v.z()));
         }
     }
     if (!anyData) return false;
@@ -974,7 +1025,7 @@ QString PlotCanvas::formatNumber(double v, int maxPrec) const {
 }
 
 QString PlotCanvas::legendTextFor(const QString& id) const {
-    const QString base = id.mid(id.lastIndexOf('/')+1);
+    const QString base = registry_ ? registry_->displayLabel(id) : id;
     if (!legendMathById_.value(id, false)) return base;
     const double a = gainById_.value(id, 1.0);
     const double b = offsetById_.value(id, 0.0);
@@ -1023,30 +1074,17 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     // Use quaternion orientation for rotation to avoid gimbal lock
     cameraOrientation_.normalize();
 
-    // Collect samples for each signal and compute per-dimension min/max across recent samples
-    QHash<QString, double> latestValues;
+    // Compute axis ranges from the aligned, transformed visible history.
     double minX = std::numeric_limits<double>::infinity(), maxX = -std::numeric_limits<double>::infinity();
     double minY = std::numeric_limits<double>::infinity(), maxY = -std::numeric_limits<double>::infinity();
     double minZ = std::numeric_limits<double>::infinity(), maxZ = -std::numeric_limits<double>::infinity();
     for (const auto& group : groups3D_) {
         if (!group.enabled) continue;
-        for (int idx = 0; idx < group.signalIds.size(); ++idx) {
-            const QString& signalId = group.signalIds.at(idx);
-            const auto samples = registry_->getSamples(signalId);
-            if (samples.isEmpty()) continue;
-            // compute min/max across sample history for this signal
-            double localMin = std::numeric_limits<double>::infinity();
-            double localMax = -std::numeric_limits<double>::infinity();
-            for (const auto& s : samples) {
-                localMin = qMin(localMin, s.value);
-                localMax = qMax(localMax, s.value);
-            }
-            // remember last value for immediate display
-            latestValues[signalId] = samples.last().value;
-            // expand global min/max for appropriate dimension
-            if (idx == 0) { minX = qMin(minX, localMin); maxX = qMax(maxX, localMax); }
-            else if (idx == 1) { minY = qMin(minY, localMin); maxY = qMax(maxY, localMax); }
-            else if (idx == 2) { minZ = qMin(minZ, localMin); maxZ = qMax(maxZ, localMax); }
+        for (const auto& sample : groupSamples(group)) {
+            const auto& v = sample.position;
+            minX = qMin(minX, double(v.x())); maxX = qMax(maxX, double(v.x()));
+            minY = qMin(minY, double(v.y())); maxY = qMax(maxY, double(v.y()));
+            minZ = qMin(minZ, double(v.z())); maxZ = qMax(maxZ, double(v.z()));
         }
     }
     // Provide sensible defaults if data absent so points are visible
@@ -1119,75 +1157,17 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
     renderMinX_ = minX; renderMaxX_ = maxX;
     renderMinY_ = minY; renderMaxY_ = maxY;
     renderMinZ_ = minZ; renderMaxZ_ = maxZ;
-    // Render each group with time-history trails aligned by exact timestamps present in all signals
+    // Render the same aligned, transformed history used for axis and camera ranges.
     for (const auto& group : groups3D_) {
         if (!group.enabled || group.signalIds.isEmpty()) continue;
 
-        // Gather samples for each signal in the group
-        const int dims = group.signalIds.size();
-        QVector<QVector<PlotSignalSample>> samplesList; samplesList.reserve(dims);
-        for (const auto& sid : group.signalIds) samplesList.append(registry_->getSamples(sid));
-
-        // Build the set intersection of timestamps present in all signals
-        QSet<qint64> commonTimes;
-        if (!samplesList.isEmpty()) {
-            // Initialize with timestamps from first signal
-            for (const auto& s : samplesList.first()) commonTimes.insert(s.t_ns);
-            // Intersect with remaining
-            for (int i = 1; i < samplesList.size(); ++i) {
-                QSet<qint64> cur;
-                for (const auto& s : samplesList[i]) cur.insert(s.t_ns);
-                commonTimes = commonTimes.intersect(cur);
-                if (commonTimes.isEmpty()) break;
-            }
+        const auto aligned = groupSamples(group);
+        if (aligned.isEmpty()) continue;
+        QVector<QVector3D> pts;
+        pts.reserve(aligned.size());
+        for (const auto& sample : aligned) {
+            pts.append(sample.position);
         }
-
-        // If no common exact timestamps, fall back to using the last N samples where N = min(len_i)
-        QVector<qint64> timesOrdered;
-        if (!commonTimes.isEmpty()) {
-            timesOrdered = QVector<qint64>::fromList(commonTimes.values());
-            std::sort(timesOrdered.begin(), timesOrdered.end());
-        } else {
-            // Determine minimal length across signals and take last N sample times from each (assume roughly aligned by recency)
-            int Nmin = INT_MAX;
-            for (const auto& v : samplesList) Nmin = qMin(Nmin, v.size());
-            if (Nmin == INT_MAX || Nmin <= 0) {
-                // Nothing to draw; skip group
-                continue;
-            }
-            // Use last Nmin timestamps from the last signal for ordering (could choose any)
-            const auto& ref = samplesList.last();
-            timesOrdered.reserve(Nmin);
-            for (int i = ref.size() - Nmin; i < ref.size(); ++i) timesOrdered.append(ref.at(i).t_ns);
-        }
-
-        if (timesOrdered.isEmpty()) continue;
-
-        // Build quick lookup maps from timestamp -> value for each signal
-        QVector<QHash<qint64, double>> valueMaps; valueMaps.reserve(dims);
-        for (const auto& vec : samplesList) {
-            QHash<qint64, double> m; m.reserve(vec.size());
-            for (const auto& s : vec) m.insert(s.t_ns, s.value);
-            valueMaps.append(std::move(m));
-        }
-
-        // Compute min/max per-dimension using only the selected times to keep scaling tight to the trail
-        double gminX = std::numeric_limits<double>::infinity(), gmaxX = -std::numeric_limits<double>::infinity();
-        double gminY = std::numeric_limits<double>::infinity(), gmaxY = -std::numeric_limits<double>::infinity();
-        double gminZ = std::numeric_limits<double>::infinity(), gmaxZ = -std::numeric_limits<double>::infinity();
-        QVector<QVector3D> pts; pts.reserve(timesOrdered.size());
-        for (qint64 t : timesOrdered) {
-            double vx = (dims >= 1 && valueMaps.size() > 0 && valueMaps[0].contains(t)) ? valueMaps[0].value(t) : 0.0;
-            double vy = (dims >= 2 && valueMaps.size() > 1 && valueMaps[1].contains(t)) ? valueMaps[1].value(t) : 0.0;
-            double vz = (dims >= 3 && valueMaps.size() > 2 && valueMaps[2].contains(t)) ? valueMaps[2].value(t) : 0.0;
-            gminX = qMin(gminX, vx); gmaxX = qMax(gmaxX, vx);
-            gminY = qMin(gminY, vy); gmaxY = qMax(gmaxY, vy);
-            gminZ = qMin(gminZ, vz); gmaxZ = qMax(gmaxZ, vz);
-            pts.append(QVector3D(vx, vy, vz));
-        }
-
-        // Ensure ranges valid
-        ensureRange(gminX, gmaxX); ensureRange(gminY, gmaxY); ensureRange(gminZ, gmaxZ);
 
         // Use global axis bounds for normalization to keep data aligned with axes
         // (data will be clipped to axis ranges)
@@ -1286,7 +1266,6 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
         };
 
         // Draw fading polyline: older samples lighter (lower alpha)
-        const int M = screenPts.size();
         // Respect group-level tailEnabled and tailTimeSpanSec: if tail disabled, only show head
             if (!group.tailEnabled) {
             // Show only the latest point (head)
@@ -1298,30 +1277,6 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                     p.drawText(c + QPointF(8, -8), group.name);
                 }
         } else {
-            // Optionally filter points by tailTimeSpanSec (only keep those within last T seconds)
-            if (group.tailTimeSpanSec > 0.0) {
-                // Use current time (or paused time) instead of last data timestamp so old data expires even when updates stop
-                qint64 nowNs = paused_ ? pausedTimeNs_ : (QDateTime::currentMSecsSinceEpoch() * 1000000LL); // Convert ms to ns
-                double spanNs = group.tailTimeSpanSec * 1e9;
-                int startIdx = -1; // -1 means no valid points found
-                for (int i = 0; i < timesOrdered.size(); ++i) {
-                    if (timesOrdered.at(i) >= nowNs - qint64(spanNs)) { 
-                        startIdx = i; 
-                        break; 
-                    }
-                }
-                // If all data is too old, clear the display
-                if (startIdx < 0) {
-                    continue; // Skip this group entirely - all data expired
-                }
-                // Otherwise filter to keep only recent points
-                if (startIdx > 0) {
-                    QVector<QPointF> tmp; tmp.reserve(M - startIdx);
-                    for (int i = startIdx; i < screenPts.size(); ++i) tmp.append(screenPts[i]);
-                    screenPts = tmp;
-                }
-            }
-
             const int NM = screenPts.size();
             if (NM <= 0) continue;
             if (NM == 1) {
@@ -1384,10 +1339,10 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                         if (group.attitudeMode == "Quaternion") {
                             // fetch latest quaternion samples (assume registry provides latest value at index 0)
                             double qx=0,qy=0,qz=0,qw=1; bool ok=false;
-                            const auto s_qx = registry_->getSamples(group.qxSignal);
-                            const auto s_qy = registry_->getSamples(group.qySignal);
-                            const auto s_qz = registry_->getSamples(group.qzSignal);
-                            const auto s_qw = registry_->getSamples(group.qwSignal);
+                            const auto s_qx = transformedSamples(group.qxSignal);
+                            const auto s_qy = transformedSamples(group.qySignal);
+                            const auto s_qz = transformedSamples(group.qzSignal);
+                            const auto s_qw = transformedSamples(group.qwSignal);
                             if (!s_qx.isEmpty() && !s_qy.isEmpty() && !s_qz.isEmpty() && !s_qw.isEmpty()) {
                                 qx = s_qx.last().value; qy = s_qy.last().value; qz = s_qz.last().value; qw = s_qw.last().value; ok=true;
                             }
@@ -1397,9 +1352,9 @@ void PlotCanvas::render3D(QPainter& p, const QRect& rect) {
                             }
                         } else if (group.attitudeMode == "Euler") {
                             double roll=0,pitch=0,yaw=0; bool ok=false;
-                            const auto s_r = registry_->getSamples(group.rollSignal);
-                            const auto s_p = registry_->getSamples(group.pitchSignal);
-                            const auto s_y = registry_->getSamples(group.yawSignal);
+                            const auto s_r = transformedSamples(group.rollSignal);
+                            const auto s_p = transformedSamples(group.pitchSignal);
+                            const auto s_y = transformedSamples(group.yawSignal);
                             if (!s_r.isEmpty() && !s_p.isEmpty() && !s_y.isEmpty()) {
                                 roll = s_r.last().value; pitch = s_p.last().value; yaw = s_y.last().value; ok=true;
                             }
