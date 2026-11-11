@@ -10,7 +10,7 @@
             "preLaunchTask": "CMake: configure and build active preset",
             "MIMode": "gdb",
             "externalConsole": false,
-            "visualizerFile": "c:\\Users\\s2far\\AppData\\Roaming\\Code\\User\\workspaceStorage\\7dbd5771a144ac8141c0d5016a596c7e\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/0a6e333661f88d066e3b44188efbaa6e/tonka3000.qtvsctools/qt.natvis.xml"
         },
         {
             "name": "KGroundControl (active preset, Windows)",
@@ -19,7 +19,7 @@
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${command:cmake.launchTargetDirectory}",
             "preLaunchTask": "CMake: configure and build active preset",
-            "visualizerFile": "c:\\Users\\s2far\\AppData\\Roaming\\Code\\User\\workspaceStorage\\7dbd5771a144ac8141c0d5016a596c7e\\tonka3000.qtvsctools\\qt.natvis.xml"
+            "visualizerFile": "/home/jack/.config/Code/User/workspaceStorage/0a6e333661f88d066e3b44188efbaa6e/tonka3000.qtvsctools/qt.natvis.xml"
         }
     ]
 }
