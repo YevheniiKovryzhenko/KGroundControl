@@ -36,6 +36,7 @@
 #include "hardware_io/serial_port.h"
 #include "hardware_io/udp_port.h"
 
+#include <QPointer>
 #include <QDateTime>
 #include <QErrorMessage>
 #include <QObject>
@@ -43,7 +44,6 @@
 port_read_thread::port_read_thread(QObject* parent, generic_thread_settings *new_settings)
     : generic_thread(parent, new_settings)
 {
-    start(generic_thread_settings_.priority);
 }
 
 void port_read_thread::run()
@@ -130,6 +130,7 @@ connection_manager::connection_manager(QObject* parent)
 
 connection_manager::~connection_manager()
 {
+    remove_all(false);
     delete mutex;
 }
 
@@ -187,6 +188,8 @@ bool connection_manager::load_saved_connections(QSettings &qsettings, mavlink_ma
                     loaded_port_names.push_back(port_name_);
                     anything_loaded = true;
                 }
+            } else {
+                qsettings.endGroup();
             }
 
         }
@@ -258,7 +261,10 @@ bool connection_manager::add(QString new_port_name, \
                              generic_thread_settings* thread_settings_,\
                              mavlink_manager* mavlink_manager_)
 {    
-    Generic_Port* port_;
+    if (new_port_name.trimmed().isEmpty() || new_port_name.contains('/') ||
+        new_port_name.contains('\\') || get_names().contains(new_port_name)) return false;
+    this->mavlink_manager_ = mavlink_manager_;
+    Generic_Port* port_ = nullptr;
     port_read_thread* new_port_thread;
     bool emit_heartbeat_ = false;
     switch (port_type) {
@@ -279,7 +285,9 @@ bool connection_manager::add(QString new_port_name, \
     }
     }
 
+    if (!port_) return false;
     port_->set_logical_name(new_port_name);
+    port_->setProperty("active", true);
 
 
     if (port_->start() == 0)
@@ -288,20 +296,28 @@ bool connection_manager::add(QString new_port_name, \
         port_->setParent(new_port_thread);
 
         connect(new_port_thread, &port_read_thread::read_message, port_, &Generic_Port::read_message, Qt::DirectConnection);
-        connect(new_port_thread, &port_read_thread::message_received, mavlink_manager_, &mavlink_manager::update);
+        connect(new_port_thread, &port_read_thread::message_received, mavlink_manager_,
+                [manager = mavlink_manager_, port = QPointer<Generic_Port>(port_), new_port_name](void *message, qint64 timestamp) {
+            if (port && port->property("active").toBool())
+                manager->update_from_source(new_port_name, message, timestamp);
+            else delete static_cast<mavlink_message_t *>(message);
+        }, Qt::QueuedConnection);
 
+        new_port_thread->start(thread_settings_->priority);
         QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9*0.1)});
         if (!new_port_thread->isRunning())
         {
             (new QErrorMessage)->showMessage("Error: port processing thread is not responding\n");
             new_port_thread->terminate();
-            // delete new_port_thread;
+            new_port_thread->wait();
             port_->stop();
+            delete new_port_thread;
             return false;
         }
     }
     else
     {
+        delete port_;
         return false;
     }
 
@@ -340,6 +356,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
     {
         if (port_name_.compare(port_names[i]) == 0)
         {
+            Ports[i]->setProperty("active", false);
             //tell thread it has to quit:
             PortThreads[i]->requestInterruption();
 
@@ -378,6 +395,8 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
                 QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
             }
             Ports[i]->stop();
+            PortThreads[i]->wait();
+            delete PortThreads[i]; // also deletes its port and disconnects all wiring
 
             port_names.remove(i);
             Ports.remove(i);
@@ -387,6 +406,7 @@ bool connection_manager::remove(QString port_name_, bool remove_settings)
             n_connections--;
 
             mutex->unlock();
+            if (mavlink_manager_) mavlink_manager_->remove_source(port_name_);
             emit port_names_updated(port_names);
             return true;
         }
@@ -596,6 +616,7 @@ QString connection_manager::get_port_settings_QString(QString port_name_)
 
 bool connection_manager::get_routing(QString src_port_name_, QVector<QString> &routing_port_names)
 {
+    routing_port_names.clear();
     mutex->lock();
     for (int i = 0; i < n_connections; i++)
     {
@@ -612,6 +633,10 @@ bool connection_manager::get_routing(QString src_port_name_, QVector<QString> &r
 
 bool connection_manager::add_routing(QString src_port_name_, QString target_port_name_)
 {
+    if (src_port_name_ == target_port_name_) return false;
+    const int sourceIndex = port_names.indexOf(src_port_name_);
+    if (sourceIndex < 0 || !port_names.contains(target_port_name_)) return false;
+    if (routing_table[sourceIndex].contains(target_port_name_)) return true;
     for (int i = 0; i < n_connections; i++)
     {
         if (port_names[i] == src_port_name_)
@@ -746,6 +771,8 @@ void connection_manager::update_kgroundcontrol_settings(kgroundcontrol_settings*
 bool connection_manager::get_ports(QVector<QString> &port_names_out, QVector<Generic_Port*> &Ports_out)
 {
     mutex->lock();
+    port_names_out.clear();
+    Ports_out.clear();
     if (n_connections > 0)
     {
         port_names_out = QVector<QString>(port_names);
@@ -758,6 +785,8 @@ bool connection_manager::get_ports(QVector<QString> &port_names_out, QVector<Gen
 }
 bool connection_manager::get_port(QString port_name, Generic_Port** port)
 {
+    if (!port) return false;
+    *port = nullptr;
     mutex->lock();
     if (n_connections > 0)
     {

@@ -32,6 +32,7 @@
  *
  ****************************************************************************/
 
+#include "source_selection.h"
 #include <QMessageBox>
 #include <QErrorMessage>
 #include <QCloseEvent>
@@ -59,11 +60,11 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include "plot/plot_signal_registry.h"
-#include "plot/plot_signal_ui_helpers.h"
 // no extra includes needed; timer declared in header
 #include <QSettings>
 #include <QWindow>
+#include "plot/plot_signal_registry.h"
+#include "plot/plot_signal_ui_helpers.h"
 
 //IPv4 RegEx
 QRegularExpression regexp_IPv4("(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)");
@@ -239,6 +240,7 @@ void mocap_data_aggegator::clear(void)
         last_time_ms_.clear();
     }
     mutex->unlock();
+    emit frame_ids_updated({});
 }
 
 void mocap_data_aggegator::cleanup_stale_frames()
@@ -1560,21 +1562,9 @@ void mocap_manager::on_btn_refresh_update_settings_clicked()
 
 void mocap_manager::update_visuals_mocap_frame_ids(QVector<int> frame_ids)
 {
-    QStringList new_list_;
-    int index = -1;
-    QString current_selection = ui->cmbx_frameid->currentText();
-    for (int i = 0; i < frame_ids.size(); i++)
-    {
-        QString tmp = QString::number(frame_ids[i]);
-        new_list_.append(tmp);
-        if (tmp == current_selection) index = i;
-    }
-
-    // mutex->lock();
-    ui->cmbx_frameid->clear();
-    if (!new_list_.isEmpty()) ui->cmbx_frameid->addItems(new_list_);
-    if (index > -1) ui->cmbx_frameid->setCurrentIndex(index);
-    // mutex->unlock();
+    QStringList values;
+    for (auto id : frame_ids) values.append(QString::number(id));
+    source_selection::sync(ui->cmbx_frameid, values);
 }
 
 void mocap_manager::update_visuals_mocap_data(void)
@@ -1624,7 +1614,7 @@ void mocap_manager::on_btn_refresh_clear_clicked()
     }
 
     QVector<int> IDs = mocap_data->get_ids();
-    if (!IDs.isEmpty()) update_visuals_mocap_frame_ids(IDs);
+    update_visuals_mocap_frame_ids(IDs);
     emit reset_visuals();
     if (mocapTree_) {
         // Safely clear maps and rebuild
@@ -1867,7 +1857,7 @@ void mocap_manager::repopulate_relay_table()
         ui->tableWidget_mocap_relay->setItem(row_index, 1, sysItem);
 
         // Component ID
-        QTableWidgetItem *compItem = new QTableWidgetItem(enum_helpers::value2key(settings.compid));
+        QTableWidgetItem *compItem = new QTableWidgetItem(mavlink_enums::component_label(settings.compid));
         compItem->setFlags(compItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 2, compItem);
 
@@ -1919,151 +1909,76 @@ void mocap_manager::on_btn_relay_go_back_clicked()
     on_btn_connection_go_back_clicked();
 }
 
+void mocap_manager::update_relay_controls()
+{
+    ui->btn_relay_add->setVisible(ui->cmbx_relay_sysid->currentIndex() >= 0 &&
+        ui->cmbx_relay_compid->currentIndex() >= 0 && ui->cmbx_relay_frameid->currentIndex() >= 0 &&
+        ui->cmbx_relay_port_name->currentIndex() >= 0);
+    ui->btn_relay_delete->setVisible(!mocap_relay.isEmpty());
+}
+
 void mocap_manager::update_relay_mocap_frame_ids(QVector<int> frame_ids)
 {
-    QStringList new_list_;
-    int index = -1;
-    QString current_selection = ui->cmbx_relay_frameid->currentText();
-    for (int i = 0; i < frame_ids.size(); i++)
-    {
-        QString tmp = QString::number(frame_ids[i]);
-        new_list_.append(tmp);
-        if (tmp == current_selection) index = i;
-    }
-
-    ui->cmbx_relay_frameid->clear();
-    if (!new_list_.isEmpty()) ui->cmbx_relay_frameid->addItems(new_list_);
-    if (index > -1) ui->cmbx_relay_frameid->setCurrentIndex(index);
+    QStringList values;
+    for (auto id : frame_ids) values.append(QString::number(id));
+    source_selection::sync(ui->cmbx_relay_frameid, values);
+    update_relay_controls();
 }
+
 void mocap_manager::update_relay_port_list(QVector<QString> new_port_list)
 {
-    if (new_port_list.length() > 0)
-    {
-        QString current_selection = ui->cmbx_relay_port_name->currentText();
-        ui->cmbx_relay_port_name->clear();
-        ui->cmbx_relay_port_name->addItems(new_port_list);
-        int index = new_port_list.indexOf(current_selection);
-        if (index > -1) ui->cmbx_relay_port_name->setCurrentIndex(index);
-
-        if (!mocap_relay.isEmpty()) //check if any of the relays must be removed
-        {
-            for(int row_ind = mocap_relay.size()-1; row_ind > -1; row_ind--)
-            {
-                if (new_port_list.contains(ui->tableWidget_mocap_relay->item(row_ind,4)->text())) continue;
-
-                mocap_relay[row_ind]->requestInterruption();
-                for (int ii = 0; ii < 300; ii++)
-                {
-                    if (!mocap_relay[row_ind]->isRunning() && mocap_relay[row_ind]->isFinished())
-                    {
-                        break;
-                    }
-                    else if (ii == 299) //too long!, let's just end it...
-                    {
-                        (new QErrorMessage)->showMessage("Error: failed to gracefully stop the mocap relay thread, manually terminating...\n");
-                        mocap_relay[row_ind]->terminate();
-                    }
-                    //let's give it some time to exit cleanly
-                    QThread::sleep(std::chrono::nanoseconds{static_cast<uint64_t>(1.0E9/static_cast<double>(100))});
-                }
-                mocap_relay.remove(row_ind);
-                ui->tableWidget_mocap_relay->removeRow(row_ind);
-                if (ui->tableWidget_mocap_relay->rowCount() < 1)ui->btn_relay_delete->setVisible(false);
-            }
-
-        } else ui->btn_relay_delete->setVisible(false);
-
-        if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
-        {
-            ui->btn_relay_add->setVisible(true);
-        }
-
-        // Persist relays list
-        QSettings s; s.beginGroup("mocap_manager");
-        s.setValue("relay/count", mocap_relay.size());
-        for (int i = 0; i < mocap_relay.size(); ++i) {
-            mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
-            s.beginGroup(QString("relay/%1").arg(i));
-            s.setValue("frameid", rs.frameid);
-            s.setValue("Port_Name", rs.Port_Name);
-            s.setValue("msg_option", static_cast<int>(rs.msg_option));
-            s.setValue("sysid", rs.sysid);
-            s.setValue("compid", static_cast<int>(rs.compid));
-            s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
-            s.setValue("priority", static_cast<int>(rs.priority));
-            s.endGroup();
-        }
+    source_selection::sync(ui->cmbx_relay_port_name, QStringList(new_port_list.begin(), new_port_list.end()));
+    // Handle the last port exactly like any other removal, including thread cleanup.
+    for (int i = mocap_relay.size() - 1; i >= 0; --i) {
+        mocap_relay_settings settings;
+        mocap_relay[i]->get_settings(&settings);
+        if (new_port_list.contains(settings.Port_Name)) continue;
+        auto *relay = mocap_relay.takeAt(i);
+        relay->requestInterruption();
+        if (!relay->wait(3000)) { relay->terminate(); relay->wait(); }
+        delete relay;
+        ui->tableWidget_mocap_relay->removeRow(i);
+    }
+    update_relay_controls();
+    QSettings s;
+    s.beginGroup("mocap_manager");
+    s.remove("relay");
+    s.setValue("relay/count", mocap_relay.size());
+    for (int i = 0; i < mocap_relay.size(); ++i) {
+        mocap_relay_settings rs; mocap_relay[i]->get_settings(&rs);
+        s.beginGroup(QString("relay/%1").arg(i));
+        s.setValue("frameid", rs.frameid);
+        s.setValue("Port_Name", rs.Port_Name);
+        s.setValue("msg_option", static_cast<int>(rs.msg_option));
+        s.setValue("sysid", rs.sysid);
+        s.setValue("compid", static_cast<int>(rs.compid));
+        s.setValue("update_rate_hz", static_cast<int>(rs.update_rate_hz));
+        s.setValue("priority", static_cast<int>(rs.priority));
         s.endGroup();
     }
-    else
-    {
-        ui->cmbx_relay_port_name->clear();
-        ui->btn_relay_add->setVisible(false);
-        ui->btn_relay_delete->setVisible(false);
-    }
+    s.endGroup();
 }
+
 void mocap_manager::update_relay_sysid_list(QVector<uint8_t> new_sysids)
 {
-    if (new_sysids.length() > 0)
-    {
-        QString current_selection = ui->cmbx_relay_sysid->currentText();
-        ui->cmbx_relay_sysid->clear();
-        QStringList list;
-        int ind = -1;
-        for (int i = 0; i < new_sysids.length(); i++)
-        {
-            list.push_back(QString::number(new_sysids[i]));
-            if (current_selection == list[i]) ind  = i;
-        }
-        ui->cmbx_relay_sysid->addItems(list);
-        if (ind > -1) ui->cmbx_relay_sysid->setCurrentIndex(ind);
-
-        if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
-        {
-            ui->btn_relay_add->setVisible(true);
-        }
-    }
-    else
-    {
-        ui->cmbx_relay_sysid->clear();
-        ui->cmbx_relay_compid->clear();
-        ui->cmbx_relay_port_name->clear();
-        ui->btn_relay_add->setVisible(false);
-        ui->btn_relay_delete->setVisible(false);
-    }
-
+    QStringList values;
+    for (auto id : new_sysids) values.append(QString::number(id));
+    source_selection::sync(ui->cmbx_relay_sysid, values);
+    if (ui->cmbx_relay_sysid->currentIndex() >= 0) {
+        const auto sysid = static_cast<uint8_t>(ui->cmbx_relay_sysid->currentText().toUInt());
+        update_relay_compids(sysid, emit get_compids(sysid));
+    } else source_selection::sync(ui->cmbx_relay_compid, {});
+    update_relay_controls();
 }
+
 void mocap_manager::update_relay_compids(uint8_t sysid, QVector<mavlink_enums::mavlink_component_id> compids)
 {
-    if (sysid == ui->cmbx_relay_sysid->currentText().toInt())
-    {
-
-        if (compids.length() > 0)
-        {
-            QString current_selection = ui->cmbx_relay_compid->currentText();
-            ui->cmbx_relay_compid->clear();
-            QStringList list;
-            int ind = -1;
-            for (int i = 0; i < compids.length(); i++) {
-                list.push_back(enum_helpers::value2key(compids[i]));
-                if (current_selection == list[i]) ind  = i;
-            }
-            ui->cmbx_relay_compid->addItems(list);
-            if (ind > -1) ui->cmbx_relay_compid->setCurrentIndex(ind);
-
-            if (ui->cmbx_relay_compid->count() > 0 && ui->cmbx_relay_frameid->count() > 0 && ui->cmbx_relay_port_name->count() > 0)
-            {
-                ui->btn_relay_add->setVisible(true);
-            }
-        }
-        else
-        {
-            ui->cmbx_relay_compid->clear();
-            ui->cmbx_relay_port_name->clear();
-            ui->btn_relay_add->setVisible(false);
-            ui->btn_relay_delete->setVisible(false);
-        }
-    }
+    if (ui->cmbx_relay_sysid->currentIndex() < 0 ||
+        sysid != ui->cmbx_relay_sysid->currentText().toUInt()) return;
+    QStringList values;
+    for (auto id : compids) values.append(mavlink_enums::component_label(id));
+    source_selection::sync(ui->cmbx_relay_compid, values);
+    update_relay_controls();
 }
 
 void mocap_manager::on_cmbx_relay_sysid_currentTextChanged(const QString &arg1)
@@ -2133,11 +2048,13 @@ void mocap_manager::terminate_mocap_relay_thread(void)
 
 void mocap_manager::on_btn_relay_add_clicked()
 {
+    if (ui->cmbx_relay_frameid->currentIndex() < 0 || ui->cmbx_relay_sysid->currentIndex() < 0 ||
+        ui->cmbx_relay_compid->currentIndex() < 0 || ui->cmbx_relay_port_name->currentIndex() < 0) return;
 
     mocap_relay_settings relay_settings;
     relay_settings.frameid = ui->cmbx_relay_frameid->currentText().toInt();
     relay_settings.sysid = ui->cmbx_relay_sysid->currentText().toUInt();
-    enum_helpers::key2value(ui->cmbx_relay_compid->currentText(), relay_settings.compid);
+    mavlink_enums::get_compid(relay_settings.compid, ui->cmbx_relay_compid->currentText());
     relay_settings.Port_Name = ui->cmbx_relay_port_name->currentText();
     enum_helpers::key2value(ui->cmbx_relay_msg_type->currentText(), relay_settings.msg_option);
     relay_settings.update_rate_hz = ui->txt_relay_update_rate_hz->text().toUInt();
@@ -2222,7 +2139,7 @@ void mocap_manager::on_btn_relay_add_clicked()
         ui->tableWidget_mocap_relay->setItem(row_index, 1, newItem);
     }
     { //compid
-        QTableWidgetItem *newItem = new QTableWidgetItem(enum_helpers::value2key(relay_settings.compid));
+        QTableWidgetItem *newItem = new QTableWidgetItem(mavlink_enums::component_label(relay_settings.compid));
         newItem->setFlags(newItem->flags() ^ Qt::ItemIsEditable);
         ui->tableWidget_mocap_relay->setItem(row_index, 2, newItem);
     }

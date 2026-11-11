@@ -34,14 +34,14 @@
 
 #ifndef MAVLINK_INSPECTOR_H
 #define MAVLINK_INSPECTOR_H
-
+#include <QHash>
+#include <QSet>
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QMutex>
 #include <QListWidget>
 #include <QQueue>
 #include <QShortcut>
-#include <QHash>
 #include <QMap>
 
 
@@ -171,6 +171,8 @@ public:
 public slots:
     unsigned int get_n(void);
     bool update(void* new_msg, qint64 msg_time_stamp);
+    bool update_from_source(const QString &source, void *message, qint64 timestamp);
+    void remove_source(const QString &source);
     bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
 
     bool get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name, void *msg_out, CQueue<qint64> &timestamps_out);
@@ -179,6 +181,7 @@ public slots:
     void update_kgroundcontrol_settings(kgroundcontrol_settings* kground_control_settings_in_);
     void clear(void);
 
+    QVector<QString> get_message_names(uint8_t sysid, mavlink_enums::mavlink_component_id compid);
     QVector<uint8_t> get_sysids(void);
     QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
 
@@ -201,6 +204,7 @@ private:
 
     QMutex* mutex = nullptr;
     QVector<mavlink_data_aggregator*> msgs;
+    QHash<QString, QSet<int>> source_endpoints_;
 
     kgroundcontrol_settings kgroundcontrol_settings_;
 };
@@ -279,6 +283,7 @@ public slots:
     //void create_new_slot_btn_display(void* msg_in, qint64 msg_time_stamp);
     bool process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_component_id compid_, QString msg_name);
     void on_btn_refresh_port_names_clicked();
+    void refresh_sources();
 
 private slots:
 
@@ -308,6 +313,9 @@ signals:
     void clear_mav_manager();
 
     QVector<QString> get_port_names(void);
+    QVector<uint8_t> get_sysids();
+    QVector<mavlink_enums::mavlink_component_id> get_compids(uint8_t sysid);
+    QVector<QString> get_message_names(uint8_t sysid, mavlink_enums::mavlink_component_id compid);
     bool toggle_arm_state(QString port_name, uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, bool flag, bool force);
 
     bool request_get_msg(uint8_t sys_id_, mavlink_enums::mavlink_component_id mav_component_, QString msg_name_, void *msg_, CQueue<qint64> &timestamps_out);
@@ -337,8 +345,10 @@ private:
 
     QShortcut *arm_key_bind = nullptr, *disarm_key_bind = nullptr;
 
-    // Track last time a message of a given (sysid,compid,name) was seen
+    // Cadence and freshness are separate from the filtered display value.
     QHash<QString, qint64> last_seen_ms_by_key;
+    QHash<QString, qint64> last_rate_timestamp_by_key;
+    QHash<QString, double> last_measured_rate_by_key;
 
     // Temporarily pause detail tree rebuilds while user interacts with checkboxes
     bool suspendDetailRefresh_ = false;

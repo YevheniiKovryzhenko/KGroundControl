@@ -55,7 +55,7 @@ void RelayDialog::on_accept_reject_bar_accepted()
 {
     QVector<QString> selected_ports;
     foreach(auto item, ui->listWidget->selectedItems()) selected_ports.push_back(item->text());
-    if (selected_ports.size() > 0) emit selected_items(port_name, selected_ports);
+    emit selected_items(port_name, selected_ports);
 }
 
 
@@ -64,3 +64,22 @@ void RelayDialog::on_accept_reject_bar_rejected()
 
 }
 
+
+void RelayDialog::set_selected_ports(const QVector<QString> &ports)
+{
+    for (int i = 0; i < ui->listWidget->count(); ++i) {
+        auto *item = ui->listWidget->item(i);
+        item->setSelected(ports.contains(item->text()));
+    }
+}
+
+void RelayDialog::update_ports(QVector<QString> ports)
+{
+    if (!ports.contains(port_name)) { reject(); return; }
+    QVector<QString> selected;
+    for (auto *item : ui->listWidget->selectedItems()) selected.append(item->text());
+    ui->listWidget->clear();
+    for (const auto &port : ports)
+        if (!port.isEmpty() && port != port_name) ui->listWidget->addItem(port);
+    set_selected_ports(selected);
+}

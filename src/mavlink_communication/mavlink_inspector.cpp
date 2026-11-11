@@ -32,12 +32,14 @@
  *
  ****************************************************************************/
 
+#include "source_selection.h"
 #include <QPushButton>
 #include <QDebug>
 #include <QDateTime>
 #include <QErrorMessage>
 #include <QShortcut>
 #include <cmath>
+#include <algorithm>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QHeaderView>
@@ -474,6 +476,7 @@ mavlink_manager::mavlink_manager(QObject* parent)
 
 mavlink_manager::~mavlink_manager()
 {
+    qDeleteAll(msgs);
     delete mutex;
 }
 
@@ -555,14 +558,38 @@ static void appendTaggedSamplesFromMessage(const mavlink_message_t* msg, qint64 
 
 void mavlink_manager::clear(void)
 {
+    const auto oldSystems = get_sysids();
     mutex->lock();
-    while(msgs.count() > 0)
-    {
-        auto tmp = msgs.takeLast();
-        tmp->clear();
-        delete tmp;
+    qDeleteAll(msgs);
+    msgs.clear();
+    source_endpoints_.clear();
+    mutex->unlock();
+    for (auto sysid : oldSystems) emit compid_list_changed(sysid, {});
+    emit sysid_list_changed({});
+}
+
+bool mavlink_manager::update_from_source(const QString &source, void *message, qint64 timestamp)
+{
+    if (!message) return false;
+    const auto *msg = static_cast<mavlink_message_t *>(message);
+    source_endpoints_[source].insert((int(msg->sysid) << 8) | msg->compid);
+    return update(message, timestamp);
+}
+
+void mavlink_manager::remove_source(const QString &source)
+{
+    const auto oldSystems = get_sysids();
+    source_endpoints_.remove(source);
+    QSet<int> remaining;
+    for (const auto &endpoints : source_endpoints_) remaining.unite(endpoints);
+    mutex->lock();
+    for (int i = msgs.size() - 1; i >= 0; --i) {
+        const int key = (int(msgs[i]->sysid) << 8) | int(msgs[i]->compid);
+        if (!remaining.contains(key)) delete msgs.takeAt(i);
     }
     mutex->unlock();
+    for (auto sysid : oldSystems) emit compid_list_changed(sysid, get_compids(sysid));
+    emit sysid_list_changed(get_sysids());
 }
 
 unsigned int mavlink_manager::get_n()
@@ -596,6 +623,14 @@ bool mavlink_manager::get_ind(unsigned int& i, uint8_t sys_id_, mavlink_enums::m
     }
     mutex->unlock();
     return false;
+}
+
+QVector<QString> mavlink_manager::get_message_names(uint8_t sysid, mavlink_enums::mavlink_component_id compid)
+{
+    QVector<QString> result;
+    for (auto *aggregator : msgs)
+        if (aggregator->sysid == sysid && aggregator->compid == compid) aggregator->get_all(result);
+    return result;
 }
 
 QVector<uint8_t> mavlink_manager::get_sysids(void)
@@ -1181,76 +1216,44 @@ MavlinkInspector::~MavlinkInspector()
     delete ui;
 }
 
+void MavlinkInspector::refresh_sources()
+{
+    const QString oldSystem = ui->cmbx_sysid->currentText();
+    const QString oldComponent = ui->cmbx_compid->currentText();
+    QStringList systems;
+    for (auto id : emit get_sysids()) systems.append(QString::number(id));
+    source_selection::sync_target(ui->cmbx_sysid, systems);
+    QStringList components;
+    if (ui->cmbx_sysid->currentIndex() >= 0)
+        for (auto id : emit get_compids(ui->cmbx_sysid->currentText().toUInt()))
+            components.append(mavlink_enums::component_label(id));
+    source_selection::sync_target(ui->cmbx_compid, components);
+    if (oldSystem != ui->cmbx_sysid->currentText() || oldComponent != ui->cmbx_compid->currentText()
+        || systems.isEmpty() || components.isEmpty()) {
+        clear_msg_list_container();
+        if (ui->tree_msg_browser) ui->tree_msg_browser->clear();
+        ui->txt_armed_state->clear();
+        old_heartbeat = {};
+    }
+    mavlink_enums::mavlink_component_id component;
+    if (ui->cmbx_sysid->currentIndex() >= 0 &&
+        mavlink_enums::get_compid(component, ui->cmbx_compid->currentText())) {
+        const auto system = static_cast<uint8_t>(ui->cmbx_sysid->currentText().toUInt());
+        for (const auto &name : emit get_message_names(system, component))
+            if (!names.contains(name)) addbutton(system, component, name);
+    }
+    on_btn_refresh_port_names_clicked();
+}
+
 bool MavlinkInspector::process_new_msg(uint8_t sysid_, mavlink_enums::mavlink_component_id compid_, QString msg_name)
 {
-    if (!msg_name.isEmpty())
-    {
-        mutex->lock();
-        if (ui->cmbx_sysid->count() < 1) //we just started, there is nothing in the selection
-        {
-            //simply add this as the first message
-            ui->cmbx_sysid->addItem(QString::number(sysid_)); //this will trigger a full cleanup
-            ui->cmbx_compid->addItem(enum_helpers::value2key(compid_)); //this should not clean anything extra, but just in case
-
-            addbutton(sysid_, compid_, msg_name);
-            mutex->unlock();
-
-            on_btn_refresh_port_names_clicked();
-            return true;
-        }
-        else
-        {
-            // first, we need to make sure the sysid list is updated:
-            if (ui->cmbx_sysid->findText(QString::number(sysid_), Qt::MatchExactly) == -1)
-            {
-                ui->cmbx_sysid->addItem(QString::number(sysid_)); //update list, but don't select new item
-                //don't add anything, we can skip the rest for now (we sected some other sysid)
-                mutex->unlock();
-                return false;
-            }
-
-
-            //next, we want to update list of mavlink packets, but only for current selection of sysid
-            if (ui->cmbx_sysid->currentText().toUInt() == sysid_) //sysid matches selection
-            {
-                QString mav_compoennt_qstr_ = enum_helpers::value2key(compid_);
-                if (ui->cmbx_compid->findText(mav_compoennt_qstr_,Qt::MatchExactly) == -1) //new compid
-                {
-                    ui->cmbx_compid->addItem(mav_compoennt_qstr_);//update list, but don't select new item
-                    //don't add anything, we can skip the rest for now (we sected some other compid)
-                    mutex->unlock();
-                    return false;
-                }
-
-                //check if selected this compid
-                if (ui->cmbx_compid->currentText() == mav_compoennt_qstr_)
-                {
-                    //we need to scan for the created buttons
-                    bool msg_exists = false;
-                    for (int i = 0; i < names.size(); i++)
-                    {
-                        if (names[i] == msg_name)
-                        {
-                            msg_exists = true;
-                            break;
-                        }
-                    }
-                    if (!msg_exists)
-                    {
-                        names.push_back(msg_name);
-                        addbutton(sysid_, compid_, msg_name);
-                        mutex->unlock();
-                        return true;
-                    }
-                    else emit seen_msg_processed(sysid_, compid_, msg_name);;
-                }
-            }
-            mutex->unlock();
-        }
-
-
-    }
-    return false;
+    // Availability comes from the manager snapshot, not delayed message notifications.
+    if (!(emit get_sysids()).contains(sysid_) || !(emit get_compids(sysid_)).contains(compid_)) return false;
+    if (ui->cmbx_sysid->currentText().toUInt() != sysid_ ||
+        ui->cmbx_compid->currentText() != mavlink_enums::component_label(compid_) || msg_name.isEmpty()) return false;
+    if (!names.contains(msg_name)) addbutton(sysid_, compid_, msg_name);
+    else emit seen_msg_processed(sysid_, compid_, msg_name);
+    return true;
 }
 
 void MavlinkInspector::addbutton(uint8_t sysid_, mavlink_enums::mavlink_component_id compid_, QString msg_name)
@@ -1383,28 +1386,26 @@ bool MavlinkInspector::update_msg_list_visuals(void)
             return tau_low + t * (tau_high - tau_low);
         };
 
-        // Decay time constant based on current displayed rate's period; ensures slow signals decay smoothly
-        auto decay_tau = [](double last_rate_hz) -> double {
-            if (last_rate_hz <= 1.0e-6) return 0.3; // small default when already near zero
-            const double period_s = 1.0 / last_rate_hz;
-            // decay roughly over ~0.75 periods, bounded for stability
-            double tau = 0.75 * period_s;
-            if (tau < 0.15) tau = 0.15;
-            if (tau > 1.8)  tau = 1.8;
-            return tau;
-        };
-
-        // Adaptive display with timeout + linear decay for sporadic signals
+        // Preserve live smoothing; apply proportional decay only after a stale timeout.
         const qint64 last_seen_ms = last_seen_ms_by_key.value(key, now_ms);
         const qint64 stale_ms = now_ms - last_seen_ms;
-        const qint64 timeout_ms = 2500;          // start artificial decay after 2.5s without new messages
-        const double linear_decay_hz_per_s = 1.0; // drop 1.0 Hz per second
+        // Keep the proven 2.5s tolerance for transport batching. Slow streams get
+        // three expected periods, using the last observed cadence rather than
+        // the decaying display value (which would keep extending the timeout).
+        if (have_intervals && t_last_ms != last_rate_timestamp_by_key.value(key, -1)) {
+            last_rate_timestamp_by_key[key] = t_last_ms;
+            last_measured_rate_by_key[key] = base_rate_hz;
+        }
+        const double measured_rate = last_measured_rate_by_key.value(key, 0.0);
+        const double timeout_ms = measured_rate > 0.0
+            ? std::max(2500.0, 3000.0 / measured_rate) : 2500.0;
 
         double new_rate = prev_rate;
         if (stale_ms > timeout_ms)
         {
-            // Apply linear decay after timeout regardless of base intervals
-            new_rate = prev_rate - linear_decay_hz_per_s * dt_update_s;
+            // Proportional decay clears high and low rates in comparable time.
+            // Preserve the existing live estimator; only change stopped-stream behavior.
+            new_rate = prev_rate * std::exp(-dt_update_s / 0.25);
         }
         else if (have_intervals)
         {
@@ -1529,27 +1530,30 @@ void MavlinkInspector::on_btn_clear_clicked()
     emit clear_mav_manager();
 }
 
-void MavlinkInspector::on_cmbx_sysid_currentTextChanged(const QString &arg1)
+void MavlinkInspector::on_cmbx_sysid_currentTextChanged(const QString &)
 {
     clear_compid_list();
     clear_msg_list_container();
+    refresh_sources();
 }
 
-
-void MavlinkInspector::on_cmbx_compid_currentTextChanged(const QString &arg1)
+void MavlinkInspector::on_cmbx_compid_currentTextChanged(const QString &)
 {
     clear_msg_list_container();
+    refresh_sources();
 }
 
 void MavlinkInspector::clear_sysid_list(void)
 {
     //mutex->lock();
+    const QSignalBlocker blocker(ui->cmbx_sysid);
     ui->cmbx_sysid->clear();
     //mutex->unlock();
 }
 void MavlinkInspector::clear_compid_list(void)
 {
     //mutex->lock();
+    const QSignalBlocker blocker(ui->cmbx_compid);
     ui->cmbx_compid->clear();
     //mutex->unlock();
 }
@@ -1562,6 +1566,8 @@ void MavlinkInspector::clear_msg_list_container(void)
     }
     names.clear();
     last_seen_ms_by_key.clear();
+    last_rate_timestamp_by_key.clear();
+    last_measured_rate_by_key.clear();
 
     //start fresh:    
     main_container = new QWidget();
@@ -1573,7 +1579,8 @@ void MavlinkInspector::on_btn_arm_clicked()
 {
     mutex->lock();
     mavlink_enums::mavlink_component_id comp_id;
-    if (mavlink_enums::get_compid(comp_id, ui->cmbx_compid->currentText()))
+    if (ui->cmbx_port_name->currentIndex() >= 0 && ui->cmbx_sysid->currentIndex() >= 0 &&
+        mavlink_enums::get_compid(comp_id, ui->cmbx_compid->currentText()))
     {
         emit toggle_arm_state(\
             ui->cmbx_port_name->currentText(),\
@@ -1590,7 +1597,8 @@ void MavlinkInspector::on_btn_disarm_clicked()
 {
     mutex->lock();
     mavlink_enums::mavlink_component_id comp_id;
-    if (mavlink_enums::get_compid(comp_id, ui->cmbx_compid->currentText()))
+    if (ui->cmbx_port_name->currentIndex() >= 0 && ui->cmbx_sysid->currentIndex() >= 0 &&
+        mavlink_enums::get_compid(comp_id, ui->cmbx_compid->currentText()))
     {
         emit toggle_arm_state(\
             ui->cmbx_port_name->currentText(),\
@@ -1607,21 +1615,13 @@ void MavlinkInspector::on_btn_disarm_clicked()
 
 void MavlinkInspector::on_btn_refresh_port_names_clicked()
 {
-    QVector<QString> port_names = emit get_port_names();
-    mutex->lock();
-    ui->cmbx_port_name->clear();
-    ui->scrollArea_cmds->setVisible(false);
-    ui->groupBox_vehicle_commands->setVisible(false);
-
-    if (port_names.length() > 0 && ui->cmbx_sysid->count() > 0 && ui->cmbx_compid->count() > 0)
-    {
-        ui->cmbx_port_name->addItems(port_names);
-        ui->scrollArea_cmds->setVisible(true);
-        ui->groupBox_vehicle_commands->setVisible(true);
-    }
-    mutex->unlock();
+    const auto ports = emit get_port_names();
+    source_selection::sync_target(ui->cmbx_port_name, QStringList(ports.begin(), ports.end()));
+    const bool available = ui->cmbx_port_name->currentIndex() >= 0 &&
+        ui->cmbx_sysid->currentIndex() >= 0 && ui->cmbx_compid->currentIndex() >= 0;
+    ui->scrollArea_cmds->setVisible(available);
+    ui->groupBox_vehicle_commands->setVisible(available);
 }
-
 
 void MavlinkInspector::on_checkBox_arm_bind_clicked(bool checked)
 {

@@ -184,9 +184,20 @@ public:
     Q_ENUM(mavlink_component_id)
     // static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in);
 
+    static QString component_label(mavlink_component_id id)
+    {
+        const QString name = enum_helpers::value2key(id);
+        return name.isEmpty() ? QString::number(static_cast<unsigned int>(id)) : name;
+    }
+
     static bool get_compid(mavlink_component_id &id_out, QString comp_id_string_in)
     {
-        return enum_helpers::key2value(comp_id_string_in, id_out);
+        if (enum_helpers::key2value(comp_id_string_in, id_out)) return true;
+        bool ok = false;
+        const uint value = comp_id_string_in.toUInt(&ok);
+        if (!ok || value > 255) return false;
+        id_out = static_cast<mavlink_component_id>(value);
+        return true;
     }
 };
 

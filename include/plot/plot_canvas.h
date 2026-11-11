@@ -1,5 +1,4 @@
 #pragma once
-#include "plot/plot_signal_registry.h"
 #include <QWidget>
 #include <QHash>
 #include <QVector>
@@ -10,7 +9,7 @@
 #include <QTimer>
 #include <QTimer>
 #include <QQuaternion>
-
+#include "plot/plot_signal_registry.h"
 class PlotSignalRegistry;
 
 struct Plot3DGroup {

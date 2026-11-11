@@ -48,6 +48,10 @@ class RelayDialog : public QDialog
 public:
     explicit RelayDialog(QWidget *parent, QString src_port_name, QVector<QString> available_port_names);
     ~RelayDialog();
+    void set_selected_ports(const QVector<QString> &ports);
+
+public slots:
+    void update_ports(QVector<QString> ports);
 
 signals:
     bool selected_items(QString &src_port_name, QVector<QString> &available_port_names);

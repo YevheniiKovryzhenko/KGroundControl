@@ -84,7 +84,9 @@ private:
     QUdpSocket* Port = nullptr;
     QMutex* mutex = nullptr;
 
-    mavlink_status_t lastStatus;
+    mavlink_message_t parser_message_{};
+    mavlink_status_t parser_status_{};
+    mavlink_status_t lastStatus{};
 
     // bool _read_port(QNetworkDatagram* datagram);
     // int _read_port(char* cp);

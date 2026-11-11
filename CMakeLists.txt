@@ -171,6 +171,7 @@ set(PROJECT_HEADERS
     include/logging/log_manager.h
     
     # Hardware I/O group
+    include/source_selection.h
     include/hardware_io/connection_manager.h
     include/hardware_io/generic_port.h
     include/hardware_io/joystick.h

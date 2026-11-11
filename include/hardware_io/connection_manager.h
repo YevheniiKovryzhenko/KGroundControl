@@ -37,6 +37,7 @@
 #define CONNECTION_MANAGER_H
 
 #include <QListWidget>
+#include <QPointer>
 
 #include "hardware_io/generic_port.h"
 #include "mavlink_communication/mavlink_inspector.h"
@@ -176,6 +177,7 @@ private:
     bool remove_routing(QString src_port_name_, QString target_port_name, bool clear_settings);
     void remove_routing(QString target_port_name, bool clear_settings);
 
+    QPointer<mavlink_manager> mavlink_manager_;
     QMutex* mutex;
     unsigned int n_connections = 0;
 

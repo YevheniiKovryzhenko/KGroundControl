@@ -104,6 +104,7 @@ KGroundControl::KGroundControl(QWidget *parent)
 
     settings_mutex_ = new QMutex;
     mavlink_manager_ = new mavlink_manager(this);
+    connect(mavlink_manager_, &mavlink_manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);
     connection_manager_ = new connection_manager(this);
 
     // Create the QJoysticks singleton on the MAIN thread so that:
@@ -132,11 +133,25 @@ KGroundControl::KGroundControl(QWidget *parent)
                 QVector<QString> ports = connection_manager_->get_names();
                 remote_control_manager_->onPortsUpdated(
                     QStringList(ports.begin(), ports.end()));
+                const auto systems = mavlink_manager_->get_sysids();
+                remote_control_manager_->onSysidsUpdated(systems);
+                for (auto id : systems)
+                    remote_control_manager_->onCompidsUpdated(id, mavlink_manager_->get_compids(id));
             }, Qt::QueuedConnection);
 
     // Keep the backend informed of availability changes going forward.
     connect(connection_manager_, &connection_manager::port_names_updated,
             this, [this](const QVector<QString>& ports){
+                {
+                    const QSignalBlocker blocker(ui->list_connections);
+                    for (int i = ui->list_connections->count() - 1; i >= 0; --i)
+                        if (!ports.contains(ui->list_connections->item(i)->text()))
+                            delete ui->list_connections->takeItem(i);
+                    for (const auto &port : ports)
+                        if (ui->list_connections->findItems(port, Qt::MatchExactly).isEmpty())
+                            ui->list_connections->addItem(port);
+                }
+                on_list_connections_itemSelectionChanged();
                 if (remote_control_manager_)
                     remote_control_manager_->onPortsUpdated(
                         QStringList(ports.begin(), ports.end()));
@@ -370,7 +385,7 @@ KGroundControl::KGroundControl(QWidget *parent)
     if (connection_manager_->load_saved_connections(qsettings, mavlink_manager_, port_names))
     {
         connection_manager_->load_routing(qsettings);
-        ui->list_connections->addItems(port_names);
+
     }
     
     // Auto-check for updates on startup (silent, non-intrusive)
@@ -653,7 +668,7 @@ void KGroundControl::on_btn_c2t_confirm_clicked()
         break;
     }
     }
-    ui->list_connections->addItem(new_port_name);
+
     ui->stackedWidget_main->setCurrentIndex(1);
     // emit port_added(new_port_name);
 }
@@ -743,15 +758,10 @@ void KGroundControl::on_btn_add_comm_clicked()
 
 void KGroundControl::on_btn_remove_comm_clicked()
 {
-    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
-    foreach (QListWidgetItem* item, items)
-    {
-        QString port_name_ = item->text();
-        emit switch_emit_heartbeat(port_name_, false);
-        if (emit remove_port(port_name_)) emit port_removed(port_name_);
-    }
-
-    qDeleteAll(items);
+    QStringList selected;
+    for (auto *item : ui->list_connections->selectedItems()) selected.append(item->text());
+    for (const auto &name : selected)
+        if (emit remove_port(name)) emit port_removed(name);
     on_btn_uart_update_clicked();
     update_port_status_txt();
 }
@@ -767,7 +777,7 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
 
     connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::process_new_msg, Qt::DirectConnection);
     //connect(mavlink_manager_, &mavlink_manager::updated, mavlink_inpector_, &MavlinkInspector::create_new_slot_btn_display, Qt::QueuedConnection);
-    connect(mavlink_manager_, &mavlink_manager::write_message, connection_manager_, &connection_manager::write_mavlink_msg_2port, Qt::DirectConnection);
+    connect(mavlink_manager_, &mavlink_manager::write_message, connection_manager_, &connection_manager::write_mavlink_msg_2port, Qt::ConnectionType(Qt::DirectConnection | Qt::UniqueConnection));
 
     connect(mavlink_inpector_, &MavlinkInspector::request_get_msg, mavlink_manager_, &mavlink_manager::get_msg, Qt::DirectConnection);
     connect(mavlink_inpector_, &MavlinkInspector::request_debug_arrays, mavlink_manager_, &mavlink_manager::get_debug_arrays, Qt::DirectConnection);
@@ -776,10 +786,14 @@ void KGroundControl::on_btn_mavlink_inspector_clicked()
     connect(mavlink_inpector_, &MavlinkInspector::toggle_arm_state, mavlink_manager_, &mavlink_manager::toggle_arm_state);
     //connect(mavlink_inpector_, &MavlinkInspector::get_heartbeat, mavlink_manager_, &mavlink_manager::get_heartbeat, Qt::DirectConnection);
 
-    //connect(connection_manager_, &connection_manager::port_names_updated, mavlink_inpector_, &MavlinkInspector::on_btn_refresh_port_names_clicked, Qt::QueuedConnection);
+    connect(connection_manager_, &connection_manager::port_names_updated, mavlink_inpector_, &MavlinkInspector::on_btn_refresh_port_names_clicked);
+    connect(mavlink_manager_, &mavlink_manager::sysid_list_changed, mavlink_inpector_, &MavlinkInspector::refresh_sources);
+    connect(mavlink_manager_, &mavlink_manager::compid_list_changed, mavlink_inpector_, &MavlinkInspector::refresh_sources);
+    connect(mavlink_inpector_, &MavlinkInspector::get_sysids, mavlink_manager_, &mavlink_manager::get_sysids);
+    connect(mavlink_inpector_, &MavlinkInspector::get_compids, mavlink_manager_, &mavlink_manager::get_compids);
+    connect(mavlink_inpector_, &MavlinkInspector::get_message_names, mavlink_manager_, &mavlink_manager::get_message_names);
+    mavlink_inpector_->refresh_sources();
 
-    connect(this, &KGroundControl::settings_updated, connection_manager_, &connection_manager::update_kgroundcontrol_settings, Qt::DirectConnection);
-    connect(mavlink_manager_, &mavlink_manager::get_kgroundcontrol_settings, this, &KGroundControl::get_settings);
 }
 
 
@@ -1183,18 +1197,25 @@ void KGroundControl::on_btn_mocap_clicked()
 
 void KGroundControl::on_btn_relay_clicked()
 {
-    QList<QListWidgetItem*> items = ui->list_connections->selectedItems();
-    foreach (QListWidgetItem* item, items)
+    QStringList selected;
+    for (auto *item : ui->list_connections->selectedItems()) selected.append(item->text());
+    for (const auto &source : selected)
     {
+        if (!connection_manager_->get_names().contains(source)) continue;
         QVector<QString> available_port_names;
         for (int i = 0; i < ui->list_connections->count(); i++)
         {
             QListWidgetItem* item_ = ui->list_connections->item(i);
-            if (item_->text() != item->text()) available_port_names.push_back(item_->text());
+            if (item_->text() != source) available_port_names.push_back(item_->text());
         }
         if (available_port_names.size() > 0)
         {
-            RelayDialog relay_dialog(this, item->text(), available_port_names);
+            RelayDialog relay_dialog(this, source, available_port_names);
+            QVector<QString> currentRoutes;
+            connection_manager_->get_routing(source, currentRoutes);
+            relay_dialog.set_selected_ports(currentRoutes);
+            connect(connection_manager_, &connection_manager::port_names_updated,
+                    &relay_dialog, &RelayDialog::update_ports);
             connect(&relay_dialog, &RelayDialog::selected_items, connection_manager_, &connection_manager::update_routing, Qt::SingleShotConnection);
             relay_dialog.exec();
         }

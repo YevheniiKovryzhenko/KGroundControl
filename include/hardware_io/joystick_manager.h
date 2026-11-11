@@ -301,6 +301,7 @@ private:
         bool isCommand;
         int index; // Index in either relay or command list
         QString name;
+        QString uid;
     };
     int selected_output_index = -1;
     QVector<OutputEntry> m_outputList;

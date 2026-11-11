@@ -102,6 +102,7 @@ void UDP_Port::read_port(void)
 // ------------------------------------------------------------------------------
 bool UDP_Port::read_message(void* message, int mavlink_channel_)
 {
+    Q_UNUSED(mavlink_channel_);
     bool msgReceived = false;
     mavlink_status_t status{};
 
@@ -115,7 +116,7 @@ bool UDP_Port::read_message(void* message, int mavlink_channel_)
         for (i = 0; i < bytearray.size(); i++)
         {
             // the parsing
-            msgReceived = static_cast<bool>(mavlink_parse_char(static_cast<mavlink_channel_t>(mavlink_channel_), bytearray[i], static_cast<mavlink_message_t*>(message), &status));
+            msgReceived = static_cast<bool>(mavlink_frame_char_buffer(&parser_message_, &parser_status_, bytearray[i], static_cast<mavlink_message_t*>(message), &status) == MAVLINK_FRAMING_OK);
             if (msgReceived) break;
         }
         if (msgReceived) bytearray.remove(0, i + 1);

@@ -290,6 +290,7 @@ private slots:
     void on_btn_relay_go_back_clicked();
 
     void refresh_relay(void);
+    void update_relay_controls();
 
     void repopulate_relay_table(void);
 

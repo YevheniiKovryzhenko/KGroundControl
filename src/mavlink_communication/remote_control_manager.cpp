@@ -549,7 +549,7 @@ namespace remote_control {
         JoystickRelaySettings s = th->currentSettings();
         bool portOk = !s.Port_Name.isEmpty() && m_availPorts.contains(s.Port_Name);
         bool sysOk  = m_availSysids.contains(s.sysid);
-        bool compOk = !m_availCompids.value(s.sysid).isEmpty();
+        bool compOk = m_availCompids.value(s.sysid).contains(s.compid);
         return portOk && sysOk && compOk;
     }
 
@@ -651,6 +651,10 @@ namespace remote_control {
     void manager::onSysidsUpdated(const QVector<uint8_t>& sysids)
     {
         m_availSysids = sysids;
+        for (auto it = m_availCompids.begin(); it != m_availCompids.end(); ) {
+            if (!sysids.contains(it.key())) it = m_availCompids.erase(it);
+            else ++it;
+        }
         for (int i = 0; i < m_relayThreads.size(); ++i)
             applyConnectability(i);
 
@@ -1016,7 +1020,7 @@ namespace remote_control {
         const auto& s = m_commandSettings[idx];
         bool portOk = !s.Port_Name.isEmpty() && m_availPorts.contains(s.Port_Name);
         bool sysOk  = m_availSysids.contains(s.sysid);
-        bool compOk = !m_availCompids.value(s.sysid).isEmpty();
+        bool compOk = m_availCompids.value(s.sysid).contains(s.compid);
         return portOk && sysOk && compOk;
     }
 
